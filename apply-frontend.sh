@@ -1,18 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
-# =============================================================================
-# 应用前端移动端适配到 dsh 的 index.html
-# -----------------------------------------------------------------------------
-# 注入内容：
-#   1. viewport meta 加 viewport-fit=cover, interactive-widget=resizes-content
-#   2. <style id="dsh-mobile-adapt">（来自 patches/mobile.css）
-#   3. 移动端 JS（来自 patches/mobile.js）：AbortSignal.any polyfill、
-#      tooltip 气泡重吸附、触摸松手销毁、抽屉点击遮罩关闭、
-#      子代理下拉/上下文用量面板的 fixed 视口内重定位
-#   4. manifest display: fullscreen → standalone（PWA 键盘跟随必需）：
-#      fullscreen 沉浸模式下键盘弹出不收缩视口、无几何信号，composer 被盖住；
-#      standalone 恢复系统栏与正常键盘行为，输入框随键盘上移（实测验证）。
-# 幂等：已注入且内容一致则跳过；patches 内容变化时原地刷新，无需先删旧标签。
-# =============================================================================
+# 向 dsh 前端 index.html 注入移动端适配：viewport、<style id="dsh-mobile-adapt">（mobile.css）、
+# 移动端 JS（mobile.js：AbortSignal.any polyfill 等），并把 manifest display 改为 standalone
+# （PWA 键盘跟随必需）。幂等：已注入且内容一致则跳过；内容变化时原地刷新。
 set -euo pipefail
 
 HTML="${1:-/data/data/com.termux/files/usr/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-web-frontend/dist/index.html}"
@@ -62,31 +51,35 @@ elif '<title>DeepSeek Harness</title>' in s:
 else:
     print('  [skip] 未找到 <title> 注入点')
 
-# 3) 移动端 JS：已存在（含 polyfill 标记）则原地刷新内容，否则在 module 脚本前注入
+# 3) 移动端 JS：已存在（polyfill 标记）则原地刷新内容，否则在 module 脚本前注入
 MARKER = 'AbortSignal.any polyfill'
 script = '<script>\n' + js + '\n    </script>'
-if MARKER in s:
-    target = None
-    for m in re.finditer(r'<script>[\s\S]*?</script>', s):
-        if MARKER in m.group(0):
-            target = m
-            break
-    if target is not None:
-        if target.group(0) != script:
-            s = s[:target.start()] + script + s[target.end():]
-            changed.append('mobile JS (updated)')
-        else:
-            print('  [skip] mobile JS 已是最新')
+m = re.search(r'<script>[\s\S]*?</script>', s) if MARKER in s else None
+if m and MARKER in m.group(0):
+    if m.group(0) != script:
+        s = s[:m.start()] + script + s[m.end():]
+        changed.append('mobile JS (updated)')
     else:
-        print('  [skip] 找到标记但未找到 <script> 块，跳过')
+        print('  [skip] mobile JS 已是最新')
 elif '<script type="module"' in s:
     s = s.replace('<script type="module"', script + '\n    <script type="module"', 1)
     changed.append('mobile JS')
 else:
     print('  [skip] 未找到 <script type="module"> 注入点')
 
-open(html, 'w', encoding='utf-8').write(s)
+# 防破坏：写入前备份原始 index.html，写入后校验结构完整（title + 闭合 </html>），
+# 一旦被破坏立即回滚，绝不把一个损坏的前端留给用户。
+import shutil, os, sys
+bak = html + '.dsh-android.bak'
 if changed:
+    shutil.copy2(html, bak)
+    open(html, 'w', encoding='utf-8').write(s)
+    # 校验：注入后仍应保留 title 与闭合 </html>，否则回滚
+    check = open(html, encoding='utf-8').read()
+    if '<title>' not in check or '</html>' not in check:
+        shutil.copy2(bak, html)
+        print('  [rollback] 校验失败：注入损坏 index.html，已回滚备份', file=sys.stderr)
+        sys.exit(3)
     print('  已注入: ' + ', '.join(changed))
 else:
     print('  无改动（可能已全部应用）')

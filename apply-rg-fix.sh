@@ -1,29 +1,11 @@
-#!/usr/bin/env bash
-# ============================================================================
-# dsh-rg-fix / scripts/reapply.sh
-#
-# Re-apply the DSH grep/glob ripgrep fix on Termux/Android.
-#   Symptom : "grep/glob could not start its search command (ripgrep launch
-#              failed)"
-#   Root cause: @vscode/ripgrep ships prebuilt binaries only for darwin/win32/
-#     linux; on Termux process.platform == 'android' the platform package
-#     @vscode/ripgrep-android-arm64 is never installed, and the search tools
-#     (`@deepseek-ai/dsh-tool-fs-search`) are hardwired to it, so they fail
-#     even though a system `rg` exists.
-#   Fix:  (1) symlink the missing platform binary to the system `rg`;
-#         (2) patch resolveRgPath() in dsh-tool-fs-search to fall back to a
-#             system `rg` (RG_PATH env -> `which rg` -> PATH).
-#
-# Idempotent: safe to run repeatedly; skips the patch when already applied.
-#
-# NOTE: every `npm/yarn/pnpm update dsh` wipes node_modules, re-running this
-#       script after each update is REQUIRED, then restart the dsh web server
-#       (the running process keeps the old module + a memoized failed promise).
-#
-# Usage:
-#   bash scripts/reapply.sh
-#   DSH_ROOT=... bash scripts/reapply.sh   # override the default DSH install dir
-# ============================================================================
+#!/data/data/com.termux/files/usr/bin/bash
+# 修复 DSH grep/glob 报 "ripgrep launch failed"（Termux/Android）：
+#   根因：@vscode/ripgrep 仅对 darwin/win32/linux 预编译，Termux(android) 平台包缺失，
+#     dsh-tool-fs-search 硬编到它导致失败，尽管系统已有 `rg`。
+#   修复：(1) 把缺失平台包软链到系统 `rg`；(2) 给 resolveRgPath() 加系统 `rg` 回退
+#         （RG_PATH env -> `which rg` -> PATH）。
+#   幂等；每次 npm/yarn/pnpm 更新 dsh 会清空 node_modules，更新后必须重跑本脚本。
+# 用法：bash apply-rg-fix.sh ；DSH_ROOT=... bash apply-rg-fix.sh 覆盖默认安装目录
 set -euo pipefail
 
 DSH_ROOT="${DSH_ROOT:-/data/data/com.termux/files/usr/lib/node_modules/@deepseek-ai/dsh}"
@@ -52,7 +34,6 @@ echo "==> system rg: $RG ($("$RG" --version | head -1))"
 echo "==> step 1/3: symlink packaged platform rg -> system rg"
 mkdir -p "$PLATFORM_BIN"
 ln -sf "$RG" "$PLATFORM_BIN/rg"
-ls -la "$PLATFORM_BIN"
 
 # ---- 2. patch resolveRgPath() fallback (idempotent) ----
 echo "==> step 2/3: patch resolveRgPath() fallback"
@@ -77,6 +58,18 @@ const CURRENT_ORIG = [
   'function resolveRgPath() {',
   '\trgPathPromise ??= Promise.resolve().then(async () => {',
   '\t\tconst executableSidecar = `${process.execPath}-rg`;',
+  '\t\tif ("pkg" in process && existsSync(executableSidecar)) return executableSidecar;',
+  '\t\treturn (await import("@vscode/ripgrep")).rgPath;',
+  '\t});',
+  '\treturn rgPathPromise;',
+  '}',
+].join('\n');
+
+const NEW_ORIG = [
+  'function resolveRgPath() {',
+  '\trgPathPromise ??= Promise.resolve().then(async () => {',
+  '\t\tconst executable = parse(process.execPath);',
+  '\t\tconst executableSidecar = process.platform === "win32" ? join(executable.dir, `${executable.name}-rg.exe`) : `${process.execPath}-rg`;',
   '\t\tif ("pkg" in process && existsSync(executableSidecar)) return executableSidecar;',
   '\t\treturn (await import("@vscode/ripgrep")).rgPath;',
   '\t});',
@@ -146,12 +139,50 @@ const PATCHED_CURRENT = [
   '}',
 ].join('\n');
 
+const PATCHED_NEW = [
+  '/**',
+  ' * Locate a usable system `rg` binary as a fallback.',
+  ' *',
+  ' * `@vscode/ripgrep` only publishes prebuilt binaries for darwin/win32/linux;',
+  ' * on other platforms (Termux/Android, ...) its platform package is absent and',
+  ' * `import("@vscode/ripgrep")` rejects. When that happens the search tools fall',
+  ' * back to an `rg` found on `PATH` (or an explicit `RG_PATH`), keeping `grep` /',
+  ' * `glob` functional wherever ripgrep is installed system-wide.',
+  ' */',
+  'async function resolveSystemRg() {',
+  '\tif (process.env.RG_PATH) return process.env.RG_PATH;',
+  '\ttry {',
+  '\t\tconst { execFileSync } = await import("node:child_process");',
+  '\t\tconst which = process.platform === "win32" ? "where" : "which";',
+  '\t\tconst found = execFileSync(which, ["rg"], { encoding: "utf8" }).split(/\\r?\\n/)[0]?.trim();',
+  '\t\tif (found) return found;',
+  '\t} catch { /* no `which`/`where`; fall through to bare "rg" via PATH */ }',
+  '\treturn "rg";',
+  '}',
+  'function resolveRgPath() {',
+  '\trgPathPromise ??= Promise.resolve().then(async () => {',
+  '\t\tconst executable = parse(process.execPath);',
+  '\t\tconst executableSidecar = process.platform === "win32" ? join(executable.dir, `${executable.name}-rg.exe`) : `${process.execPath}-rg`;',
+  '\t\tif ("pkg" in process && existsSync(executableSidecar)) return executableSidecar;',
+  '\t\ttry {',
+  '\t\t\treturn (await import("@vscode/ripgrep")).rgPath;',
+  '\t\t} catch {',
+  '\t\t\treturn resolveSystemRg();',
+  '\t\t}',
+  '\t});',
+  '\treturn rgPathPromise;',
+  '}',
+].join('\n');
+
 let originalFound = false;
 if (src.includes(ORIG)) {
   src = src.replace(ORIG, PATCHED_OLD);
   originalFound = true;
 } else if (src.includes(CURRENT_ORIG)) {
   src = src.replace(CURRENT_ORIG, PATCHED_CURRENT);
+  originalFound = true;
+} else if (src.includes(NEW_ORIG)) {
+  src = src.replace(NEW_ORIG, PATCHED_NEW);
   originalFound = true;
 }
 
@@ -166,13 +197,17 @@ JS
 
 # ---- 3. verify in a fresh node process ----
 echo "==> step 3/3: verify resolution in a fresh node process"
-(
+if ! (
   cd "$(dirname "$SEARCH_LIB")"
   node -e "import('./index.js').then(async m=>{const p=await m.resolveRgPath();const {execFileSync}=await import('node:child_process');console.log('    resolved: '+p);console.log('    version:  '+execFileSync(p,['--version']).toString().split(String.fromCharCode(10))[0]);})"
-)
+) 2>&1; then
+  echo
+  echo "ERROR: resolveRgPath() 校验失败。grep/glob 工具在 dsh 里将不可用（ripgrep launch failed）。" >&2
+  echo "   可能原因：resolveRgPath() 补丁未命中 dsh-tool-fs-search，或系统 rg 无法执行。" >&2
+  echo "   请人工核对 $SEARCH_LIB 的 resolveRgPath()，并确认 $(echo "$RG") --version 可用。" >&2
+  echo "   修复前请勿启动 dsh web（否则 grep/glob 会报错）。" >&2
+  exit 1
+fi
 
 echo
-echo "==> DONE. Restart the dsh web server to activate (session data persists in ~/.dsh/sessions):"
-echo "    # find it:  ps -eo pid,args | grep 'bin.js web'"
-echo "    kill <pid>"
-echo "    node --expose-internals $DSH_ROOT/lib/bin.js web"
+echo "==> DONE. 重启 dsh web 后生效：bash ~/dsh/restart_dsh_now.sh"
