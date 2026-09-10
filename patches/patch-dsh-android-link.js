@@ -10,14 +10,21 @@
  * 任何 link() 都返回 EACCES（rename() 正常）。dsh 三处用 link() 做“原子发布 / no-replace”
  * 的路径都会因此失败：
  *
- *   1. dsh-session-persistence-jsonl/lib/index.js —— 会话日志发布（旧版 dsh，rc.6 已改为 rename）
- *   2. dsh-attachment-local/lib/index.js           —— 附件内容寻址去重（rc.6 已改为 rename）
- *   3. dsh-fs-local/lib/index.js                   —— write 工具“新建文件”（createIfAbsent 分支，rc.6 仍未修）
+ *   1. dsh-session-persistence-jsonl/lib/index.js —— 会话日志发布 + 历史会话迁移发布
+ *   2. dsh-attachment-local/lib/index.js           —— 附件内容寻址发布与别名发布
+ *   3. dsh-fs-local/lib/index.js                   —— write 工具“新建文件”（createIfAbsent 分支）
  *
- * 本脚本对三处做版本兼容、幂等的就地修补：
- *   - 1、2：link(...) -> rename(...)（与 rc.6 的上游修复一致），并同步修正 node:fs/promises 的导入；
- *   - 3：link 失败（EACCES/EPERM/EMLINK/ENOSYS/ENOTSUP）时回退到“无硬链接的 no-replace 发布”
- *        （O_EXCL 原子占位 + 同目录 rename 原子填充），保留“不覆盖已存在文件”的语义。
+ * 修补策略（版本兼容、幂等）：
+ *   - 会话日志的【直接发布】link(tmp, finalPath) -> rename(tmp, finalPath)（与上游 rc.6+ 修复一致）；
+ *   - 所有“no-replace”语义的 link 发布（会话迁移 publishCurrentExclusive、附件发布/别名）
+ *     在 link 因 EACCES/EPERM/EMLINK/ENOSYS/ENOTSUP 失败时，回退到
+ *     “O_CREAT|O_EXCL 原子占位 + 同目录 rename 原子填充”的无硬链接发布，
+ *     保留“不覆盖已存在文件”的语义；
+ *   - 附件祖先遍历容忍 EACCES/EPERM/ENOSYS。
+ *
+ * 关键：ensureFsImport 只“追加”node:fs/promises 的导入名，绝不删除 link ——
+ * 因为部分 dsh 版本（如 0.1.5-rc.1）在 defaultFileSystem / publishCurrentExclusive
+ * 中仍引用 link，删除导入会导致模块加载即抛 “link is not defined”。
  *
  * 用法：
  *   node patch-dsh-android-link.js [--root <@deepseek-ai 包目录>]
@@ -34,21 +41,156 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { execSync } = require("node:child_process");
 
-/** 确保 node:fs/promises 的导入里有 rename 且去掉不再使用的 link（仅作用于该导入行）。 */
-function ensureFsPromisesRename(src) {
+/** 把名字追加进 node:fs/promises 的导入（已存在则跳过；只增不删，避免制造未定义引用）。 */
+function ensureFsImport(src, addNames) {
 	return src.replace(/^(import \{)([^}]*)(\} from "node:fs\/promises";)$/m, (whole, pre, body, post) => {
 		const names = body.split(",").map((s) => s.trim()).filter(Boolean);
-		const idx = names.indexOf("link");
-		if (idx !== -1) names.splice(idx, 1);
-		if (!names.includes("rename")) {
-			if (idx !== -1) names.splice(idx, 0, "rename");
-			else names.unshift("rename");
-		}
+		for (const name of addNames) if (!names.includes(name)) names.push(name);
 		return pre + names.join(", ") + post;
 	});
 }
 
-/** 无硬链接的 no-replace 发布：O_CREAT|O_EXCL 原子占位（EEXIST=并发创建者已抢先），再同目录 rename 原子填充。 */
+/**
+ * 无硬链接的 no-replace 发布回退：O_CREAT|O_EXCL 原子占位（目标已存在时返回 false），
+ * 再用同目录 rename 原子填充。占位与填充之间崩溃会留下空占位文件，已在错误路径尽力清理。
+ * 依赖调用方文件里可用的 open / rename / rm。
+ * @returns true 表示已发布（tempPath 已被消费）；false 表示目标已存在（tempPath 仍在）。
+ */
+const HARD_LINK_HELPERS = [
+	"/** [dsh-android-link-fix] link(2) 被拒绝或不支持的错误码：Android SELinux 全局禁硬链接（EACCES），部分 FUSE 挂载未实现（ENOSYS/ENOTSUP）。 */",
+	"function isHardLinkUnavailable(error) {",
+	"\treturn error instanceof Error && typeof error.code === \"string\" && (error.code === \"EACCES\" || error.code === \"EPERM\" || error.code === \"EMLINK\" || error.code === \"ENOSYS\" || error.code === \"ENOTSUP\" || error.code === \"EOPNOTSUPP\");",
+	"}",
+	"/**",
+	" * [dsh-android-link-fix] 无硬链接的 no-replace 发布回退：先用 O_CREAT|O_EXCL 原子占位（EEXIST 表示目标已存在），",
+	" * 再用同目录 rename 原子填充。占位与填充之间崩溃会留下空占位文件，已在错误路径尽力清理。",
+	" * @returns true 表示已发布（tempPath 已被消费）；false 表示目标已存在（tempPath 仍在）。",
+	" */",
+	"async function publishNoReplaceNoHardlink(tempPath, absolutePath) {",
+	"\tlet guard;",
+	"\ttry {",
+	"\t\tguard = await open(absolutePath, \"wx\", 384);",
+	"\t} catch (error) {",
+	"\t\tif (error instanceof Error && \"code\" in error && error.code === \"EEXIST\") return false;",
+	"\t\tthrow error;",
+	"\t}",
+	"\ttry {",
+	"\t\tawait guard.close();",
+	"\t\tawait rename(tempPath, absolutePath);",
+	"\t} catch (error) {",
+	"\t\tawait rm(absolutePath, { force: true }).catch(() => {});",
+	"\t\tthrow error;",
+	"\t}",
+	"\treturn true;",
+	"}",
+].join("\n");
+
+/** dsh-session-persistence-jsonl：历史会话迁移的 no-replace 发布块。 */
+const SESSION_OLD_EXCLUSIVE = [
+	"\ttry {",
+	"\t\tawait internals.fs.link(staged, currentPath);",
+	"\t} catch (error) {",
+	"\t\t/* v8 ignore else -- a non-collision filesystem error propagates unchanged. */",
+	"\t\tif (isEEXIST(error)) return false;",
+	"\t\t/* v8 ignore next -- the filesystem error is already complete. */",
+	"\t\tthrow error;",
+	"\t}",
+].join("\n");
+
+const SESSION_NEW_EXCLUSIVE = [
+	"\ttry {",
+	"\t\tawait internals.fs.link(staged, currentPath);",
+	"\t} catch (error) {",
+	"\t\tif (isEEXIST(error)) return false;",
+	"\t\t/* [dsh-android-link-fix] Android SELinux 等禁硬链接时回退到无硬链接的 no-replace 发布。 */",
+	"\t\tif (!isHardLinkUnavailable(error)) throw error;",
+	"\t\tif (!(await publishNoReplaceNoHardlink(staged, currentPath))) return false;",
+	"\t}",
+].join("\n");
+
+/** dsh-attachment-local：staged 对象发布（发布后 staged 应消失）。 */
+const ATT_STAGED_OLD = [
+	"\t\ttry {",
+	"\t\t\tawait link(staged.path, target);",
+	"\t\t} catch (error) {",
+	"\t\t\t/* v8 ignore next -- Private same-filesystem directories make EEXIST the only recoverable link race. */",
+	"\t\t\tif (!(error instanceof Error && \"code\" in error && error.code === \"EEXIST\")) throw error;",
+	"\t\t\tif (await digestFile(target) !== staged.sha256) throw new AttachmentError(\"Stored attachment failed integrity verification.\", \"ATTACHMENT_CORRUPT\");",
+	"\t\t}",
+	"\t\tawait unlink(staged.path);",
+].join("\n");
+
+const ATT_STAGED_NEW = [
+	"\t\ttry {",
+	"\t\t\tawait link(staged.path, target);",
+	"\t\t} catch (error) {",
+	"\t\t\tif (error instanceof Error && \"code\" in error && error.code === \"EEXIST\") {",
+	"\t\t\t\tif (await digestFile(target) !== staged.sha256) throw new AttachmentError(\"Stored attachment failed integrity verification.\", \"ATTACHMENT_CORRUPT\");",
+	"\t\t\t} else if (isHardLinkUnavailable(error)) {",
+	"\t\t\t\t/* [dsh-android-link-fix] 禁硬链接时回退到无硬链接 no-replace 发布（staged 被 rename 消费）。 */",
+	"\t\t\t\tif (!(await publishNoReplaceNoHardlink(staged.path, target)) && await digestFile(target) !== staged.sha256) throw new AttachmentError(\"Stored attachment failed integrity verification.\", \"ATTACHMENT_CORRUPT\");",
+	"\t\t\t} else {",
+	"\t\t\t\t/* v8 ignore next -- a non-collision filesystem error propagates unchanged. */",
+	"\t\t\t\tthrow error;",
+	"\t\t\t}",
+	"\t\t}",
+	"\t\tawait unlink(staged.path).catch((cleanupError) => {",
+	"\t\t\t/* [dsh-android-link-fix] rename 回退发布后 staged 已被移走，ENOENT 属正常。 */",
+	"\t\t\tif (!(cleanupError instanceof Error && \"code\" in cleanupError && cleanupError.code === \"ENOENT\")) throw cleanupError;",
+	"\t\t});",
+].join("\n");
+
+/** dsh-attachment-local：别名发布（源对象必须保留）。 */
+const ATT_ALIAS_OLD = [
+	"\t\ttry {",
+	"\t\t\tawait link(source, target);",
+	"\t\t} catch (error) {",
+	"\t\t\t/* v8 ignore next -- Private same-filesystem directories make EEXIST the only recoverable link race. */",
+	"\t\t\tif (!(error instanceof Error && \"code\" in error && error.code === \"EEXIST\")) throw error;",
+	"\t\t\tif (await digestFile(target) !== sha256) throw new AttachmentError(\"Stored attachment failed integrity verification.\", \"ATTACHMENT_CORRUPT\");",
+	"\t\t}",
+].join("\n");
+
+const ATT_ALIAS_NEW = [
+	"\t\ttry {",
+	"\t\t\tawait link(source, target);",
+	"\t\t} catch (error) {",
+	"\t\t\tif (error instanceof Error && \"code\" in error && error.code === \"EEXIST\") {",
+	"\t\t\t\tif (await digestFile(target) !== sha256) throw new AttachmentError(\"Stored attachment failed integrity verification.\", \"ATTACHMENT_CORRUPT\");",
+	"\t\t\t} else if (isHardLinkUnavailable(error)) {",
+	"\t\t\t\t/* [dsh-android-link-fix] 禁硬链接时：复制源对象到同目录临时文件，再 O_EXCL 占位 + rename 原子发布别名（保留源对象）。 */",
+	"\t\t\t\tconst temporary = join(parent, `.dsh-alias-${randomUUID()}.tmp`);",
+	"\t\t\t\ttry {",
+	"\t\t\t\t\tawait copyFile(source, temporary);",
+	"\t\t\t\t\tif (!(await publishNoReplaceNoHardlink(temporary, target)) && await digestFile(target) !== sha256) throw new AttachmentError(\"Stored attachment failed integrity verification.\", \"ATTACHMENT_CORRUPT\");",
+	"\t\t\t\t} finally {",
+	"\t\t\t\t\tawait rm(temporary, { force: true }).catch(() => {});",
+	"\t\t\t\t}",
+	"\t\t\t} else {",
+	"\t\t\t\t/* v8 ignore next -- a non-collision filesystem error propagates unchanged. */",
+	"\t\t\t\tthrow error;",
+	"\t\t\t}",
+	"\t\t}",
+].join("\n");
+
+/** 附件祖先遍历：容忍内核拒绝打开的祖先目录（Android SELinux 禁止 app open 应用前缀之上的系统目录）。 */
+const WALK_HELPERS = [
+	"/**",
+	" * [dsh-android-link-fix] 同 syncDirectory，但容忍内核拒绝打开的祖先目录：Android SELinux 对 app 禁止 open 应用前缀之上的系统目录（EACCES）。",
+	" * 拿不到句柄就没有可同步的东西，跳过无害；应用自身的目录仍会照常 fsync。",
+	" */",
+	"async function syncDirectoryTolerant(path) {",
+	"\tif (process.platform === \"win32\") return;",
+	"\ttry {",
+	"\t\tawait syncDirectory(path);",
+	"\t} catch (error) {",
+	"\t\tif (error && (error.code === \"EACCES\" || error.code === \"EPERM\" || error.code === \"ENOSYS\")) return;",
+	"\t\tthrow error;",
+	"\t}",
+	"}",
+].join("\n");
+
+/** 无硬链接 no-replace 回退：O_CREAT|O_EXCL 原子占位（EEXIST=并发创建者已抢先），再同目录 rename 原子填充。 */
 const FALLBACK_HELPERS = [
 	"/** [dsh-android-link-fix] link(2) 被拒绝或不支持的错误码：Android SELinux 全局禁硬链接（EACCES），部分 FUSE 挂载未实现（ENOSYS/ENOTSUP）。 */",
 	"function isHardLinkUnavailable(error) {",
@@ -95,33 +237,36 @@ const FALLBACK_BLOCK_OLD = [
 	"\t\t}",
 ].join("\n");
 
-/** 附件祖先遍历：容忍内核拒绝打开的祖先目录（Android SELinux 禁止 app open 应用前缀之上的系统目录）。 */
-const WALK_HELPERS = [
-	"/**",
-	" * [dsh-android-link-fix] 同 syncDirectory，但容忍内核拒绝打开的祖先目录：Android SELinux 对 app 禁止 open 应用前缀之上的系统目录（EACCES）。",
-	" * 拿不到句柄就没有可同步的东西，跳过无害；应用自身的目录仍会照常 fsync。",
-	" */",
-	"async function syncDirectoryTolerant(path) {",
-	"\tif (process.platform === \"win32\") return;",
-	"\ttry {",
-	"\t\tawait syncDirectory(path);",
-	"\t} catch (error) {",
-	"\t\tif (error && (error.code === \"EACCES\" || error.code === \"EPERM\" || error.code === \"ENOSYS\")) return;",
-	"\t\tthrow error;",
-	"\t}",
-	"}",
-].join("\n");
-
 const PACKAGES = [
 	{
 		name: "dsh-session-persistence-jsonl",
 		file: "lib/index.js",
 		fix(src) {
-			const oldCall = "\t\t\tawait link(tmp, finalPath);";
-			if (!src.includes(oldCall)) return { status: "already-fixed", detail: "会话发布已用 rename（rc.6 及以上无需处理）" };
-			let out = src.replace(oldCall, "\t\t\tawait rename(tmp, finalPath);");
-			out = ensureFsPromisesRename(out);
-			return { status: "patched", detail: "会话日志发布 link(tmp, finalPath) -> rename(tmp, finalPath)", src: out };
+			let out = src;
+			const details = [];
+			const directLink = /await link\(tmp,\s*finalPath\)/.test(out);
+			const hasExclusiveFallback = out.includes("publishNoReplaceNoHardlink(staged, currentPath)");
+			if (!directLink && hasExclusiveFallback) {
+				return { status: "already-fixed", detail: "会话发布已用 rename + 无硬链接回退" };
+			}
+			if (directLink) {
+				out = out.replace(/await link\(tmp,\s*finalPath\);/, "await rename(tmp, finalPath);");
+				details.push("会话日志发布 link(tmp, finalPath) -> rename(tmp, finalPath)");
+			} else if (!out.includes("await rename(tmp, finalPath)")) {
+				return { status: "pattern-mismatch", detail: "未找到会话发布调用（link/rename(tmp, finalPath)），跳过，请人工检查" };
+			}
+			if (!hasExclusiveFallback) {
+				if (!out.includes(SESSION_OLD_EXCLUSIVE)) {
+					return { status: "pattern-mismatch", detail: "未找到 publishCurrentExclusive 的 link 发布块，跳过，请人工检查" };
+				}
+				out = out.replace(SESSION_OLD_EXCLUSIVE, SESSION_NEW_EXCLUSIVE);
+				const anchor = "async function publishCurrentExclusive(";
+				if (!out.includes(anchor)) return { status: "pattern-mismatch", detail: "未找到 publishCurrentExclusive 锚点，跳过，请人工检查" };
+				out = out.replace(anchor, HARD_LINK_HELPERS + "\n\n" + anchor);
+				details.push("publishCurrentExclusive 接入无硬链接 no-replace 回退");
+			}
+			out = ensureFsImport(out, ["rename"]);
+			return { status: "patched", detail: details.join("；") || "已刷新", src: out };
 		},
 	},
 	{
@@ -129,36 +274,28 @@ const PACKAGES = [
 		file: "lib/index.js",
 		fix(src) {
 			let out = src;
-			let changed = false;
 			const details = [];
-			const oldCall = "\t\t\tawait link(temporary, target);";
-			if (out.includes(oldCall)) {
-				out = out.replace(oldCall, "\t\t\tawait rename(temporary, target);");
-				out = ensureFsPromisesRename(out);
-				details.push("附件去重发布 link -> rename");
-				changed = true;
+			if (out.includes("publishNoReplaceNoHardlink") && out.includes("isHardLinkUnavailable")) {
+				return { status: "already-fixed", detail: "附件发布已接入无硬链接回退" };
 			}
+			// 旧版上游已把 staged 发布改成 rename（无硬链接回退）：保持原样。
+			if (out.includes("rename(temporary, target)") && !out.includes("await link(staged.path, target)")) {
+				return { status: "already-fixed", detail: "附件发布已用 rename（上游原生修复）" };
+			}
+			if (!out.includes(ATT_STAGED_OLD)) return { status: "pattern-mismatch", detail: "未找到 publishStagedObject 的 link 发布块，跳过，请人工检查" };
+			if (!out.includes(ATT_ALIAS_OLD)) return { status: "pattern-mismatch", detail: "未找到 publishImmutableAlias 的 link 发布块，跳过，请人工检查" };
+			out = out.replace(ATT_STAGED_OLD, ATT_STAGED_NEW).replace(ATT_ALIAS_OLD, ATT_ALIAS_NEW);
+			out = ensureFsImport(out, ["copyFile"]);
+			const anchor = "async function publishImmutableAlias(";
+			if (!out.includes(anchor)) return { status: "pattern-mismatch", detail: "未找到 publishImmutableAlias 锚点，跳过，请人工检查" };
+			out = out.replace(anchor, HARD_LINK_HELPERS + "\n\n" + anchor);
+			details.push("附件发布/别名发布接入无硬链接回退");
 			const oldWalk = "\t\tawait syncDirectory(parent);";
 			if (out.includes(oldWalk) && !out.includes("syncDirectoryTolerant")) {
-				const anchor = "async function ensureDurableDirectory(";
-				if (!out.includes(anchor)) return { status: "pattern-mismatch", detail: "未找到 ensureDurableDirectory 锚点，跳过，请人工检查该文件" };
 				out = out.replace(oldWalk, "\t\tawait syncDirectoryTolerant(parent);");
-				out = out.replace(anchor, WALK_HELPERS + "\n\n" + anchor);
+				out = out.replace("async function ensureDurableDirectory(", WALK_HELPERS + "\n\n" + "async function ensureDurableDirectory(");
 				details.push("祖先遍历容忍 EACCES/EPERM/ENOSYS");
-				changed = true;
 			}
-			const oldUnlink = "\t\tawait unlink(temporary);";
-			if (out.includes(oldUnlink)) {
-				out = out.replace(oldUnlink, [
-					"\t\tawait unlink(temporary).catch((cleanupError) => {",
-					"\t\t\t/* [dsh-android-link-fix] rename 发布后临时文件已被移走，ENOENT 属正常，忽略。 */",
-					"\t\t\tif (!(cleanupError instanceof Error && \"code\" in cleanupError && cleanupError.code === \"ENOENT\")) throw cleanupError;",
-					"\t\t});",
-				].join("\n"));
-				details.push("发布后临时文件清理容忍 ENOENT");
-				changed = true;
-			}
-			if (!changed) return { status: "already-fixed", detail: "附件发布已用 rename 且祖先遍历已容忍（无需处理）" };
 			return { status: "patched", detail: details.join("；"), src: out };
 		},
 	},

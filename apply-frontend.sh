@@ -78,11 +78,15 @@ if changed:
     check = open(html, encoding='utf-8').read()
     if '<title>' not in check or '</html>' not in check:
         shutil.copy2(bak, html)
+        os.remove(bak)   # 回滚成功：备份使命完成，删除避免在安装树里累积
         print('  [rollback] 校验失败：注入损坏 index.html，已回滚备份', file=sys.stderr)
         sys.exit(3)
     print('  已注入: ' + ', '.join(changed))
 else:
     print('  无改动（可能已全部应用）')
+# 最终状态已确认可用：清理残留备份（幂等重跑时也会清掉上次留下的旧备份）
+if os.path.exists(bak):
+    os.remove(bak)
 PY
 
 # 4) manifest: display fullscreen → standalone（PWA 键盘跟随必需，幂等）

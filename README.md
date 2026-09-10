@@ -5,7 +5,7 @@
 > 点击下方语言标题切换 · Click a language below to view its README.
 
 > [!IMPORTANT]
-> **当前最高支持 deepseek-harness rc.7**，向下兼容 rc.6 及更早版本。
+> **当前已在 deepseek-harness `0.1.5-rc.1` 上验证**，向下兼容 rc.6 / rc.7 及更早版本。
 
 ---
 
@@ -52,7 +52,8 @@ bash ~/dsh/stop_dsh.sh    # 停止
 | node-pty 无法编译 | `Undefined variable android_ndk_path` | 修补 node-gyp 缓存 `common.gypi` |
 | koffi 无法编译 | `statx` 相关 `__u32` 编译错误 | `-target aarch64-linux-android30` |
 | npm 拦截构建脚本 | node-pty/koffi 无产物 | `--allow-scripts` 放行 |
-| `link()` 被禁（SELinux） | 会话/附件保存、write 工具新建文件报 `EACCES` | 会话/附件发布改 `rename()`；write 新建文件回退"O_EXCL 占位+rename"；附件祖先遍历/清理容忍（`patches/patch-dsh-android-link.js`，幂等） |
+| `link()` 被禁（SELinux） | 会话/附件保存、历史会话迁移、write 工具新建文件报 `EACCES` | 会话日志直接发布改 `rename()`；会话迁移/附件发布与别名等 no-replace 语义的 `link()` 回退"O_EXCL 占位+rename"；write 新建文件同样回退；附件祖先遍历/清理容忍（`patches/patch-dsh-android-link.js`，幂等） |
+| `flock` 在 Android 不可用 | 发消息时报 `flock is not supported on android-arm64`（会话写锁失败） | `patches/patch-dsh-android-flock.js`：用 clang 编译 `node-addon-system` 自带的 `src/flock.c` 成本机 `system.node`，并让 `lib/flock.js` 在 android 下加载本地绑定（幂等，含真实加锁自检） |
 | PTY 终端检测失败 | `unsupported on platform android` | subprocess 把 android 视同 linux |
 | sharp 无法加载 | `Could not load sharp module` | 安装 `@img/sharp-wasm32` wasm 回退 |
 | grep/glob 工具报 `ripgrep launch failed` | `@vscode/ripgrep` 没有 Android 平台预编译包 | `apply-rg-fix.sh`：符号链接到系统 `rg` + `resolveRgPath()` 回退（setup.sh 自动执行） |
@@ -83,7 +84,7 @@ bash ~/dsh/stop_dsh.sh    # 停止
 ### 七、作者测试环境与兼容性
 
 - **测试设备**：华为 Mate 60（ALN-AL80），HarmonyOS 4.2.0（build 4.2.0.186），**无 root**，Termux（Node v26，aarch64）。
-- 不同手机 / ROM 的差异可能导致额外问题，例如：部分 ROM 通过 SELinux 禁用 `link()` 系统调用（会话/附件无法持久化，本脚本已改为 `rename()` 修复）、命名空间沙箱权限不同、bwrap/landlock 是否可用等。
+- 不同手机 / ROM 的差异可能导致额外问题，例如：部分 ROM 通过 SELinux 禁用 `link()` 系统调用（会话/附件无法持久化，本脚本改为 `rename()` 或"O_EXCL 占位+rename"无硬链接回退修复）、命名空间沙箱权限不同、bwrap/landlock 是否可用等。
 - `setup.sh` 覆盖了通用 Android 场景，但个别机型可能需要额外适配。
 
 **欢迎提 issue / PR 适配更多环境**：如果你在其它品牌、系统版本或 root 状态下遇到问题，欢迎在 [Issues](https://github.com/FunnelCakes/deepseek-harness-android/issues) 提交，或提交 Pull Request 补充对应机型的修复。
@@ -142,7 +143,8 @@ Open <http://127.0.0.1:3080>, enter your **DeepSeek API Key** in the **Models** 
 | node-pty fails to build | `Undefined variable android_ndk_path` | patch node-gyp cache `common.gypi` |
 | koffi fails to build | `statx` `__u32` compile error | `-target aarch64-linux-android30` |
 | npm blocks build scripts | no node-pty/koffi output | allow via `--allow-scripts` |
-| `link()` blocked (SELinux) | `EACCES` saving sessions/attachments, and when `write` tool creates a new file | session/attachment publish uses `rename()`; new-file write falls back to "O_EXCL reserve + rename"; attachment ancestor-walk & cleanup tolerate EACCES/ENOENT (`patches/patch-dsh-android-link.js`, idempotent) |
+| `link()` blocked (SELinux) | `EACCES` saving sessions/attachments, migrating historical sessions, and when the `write` tool creates a new file | session-log direct publish uses `rename()`; no-replace `link()` paths (session migration, attachment publish/alias, new-file write) fall back to "O_EXCL reserve + rename"; attachment ancestor-walk & cleanup tolerate EACCES/ENOENT (`patches/patch-dsh-android-link.js`, idempotent) |
+| `flock` unavailable on Android | `flock is not supported on android-arm64` when sending a message (session write-lock fails) | `patches/patch-dsh-android-flock.js`: compile `node-addon-system`'s bundled `src/flock.c` into a local `system.node`, and load it from `lib/flock.js` on android (idempotent, with a real lock self-test) |
 | PTY terminal detection fails | `unsupported on platform android` | treat android as linux in subprocess |
 | sharp fails to load | `Could not load sharp module` | install `@img/sharp-wasm32` wasm fallback |
 | grep/glob report `ripgrep launch failed` | no Android prebuilt binary from `@vscode/ripgrep` | `apply-rg-fix.sh`: symlink to system `rg` + `resolveRgPath()` fallback (run automatically by setup.sh) |
@@ -173,7 +175,7 @@ Open <http://127.0.0.1:3080>, enter your **DeepSeek API Key** in the **Models** 
 ### 7. Author's test environment & compatibility
 
 - **Tested device**: Huawei Mate 60 (ALN-AL80), HarmonyOS 4.2.0 (build 4.2.0.186), **no root**, Termux (Node v26, aarch64).
-- Different phones / ROMs may behave differently, e.g. some ROMs block the `link()` syscall via SELinux (sessions/attachments fail to persist — this script switches to `rename()` to fix it), namespace-sandbox permissions vary, and bwrap/landlock may or may not be available.
+- Different phones / ROMs may behave differently, e.g. some ROMs block the `link()` syscall via SELinux (sessions/attachments fail to persist — this script switches to `rename()` or an "O_EXCL reserve + rename" no-hardlink fallback), namespace-sandbox permissions vary, and bwrap/landlock may or may not be available.
 - `setup.sh` covers the common Android cases, but specific devices may need extra tweaks.
 
 **Issues & PRs welcome**: if you hit a problem on another brand / OS version / root state, please open an [issue](https://github.com/FunnelCakes/deepseek-harness-android/issues) or submit a pull request with a fix for your environment.

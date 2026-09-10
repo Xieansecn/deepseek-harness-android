@@ -32,6 +32,16 @@ if pgrep -f "$DSH_WEB_PATTERN" >/dev/null 2>&1; then
 fi
 
 if [ "$stopped" -eq 1 ]; then
+  # 等待进程真正退出再返回：restart_dsh_now.sh 紧接着就拉起新进程，若此时 3080 仍被
+  # 旧进程占用，新进程 bind 失败，而 restart 只看端口响应就误报"重启完成"。
+  for _ in $(seq 1 30); do
+    pgrep -f "$DSH_WEB_PATTERN" >/dev/null 2>&1 || break
+    sleep 0.2
+  done
+  if pgrep -f "$DSH_WEB_PATTERN" >/dev/null 2>&1; then
+    pkill -9 -f "$DSH_WEB_PATTERN" 2>/dev/null || true
+    sleep 0.2
+  fi
   echo "[dsh] 已停止"
 else
   echo "[dsh] 未发现运行中的 dsh"

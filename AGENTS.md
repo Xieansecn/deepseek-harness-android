@@ -6,7 +6,7 @@
 
 它不是独立的源码项目。仓库里的代码是**胶水脚本 + 补丁**：它们负责安装上游 `dsh` 包，然后对 **已安装到 `/data/data/com.termux/files/usr/lib/node_modules/@deepseek-ai/dsh`** 的那份 node_modules 做一系列 Android 兼容修补（直接改写目标文件）。绝大多数改动不落在这份仓库内，而是落在 `dsh` 安装目录里。
 
-> 当前最高支持 `deepseek-harness rc.7`，向下兼容 rc.6 及更早。
+> 当前已在 `deepseek-harness 0.1.5-rc.1` 上验证，向下兼容 rc.6 / rc.7 及更早。
 
 ## 目录结构
 
@@ -19,7 +19,7 @@
 | `start_dsh.sh` | 启动/复用 `dsh web` 服务，提取并校验带 token 的鉴权 URL，然后用 `termux-open-url` 打开浏览器。 |
 | `stop_dsh.sh` | 按 pid 文件 + 兜底模式安全停止 dsh。 |
 | `restart_dsh_now.sh` | 重启 dsh web，使用 `--no-open` 并写入与 `start_dsh.sh` 相同的 `dsh.log`，保证后续能提取当前进程 token。 |
-| `patches/` | 补丁源文件：`01`~`05` 为 `apply-js-patches.sh` 用的 `.patch`；`patch-dsh-android-link.js` 为 link→rename 硬链接修复；`verify-android-link-fix.js` 为硬链接补丁验证脚本；`mobile.css`/`mobile.js` 为 `apply-frontend.sh` 注入内容。 |
+| `patches/` | 补丁源文件：`01`~`05` 为 `apply-js-patches.sh` 用的 `.patch`；`patch-dsh-android-link.js` 为 Android 禁 hardlink 修复（会话直接发布改 `rename()`；no-replace 路径用「O_EXCL 占位+rename」回退）；`patch-dsh-android-flock.js` 为 Android flock 原生绑定（编译 `src/flock.c` + 改 `lib/flock.js`）；`verify-android-link-fix.js` 为硬链接补丁验证脚本（含附件/fs-local 真实运行测试）；`mobile.css`/`mobile.js` 为 `apply-frontend.sh` 注入内容。 |
 | `config/cordis.patch.yml` | sandbox `danger-full-access` 配置层，安装到 `~/.dsh/profiles/web/cordis.patch.yml`。 |
 | `docs/index.html` | 说明文档站。 |
 | `README.md` | 中英文用户文档（安装、修复项、FAQ）。 |
@@ -51,7 +51,7 @@ dsh Web UI 已从“裸 URL 即可访问”改为 **进程 launch token + 持久
 - **日志约定**：`setup.sh` 默认把原始子命令输出写入 `~/dsh/setup.log`，终端只显示摘要；`--verbose` / `SETUP_VERBOSE=1` 可透传原始输出；`NO_COLOR=1` 或非 TTY 时自动关闭颜色；长时间步骤（如 npm install、node-gyp）在 TTY 下显示 spinner。
 - **目标文件绝对路径**：所有补丁都针对绝对路径 `/data/data/com.termux/files/usr/lib/node_modules/@deepseek-ai/dsh/...` 下的已安装文件，不要假设相对路径，也不要 cd 到别处。
 - **⚠️ 绝不用 `/usr/bin/dsh` 作读写目标**：`/usr` 在部分 shell/挂载命名空间**不可解析**（实测 `ls /usr` 报 No such file or directory）。写 dsh 命令、启动/停止脚本一律用真实绝对路径 `/data/data/com.termux/files/usr/bin/dsh`（`$PREFIX_BIN/dsh`）。
-- **⚠️ 绝不`cat >`覆盖 dsh 命令符号链接**：`@deepseek-ai/dsh` 声明 `"bin":{"dsh":"lib/bin.js"}`，`npm install -g` 会把 `/usr/bin/dsh` 覆盖成【符号链接】→ 指向 `lib/bin.js`。用 `cat >` 写它会 **follow 符号链接、可能覆盖 dsh 真实入口代码（弄坏 dsh）**。**正确做法**：写临时文件 + `mv -f "$DSH_TMP" "$DSH_CMD"` 原子替换——`mv` 用 rename(2) 替换 `$DSH_CMD` 这一目录项本身（无论正则还是符号链接），**不 follow 其目标、不触碰 lib/bin.js**。**绝不要先 `rm -f "$DSH_CMD"`**——先 rm 会在写失败时制造"dsh 命令丢失"的非原子窗口。临时文件用 `trap 'rm -f "$DSH_TMP"' EXIT` 清理；备份 `.dsh-android.bak` 只在验证成功或回滚成功后删除，回滚失败必须保留。
+- **⚠️ 绝不`cat >`覆盖 dsh 命令符号链接**：`@deepseek-ai/dsh` 声明 `"bin":{"dsh":"lib/bin.js"}`，`npm install -g` 会把 `/usr/bin/dsh` 覆盖成【符号链接】→ 指向 `lib/bin.js`。用 `cat >` 写它会 **follow 符号链接、可能覆盖 dsh 真实入口代码（弄坏 dsh）**。**正确做法**：写临时文件 + `mv -f "$DSH_TMP" "$DSH_CMD"` 原子替换——`mv` 用 rename(2) 替换 `$DSH_CMD` 这一目录项本身（无论正则还是符号链接），**不 follow 其目标、不触碰 lib/bin.js**。**绝不要先 `rm -f "$DSH_CMD"`**——先 rm 会在写失败时制造"dsh 命令丢失"的非原子窗口。临时文件由 `on_exit`（全脚本唯一的 EXIT trap）统一清理——**不要**再注册 `trap 'rm -f "$DSH_TMP"' EXIT`，那会覆盖 `on_exit`、吞掉其后所有步骤的失败日志输出；备份 `.dsh-android.bak` 只在验证成功或回滚成功后删除，回滚失败必须保留。
 - **dsh 包装脚本内容**：统一为 `exec node --expose-internals --no-warnings <绝对路径>/lib/bin.js "$@"`。lib/bin.js 的 shebang 是 `#!/usr/bin/env node`，缺 `--expose-internals`，故必须重建包装脚本。
 - **进程匹配用 `[b]in.js` 括号技巧**：`pgrep/pkill -f` 可能匹配到含模式串的调用 shell 自身。模式写成 `.../lib/[b]in.js web`（含 dsh 绝对路径 + `web` 子命令），避免自匹配误杀；避免用裸 `-f` 子串。
 - **按 pid 文件杀进程前必做身份二次确认**：pid 文件记录的 pid 可能被系统复用给无关进程。kill 前须 `pgrep -f "$DSH_WEB_PATTERN" | grep -qx "$pid"` 或 `ps -p "$pid" -o args= | grep -q "$DSH_WEB_PATTERN"` 确认它确实是 dsh web（与 stop_dsh.sh 一致），否则跳过走兜底匹配。
@@ -80,14 +80,17 @@ bash apply-js-patches.sh
 # 硬链接补丁与验证
 node patches/patch-dsh-android-link.js --root "$DSH_DIR/node_modules/@deepseek-ai"
 node patches/verify-android-link-fix.js --root "$DSH_DIR/node_modules/@deepseek-ai"
+# Android flock 原生绑定（编译 + 自检 + 改 flock.js）
+node patches/patch-dsh-android-flock.js --root "$DSH_DIR/node_modules/@deepseek-ai"
 ```
 
 ## 测试与验证
 
 - 无明显单测框架。验证依赖真实 Termux+Android 环境实际运行（`dsh web` 起在 `127.0.0.1:3080`）。
-- 补丁脚本自身可用**幂等自检**验证：连续跑两次，第二次应全部 `[skip]`。
+- 补丁脚本自身可用**幂等自检**验证：连续跑两次，第二次应全部 `[OK]`/`[skip]`。
 - 涉及 `resolveRgPath()` 的改动，`apply-rg-fix.sh` 已在第 3 步用 fresh node subprocess 实际解析并打印版本自证。
-- 硬链接补丁验证：`patches/verify-android-link-fix.js` 会做静态检查和临时目录写入测试，**不会读取/修改 `~/.dsh/sessions`**。
+- 硬链接补丁验证：`patches/verify-android-link-fix.js` 会做静态检查 + 临时目录真实运行测试（附件保存/去重、fs-local 新建文件在 `link()`=EACCES 下必须成功），**不会读取/修改 `~/.dsh/sessions`**。
+- flock 绑定验证：`patches/patch-dsh-android-flock.js` 自带运行时自检（真实 open 两个 fd：首次加锁成功、第二次竞争返回 `EAGAIN`），失败会非 0 退出。
 - 鉴权启动验证：`start_dsh.sh` 的 `auth_url_valid()` 会用 `curl` 验证日志中的 token URL 返回 `303/302`；如果返回 401，说明 token 已过期/日志陈旧，应重启 dsh。
 
 ## 安全注意（这个仓库有意为之）
@@ -100,7 +103,10 @@ node patches/verify-android-link-fix.js --root "$DSH_DIR/node_modules/@deepseek-
 
 ## 为 dsh 打补丁时应遵循（设计约束）
 
-- 凡涉及 `link()`（Android 部分 ROM 通过 SELinux 禁用 hardlink），一律改 `rename()`；write 新建文件用「O_EXCL 占位 + rename」回退；附件祖先遍历/清理容忍 `EACCES`/`ENOENT`。
-- 终端 / 平台检测：`process.platform === "android"` 需视同 `"linux"` 处理（subprocess、终端检测等）。
+- 凡涉及 `link()`（Android 部分 ROM 通过 SELinux 禁用 hardlink）：会话日志【直接发布】改 `rename()`；带 no-replace 语义的发布（会话迁移、附件发布/别名、write 新建文件）在 link 报 `EACCES`/`EPERM`/`EMLINK`/`ENOSYS`/`ENOTSUP` 时回退到「O_EXCL 占位 + rename」；附件祖先遍历/清理容忍 `EACCES`/`ENOENT`。
+- **⚠️ 改 `node:fs/promises` 导入时只增不删**：`patch-dsh-android-link.js` 的 `ensureFsImport()` 只追加名字。曾有版本把 `link` 从导入里删掉，但同文件 `defaultFileSystem` / `publishCurrentExclusive` 仍在引用 `link`，导致 dsh 启动即 `ReferenceError: link is not defined`。删除导入前必须确认全文（含注释外的正文）不再引用它。
+- **原生 addon 的 Android 适配**：上游 `@deepseek-ai/node-addon-system` 只发布 linux/darwin 预编译包。`flock` 路径（`patch-dsh-android-flock.js`）用 clang 编译其自带 `src/flock.c` 为 `bin/android-<arch>/system.node`，并改 `lib/flock.js` 在 `android` 下加载本地绑定（Node headers 取 `$PREFIX/include/node` 或 `~/.cache/node-gyp/<ver>/include/node`）。其它原生 addon 若报 “not supported on android-*” 可照此模式处理。
+- 终端 / 平台检测：`process.platform === "android"` 需视同 `"linux"` 处理（subprocess、终端检测等）。**⚠️ 锚点可能在内容哈希 bundle 里**：0.1.5-rc.1 起 `createProcessInspector()` 被内联进 `dsh-subprocess-local/lib/runner-launch-*.js`，`lib/index.js` 里已找不到 `new LinuxProcessInspector(...)`。因此 `setup.sh` 的 4c 按通配扫描整个 `lib/` 目录，命中才报成功，未命中明确告警——不要退回「只 grep 单个固定文件 + 无条件打印成功」的写法（那会制造假成功，终端功能静默失效）。
+- **补丁必须报真话**：修补步骤只有在确认锚点命中后才可打印成功；锚点未命中要打印 `warn`（按版本漂移约定不中断 setup），绝不可像早期 4c 那样 `str.replace()` 未命中却仍写回文件并打印 “patched”。同理，`anchor_precheck` 的 marker 必须是「打上补丁后才会出现」的特征串，否则预检永远报 OK、掩盖问题。
 - 前端适配：viewport 用 `interactive-widget=resizes-content`、`viewport-fit=cover`；manifest `display` 用 `standalone`（保证软键盘跟随）；普通回车=换行、Ctrl/Cmd+Enter=发送；Web Crypto / `AbortSignal.any` 在 LAN HTTP 与旧 WebView 缺失，需注入基于 `crypto.getRandomValues()` 的 polyfill。
 - **不要为了鉴权去改动 dsh 前端界面**：前端已经能通过 `?token=` 自动换 cookie。项目脚本只需要保证打开正确的 token URL、日志文件一致、--no-open 不干扰浏览器打开流程。

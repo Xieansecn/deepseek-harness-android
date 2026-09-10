@@ -6,8 +6,8 @@
 #   1. 安装构建依赖 (cmake/clang/make/binutils/pkg-config/python/nodejs/ripgrep)
 #   2. node-gyp 下载 headers 并修补 common.gypi（修 node-pty 构建）
 #   3. android30 目标 npm install -g + 校验原生产物（node-pty 必须编译；koffi 走预编译包）
-#   4. 后端兼容：session/attachment 的 link→rename、fs-local 无硬链接回退、
-#      subprocess android==linux、客户端回车补丁、ripgrep 修复
+#   4. 后端兼容：session/attachment 的 link→rename/无硬链接回退、fs-local 无硬链接回退、
+#      android flock 原生绑定、subprocess android==linux、客户端回车补丁、ripgrep 修复
 #   5. sharp wasm 回退（android-arm64 无原生预编译）
 #   6. 重建 dsh 包装脚本（--expose-internals，HMR 必需）
 #   7. 写入启动/停止脚本 + danger-full-access 权限配置
@@ -97,8 +97,13 @@ run_hidden_spinner() {
   run_hidden "$@"
 }
 
+# 包装脚本临时文件（6/10 赋值）。由 on_exit 统一清理——这样 6/10 不需要再注册一个
+# EXIT trap 去覆盖它（早先版本在 6/10 用 `trap 'rm -f "$DSH_TMP"' EXIT` 覆盖了本 trap，
+# 导致其后所有步骤失败时不再打印日志尾部）。
+DSH_TMP=""
 on_exit() {
   local rc=$?
+  if [ -n "$DSH_TMP" ]; then rm -f "$DSH_TMP" 2>/dev/null || true; fi
   if [ "$rc" -ne 0 ]; then
     spinner_stop
     printf '\n%s[x]%s 安装失败（退出码 %s），最近日志：\n' "$(color '1;31')" "$(color '0')" "$rc" >&2
@@ -130,18 +135,23 @@ anchor_precheck() {
   for spec in \
     'dsh-client-ui-conversation/lib/client.js|dsh-android: 普通回车换行|dsh-client-ui-conversation 回车补丁标记' \
     'dsh-tool-fs-search/lib/index.js|resolveSystemRg|dsh-tool-fs-search resolveSystemRg 回退' \
+    'dsh-session-persistence-jsonl/lib/index.js|publishNoReplaceNoHardlink|dsh-session-persistence 无硬链接迁移回退' \
+    'dsh-attachment-local/lib/index.js|publishNoReplaceNoHardlink|dsh-attachment-local 无硬链接发布回退' \
     'dsh-fs-local/lib/index.js|publishNoReplaceNoHardlink|dsh-fs-local 无硬链接发布回退' \
-    'dsh-subprocess-local/lib/index.js|platform === "linux"|dsh-subprocess-local android 分支'; do
+    'node-addon-system/lib/flock.js|dsh-android-flock|dsh-android-flock Android flock 绑定' \
+    'dsh-subprocess-local/lib/runner-launch-*.js|platform === "android"|dsh-subprocess-local android 终端检测'; do
     path="${spec%%|*}"; rest="${spec#*|}"; marker="${rest%%|*}"; label="${rest#*|}"
-    local f="$DSH_DIR/node_modules/@deepseek-ai/$path"
-    if [ -f "$f" ] && grep -qF "$marker" "$f" 2>/dev/null; then
+    # path 支持通配（0.1.5-rc.1 起 subprocess 锚点在内容哈希 bundle：runner-launch-*.js）。
+    # 注意 marker 内不可含 "|"（会与上面的分隔符冲突）。
+    local hit=0 g
+    # 注意："$DSH_DIR/..." 保持引号，$path 故意不加引号以便通配展开。
+    for g in "$DSH_DIR/node_modules/@deepseek-ai/"$path; do
+      if [ -f "$g" ] && grep -qF "$marker" "$g" 2>/dev/null; then hit=1; fi
+    done
+    if [ "$hit" -eq 1 ]; then
       ok "  [ok]   $label"
     else
-      if [ -f "$f" ]; then
-        warn "  [warn] $label 未检测到锚点（$marker）。对应补丁可能需更新锚点或已由上游原生实现。"
-      else
-        warn "  [warn] $label 目标文件不存在（$path）。"
-      fi
+      warn "  [warn] $label 未检测到锚点（$marker）。对应补丁可能需更新锚点或已由上游原生实现。"
       missing=$((missing+1))
     fi
   done
@@ -234,28 +244,14 @@ fi
 # ------------------------------------------------------- 4/10 后端兼容补丁
 step "4/10 后端兼容补丁"
 
-# 4a/4b: 会话持久化与附件存储的 link→rename（Android 禁 hardlink）。
-# 上游 rc.6+ 已原生改用 rename()，此处只需验证标记已就位（幂等，缺失则提示）。
-SJ="$DSH_DIR/node_modules/@deepseek-ai/dsh-session-persistence-jsonl/lib/index.js"
-if grep -q "rename(tmp, finalPath)" "$SJ" 2>/dev/null; then
-  ok "  session-persistence 会话发布已用 rename"
-else
-  warn "  session-persistence 未检测到 rename 发布（上游已改或版本差异），请人工核对"
-fi
-AL="$DSH_DIR/node_modules/@deepseek-ai/dsh-attachment-local/lib/index.js"
-if grep -q "rename(temporary, target)" "$AL" 2>/dev/null; then
-  ok "  attachment-local 附件发布已用 rename"
-else
-  warn "  attachment-local 未检测到 rename 发布（上游已改或版本差异），请人工核对"
-fi
-
-# 4e: 无硬链接 no-replace 发布 + 附件祖先遍历/清理容忍
-#     （write 工具新建文件 / 附件保存，同 4a/4b 的 link→rename 一族的 Android EACCES 修复，
-#       幂等；基于 dsh 0.1.0-rc.3/rc.6 均可。详见 patches/patch-dsh-android-link.js）
+# 4a: Android 禁 hardlink 全链路修复（会话发布/迁移、附件发布/别名、write 新建文件）。
+#     会话日志【直接发布】改 rename()；所有 no-replace 语义的 link 发布在
+#     EACCES/EPERM/EMLINK/ENOSYS/ENOTSUP 时回退到“O_EXCL 占位 + rename 填充”。
+#     幂等；已验证 dsh 0.1.5-rc.1，向下兼容 rc.6/rc.7。详见 patches/patch-dsh-android-link.js
 HLFIX="$SCRIPT_DIR/patches/patch-dsh-android-link.js"
 if [ -f "$HLFIX" ]; then
   if run_hidden node "$HLFIX" --root "$DSH_DIR/node_modules/@deepseek-ai"; then
-    ok "  android 硬链接修复完成（fs-local / attachment）"
+    ok "  android 硬链接修复完成（session / attachment / fs-local）"
   else
     warn "  硬链接修复脚本报告异常（dsh 版本不匹配？请人工检查）"
   fi
@@ -263,7 +259,7 @@ else
   warn "  缺少 patches/patch-dsh-android-link.js，跳过硬链接修复"
 fi
 
-# 4e-verify: 快速验证 link→rename / no-replace 回退补丁确实就位。
+# 4a-verify: 快速验证 link→rename / no-replace 回退补丁确实就位。
 # 只做静态检查和临时目录写入测试，不触碰 ~/.dsh/sessions，不破坏现有会话。
 HFIX_VERIFY="$SCRIPT_DIR/patches/verify-android-link-fix.js"
 if [ -f "$HFIX_VERIFY" ]; then
@@ -276,32 +272,66 @@ else
   warn "  缺少 patches/verify-android-link-fix.js，跳过硬链接修复验证"
 fi
 
-# 4c: subprocess 终端检测 android 视同 linux
-SP="$DSH_DIR/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js"
-if grep -q 'platform === "android"' "$SP" 2>/dev/null; then
-  ok "  subprocess-local 已修补"
+# 4b: Android flock 原生绑定（修发消息时 "flock is not supported on android-arm64"）。
+#     node-addon-system 无 Android 预编译包，用 clang 编译其自带 src/flock.c 成本机
+#     system.node，并让 lib/flock.js 在 android 下加载本地绑定；幂等，含真实加锁自检。
+FLOCKFIX="$SCRIPT_DIR/patches/patch-dsh-android-flock.js"
+if [ -f "$FLOCKFIX" ]; then
+  if run_hidden node "$FLOCKFIX" --root "$DSH_DIR/node_modules/@deepseek-ai"; then
+    ok "  android flock 原生绑定完成（会话写锁可用）"
+  else
+    warn "  [!!] flock 修复脚本报告异常（发消息会失败，请人工检查）"
+  fi
 else
-  python3 - "$SP" <<'PY'
-import sys
-p = sys.argv[1]
-s = open(p, encoding='utf-8').read()
-s = s.replace(
-  'if (platform === "linux") return new LinuxProcessInspector(arch, internals);',
-  'if (platform === "linux" || platform === "android") return new LinuxProcessInspector(arch, internals);')
-open(p, 'w', encoding='utf-8').write(s)
-print("  patched subprocess-local (android→linux)")
+  warn "  缺少 patches/patch-dsh-android-flock.js，跳过 flock 修复"
+fi
+
+# 4c: subprocess 终端检测 android 视同 linux
+# 注意：0.1.5-rc.1 起 createProcessInspector() 被内联进【内容哈希 bundle】
+# （lib/runner-launch-*.js），锚点已不在 lib/index.js。因此按通配扫描整个 lib 目录，
+# 命中才报成功；未命中明确告警（而非像早先那样无条件打印"已修补"的假成功）。
+SP_LIB="$DSH_DIR/node_modules/@deepseek-ai/dsh-subprocess-local/lib"
+if python3 - "$SP_LIB" <<'PY'
+import glob, os, sys
+lib = sys.argv[1]
+anchor = 'if (platform === "linux") return new LinuxProcessInspector(arch, internals);'
+patched = 'if (platform === "linux" || platform === "android") return new LinuxProcessInspector(arch, internals);'
+files = sorted(glob.glob(os.path.join(lib, "*.js")))
+if any(patched in open(f, encoding="utf-8").read() for f in files):
+    print("  [skip] subprocess 终端检测已是 android≡linux")
+    sys.exit(0)
+hits = 0
+for f in files:
+    s = open(f, encoding="utf-8").read()
+    if anchor in s:
+        open(f, "w", encoding="utf-8").write(s.replace(anchor, patched))
+        print("  patched %s (android→linux)" % os.path.basename(f))
+        hits += 1
+if hits == 0:
+    print("  [warn] 未找到 subprocess 终端检测锚点（dsh 版本漂移），终端功能可能不可用", file=sys.stderr)
+    sys.exit(3)
 PY
+then
+  ok "  subprocess-local 终端检测 android 视同 linux"
+else
+  rc=$?
+  if [ "$rc" -eq 3 ]; then
+    warn "  [!!] subprocess-local 终端检测补丁未命中锚点（dsh 版本漂移），终端功能可能不可用；请人工检查 $SP_LIB"
+  else
+    warn "  [!!] subprocess-local 补丁执行异常（退出码 $rc）"
+  fi
 fi
 
 # 4d: 作曲栏回车补丁——安卓输入法回车误发送，改为"普通回车=换行，Ctrl/Cmd+Enter=发送"。
 # 锚点取 registerComposerKeymap 的 ENTER 处理器开头"composing-check 行"（版本稳定、唯一）。
 # 命中即失败并回滚备份，避免静默失败。
 CB="$DSH_DIR/node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js"
+CB_BAK="$CB.dsh-android.bak"
 if grep -q "dsh-android: 普通回车换行" "$CB" 2>/dev/null; then
+  rm -f "$CB_BAK" 2>/dev/null || true   # 已应用：清理历史/残留备份，避免反复升级累积
   ok "  client-ui-conversation 回车补丁已就位"
 else
-  BAK="$CB.dsh-android.bak"
-  cp -f "$CB" "$BAK" 2>/dev/null || true
+  cp -f "$CB" "$CB_BAK" 2>/dev/null || true
   if ! python3 - "$CB" <<'PY'
 import sys
 p = sys.argv[1]
@@ -325,10 +355,11 @@ PY
   then
     rc=$?
     warn "  client-ui-conversation 回车补丁未生效（退出码 $rc），回滚备份"
-    cp -f "$BAK" "$CB" 2>/dev/null || true
+    cp -f "$CB_BAK" "$CB" 2>/dev/null || true
     warn "  该补丁影响安卓输入法回车误发送，必须修复后才能正常使用。请人工核对锚点后重跑 setup.sh。"
     exit 1
   else
+    rm -f "$CB_BAK" 2>/dev/null || true   # 验证成功后才删除备份
     ok "  client-ui-conversation 回车补丁已应用"
   fi
 fi
@@ -350,9 +381,12 @@ fi
 
 # ------------------------------------------------------ 5/10 sharp wasm 回退
 step "5/10 sharp WASM 回退"
-SHARP_VER="$(node -e "console.log(require('$DSH_DIR/node_modules/sharp/package.json').version)" 2>/dev/null || echo 0.35.3)"
+SHARP_VER="$(node -e "console.log(require('$DSH_DIR/node_modules/sharp/package.json').version)" 2>/dev/null || true)"
 if [ -d "$DSH_DIR/node_modules/@img/sharp-wasm32" ]; then
-  ok "  sharp-wasm32 已就位 (v${SHARP_VER})"
+  ok "  sharp-wasm32 已就位 (v${SHARP_VER:-未知})"
+elif [ -z "$SHARP_VER" ]; then
+  # 读不到 sharp 版本就不能猜：装错版本的 wasm 比不装更糟（ABI/协议不匹配）。
+  warn "  无法确定 sharp 版本（sharp 未安装？），跳过 sharp-wasm32 回退"
 else
   SWTMP="$(mktemp -d)"
   cd "$SWTMP"
@@ -392,8 +426,8 @@ else
   # 原子替换：mv -f 用 rename(2) 替换 $DSH_CMD 这一目录项本身（无论它是正则文件还是符号链接），
   # 不 follow 其目标、不触碰 lib/bin.js。因此【不需要】先 rm——先 rm 反而制造了"断电/磁盘满时
   # dsh 命令丢失"的非原子窗口。临时文件由 trap 清理；备份只在验证成功后才删除。
+  # 临时文件由函数顶部的 on_exit（EXIT trap）统一清理，此处不再注册 trap。
   DSH_TMP="$PREFIX_BIN/.dsh-wrapper.tmp.$$"
-  trap 'rm -f "$DSH_TMP"' EXIT
   cat > "$DSH_TMP" <<EOF
 #!/data/data/com.termux/files/usr/bin/sh
 exec node --expose-internals --no-warnings $DSH_BIN "\$@"
@@ -428,16 +462,28 @@ chmod +x "$INSTALL_DIR/start_dsh.sh" "$INSTALL_DIR/stop_dsh.sh" "$INSTALL_DIR/re
 
 # 权限模式：Android 上 bwrap/landlock 命名空间沙箱不可用，bash 工具需
 # danger-full-access 才能执行。写入 profile 配置层 + 启动脚本环境变量双保险。
+# 配置层文本取自仓库内的 config/cordis.patch.yml（唯一来源，勿在此处重复维护）。
+# ⚠️ 目标文件可能含用户自己的其它配置层（approval、session-query-sqlite 等）：
+# 缺失时【追加】一层，绝不用 `cat >` 整体重写（那会静默清掉用户的配置）。
 PROFILE_PATCH="$HOME/.dsh/profiles/web/cordis.patch.yml"
+SANDBOX_LAYER_FILE="$SCRIPT_DIR/config/cordis.patch.yml"
+if [ -f "$SANDBOX_LAYER_FILE" ]; then
+  SANDBOX_LAYER="$(cat "$SANDBOX_LAYER_FILE")"
+else
+  warn "  缺少 $SANDBOX_LAYER_FILE，使用内联兜底权限层"
+  SANDBOX_LAYER='- id: sandbox-policy
+  config:
+    mode: danger-full-access'
+fi
 mkdir -p "$(dirname "$PROFILE_PATCH")"
 if ! grep -q "danger-full-access" "$PROFILE_PATCH" 2>/dev/null; then
-  cat > "$PROFILE_PATCH" <<'YAML'
-# Android/Termux：bwrap/landlock 命名空间沙箱不可用，需放开权限模式才能执行 bash 工具
-- id: sandbox-policy
-  config:
-    mode: danger-full-access
-YAML
-  ok "  权限模式已写入 $PROFILE_PATCH"
+  if [ -s "$PROFILE_PATCH" ]; then
+    printf '\n%s\n' "$SANDBOX_LAYER" >> "$PROFILE_PATCH"
+    ok "  权限模式已追加到 $PROFILE_PATCH（保留原有配置层）"
+  else
+    printf '%s\n' "$SANDBOX_LAYER" > "$PROFILE_PATCH"
+    ok "  权限模式已写入 $PROFILE_PATCH"
+  fi
 fi
 
 # ------------------------------------------------------- 8/10 前端适配(可选)

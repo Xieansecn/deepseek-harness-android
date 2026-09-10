@@ -68,8 +68,10 @@ bash ~/dsh/stop_dsh.sh    # 停止</pre>
       <tr><td>node-pty 无法编译</td><td><code>Undefined variable android_ndk_path</code></td><td>修补 node-gyp 缓存 <code>common.gypi</code></td></tr>
       <tr><td>koffi 无法编译</td><td><code>statx</code> 相关 <code>__u32</code> 编译错误</td><td><code>-target aarch64-linux-android30</code></td></tr>
       <tr><td>npm 拦截构建脚本</td><td>node-pty/koffi 无产物</td><td><code>--allow-scripts</code> 放行</td></tr>
-      <tr><td><code>link()</code> 被禁</td><td>会话/附件保存报 <code>EACCES</code></td><td>改为 <code>rename()</code>（原子、同目录）</td></tr>
+      <tr><td><code>link()</code> 被禁（SELinux）</td><td>会话/附件保存、历史会话迁移、write 工具新建文件报 <code>EACCES</code></td><td>会话日志直接发布改 <code>rename()</code>；no-replace 路径回退「O_EXCL 占位 + rename」</td></tr>
+      <tr><td><code>flock</code> 在 Android 不可用</td><td>发消息报 <code>flock is not supported on android-arm64</code></td><td>编译 <code>node-addon-system</code> 自带 <code>src/flock.c</code> 为本机 <code>system.node</code>，<code>flock.js</code> 在 android 下加载本地绑定</td></tr>
       <tr><td>PTY 终端检测失败</td><td><code>unsupported on platform android</code></td><td>subprocess 把 android 视同 linux</td></tr>
+      <tr><td>grep/glob 报 <code>ripgrep launch failed</code></td><td><code>@vscode/ripgrep</code> 无 Android 平台预编译包</td><td>符号链接到系统 <code>rg</code> + <code>resolveRgPath()</code> 回退</td></tr>
       <tr><td>sharp 无法加载</td><td><code>Could not load sharp module</code></td><td>安装 <code>@img/sharp-wasm32</code> wasm 回退</td></tr>
       <tr><td>HMR 启动崩溃</td><td><code>--expose-internals is required</code></td><td>包装脚本加 <code>--expose-internals</code></td></tr>
       <tr><td>bash 工具不可用</td><td><code>SANDBOX_UNAVAILABLE</code></td><td>权限模式设 <code>danger-full-access</code></td></tr>
@@ -140,8 +142,10 @@ bash ~/dsh/stop_dsh.sh    # stop</pre>
       <tr><td>node-pty fails to build</td><td><code>Undefined variable android_ndk_path</code></td><td>patch node-gyp cache <code>common.gypi</code></td></tr>
       <tr><td>koffi fails to build</td><td><code>statx</code> <code>__u32</code> compile error</td><td><code>-target aarch64-linux-android30</code></td></tr>
       <tr><td>npm blocks build scripts</td><td>no node-pty/koffi output</td><td>allow via <code>--allow-scripts</code></td></tr>
-      <tr><td><code>link()</code> blocked</td><td><code>EACCES</code> saving sessions/attachments</td><td>use <code>rename()</code> (atomic, same-dir)</td></tr>
+      <tr><td><code>link()</code> blocked (SELinux)</td><td><code>EACCES</code> saving sessions/attachments, migrating sessions, creating files via the <code>write</code> tool</td><td>direct session-log publish uses <code>rename()</code>; no-replace paths fall back to "O_EXCL reserve + rename"</td></tr>
+      <tr><td><code>flock</code> unavailable on Android</td><td><code>flock is not supported on android-arm64</code> when sending a message</td><td>compile <code>node-addon-system</code>'s bundled <code>src/flock.c</code> into a local <code>system.node</code>; <code>flock.js</code> loads it on android</td></tr>
       <tr><td>PTY terminal detection fails</td><td><code>unsupported on platform android</code></td><td>treat android as linux in subprocess</td></tr>
+      <tr><td>grep/glob report <code>ripgrep launch failed</code></td><td>no Android prebuilt binary from <code>@vscode/ripgrep</code></td><td>symlink to system <code>rg</code> + <code>resolveRgPath()</code> fallback</td></tr>
       <tr><td>sharp fails to load</td><td><code>Could not load sharp module</code></td><td>install <code>@img/sharp-wasm32</code> wasm fallback</td></tr>
       <tr><td>HMR crashes on start</td><td><code>--expose-internals is required</code></td><td>wrapper script adds <code>--expose-internals</code></td></tr>
       <tr><td>bash tool unavailable</td><td><code>SANDBOX_UNAVAILABLE</code></td><td>permission mode <code>danger-full-access</code></td></tr>
