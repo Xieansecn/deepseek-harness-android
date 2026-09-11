@@ -62,8 +62,8 @@ bash ~/dsh/stop_dsh.sh    # 停止
 | 前端不适配竖屏 | 桌面布局、触控目标小等 | `apply-frontend.sh` 注入移动端 CSS/JS |
 | 软键盘遮挡输入框 | 输入法弹出后输入框被键盘盖住 | `visualViewport` 跟随：键盘弹出时整页（含输入框）抬到键盘上方，收回时还原 |
 | 局域网 HTTP 缺少 Web Crypto API | `crypto.randomUUID is not a function` | 注入基于 `crypto.getRandomValues()` 的 UUID v4 回退 |
-| 上下文大时重进/切回卡顿 | 冷重进、从外部应用切回要等很久 | `apply-js-patches.sh`：history 窗口瘦身（chunk 流过滤+大结果截断）+ 重连增量同步（保留窗口静默补齐） |
-| 整页重载重复下载 JS | 每次刷新重下 ~4.7MB bundle | 静态资源与插件 bundle 加 immutable 缓存头 |
+| 上下文大时重进/切回卡顿 | 冷重进、从外部应用切回要等很久 | 旧补丁 `01`/`02`（history 窗口瘦身、重连增量同步）的宿主模块已在上游被移除/重组，补丁不再适用——`apply-js-patches.sh` 会标记 `[skip] 已过时` 并打印原因 |
+| 整页重载重复下载 JS | 每次刷新重下 ~4.7MB bundle | `apply-js-patches.sh` 给 `/assets/` 静态资源加 immutable 缓存头（`patches/04`）；插件 bundle 的 immutable 头已由上游原生实现（`patches/05` 因此跳过） |
 | PWA 沉浸模式键盘不跟随 | fullscreen 下软键盘覆盖、视口不收缩，composer 被盖住 | manifest display 改 `standalone`（需重装 PWA，恢复系统栏+正常键盘行为）|
 
 ### 五、安全说明
@@ -76,6 +76,7 @@ bash ~/dsh/stop_dsh.sh    # 停止
 ### 六、常见问题
 
 - **页面白屏/打不开**：确认在 Termux 环境；看日志 `~/dsh/storage/dsh.log`。
+- **手动打开 `http://127.0.0.1:3080` 显示 401 或空白**：新版 dsh 需要**带 token 的启动 URL** 换取登录 cookie，请用 `bash ~/dsh/start_dsh.sh` 打开——它会从 `~/dsh/storage/dsh.log` 取当前进程的 token，验证有效后才交给浏览器。
 - **`AbortSignal.any is not a function`**：浏览器过旧，`apply-frontend.sh` 已注入 polyfill。
 - **`crypto.randomUUID is not a function`**：局域网 HTTP 或旧版 WebView 不暴露该 API，`apply-frontend.sh` 已注入安全随机 UUID v4 回退。
 - **模型没反应**：检查 Models 页 API Key 与 `~/.dsh/.credentials.yaml`。
@@ -153,8 +154,8 @@ Open <http://127.0.0.1:3080>, enter your **DeepSeek API Key** in the **Models** 
 | Frontend not mobile-ready | desktop layout, small touch targets | `apply-frontend.sh` injects mobile CSS/JS |
 | Soft keyboard covers the input | input box hidden behind the IME when it opens | `visualViewport`-driven follow: page (incl. input) lifts above the keyboard on open, restores on close |
 | Web Crypto API missing over LAN HTTP | `crypto.randomUUID is not a function` | inject a UUID v4 fallback based on `crypto.getRandomValues()` |
-| Lag re-entering / switching back with big context | cold re-entry and app-return stall for seconds | `apply-js-patches.sh`: slim history windows (chunk-stream filter + big-result truncation) + incremental reconnect sync (keep window, quiet catch-up) |
-| Page reload re-downloads JS | ~4.7MB bundles re-fetched every refresh | immutable cache headers on static assets & plugin bundles |
+| Lag re-entering / switching back with big context | cold re-entry and app-return stall for seconds | the host modules for the old `01`/`02` patches (history-window slimming, incremental reconnect sync) were removed/reorganized upstream, so they no longer apply — `apply-js-patches.sh` reports them as `[skip] superseded` and prints why |
+| Page reload re-downloads JS | ~4.7MB bundles re-fetched every refresh | `apply-js-patches.sh` adds immutable cache headers to `/assets/` static files (`patches/04`); the immutable header for plugin bundles is upstream-native now (`patches/05` is therefore skipped) |
 | PWA immersive-mode keyboard not followed | soft keyboard overlays without shrinking the viewport; composer stays covered | manifest `display` → `standalone` (reinstall the PWA; restores system bars + normal keyboard behavior) |
 
 ### 5. Security notes
@@ -167,6 +168,7 @@ Open <http://127.0.0.1:3080>, enter your **DeepSeek API Key** in the **Models** 
 ### 6. FAQ
 
 - **Blank screen / cannot open**: make sure it's Termux; check `~/dsh/storage/dsh.log`.
+- **Opening bare `http://127.0.0.1:3080` gives 401 or a blank page**: recent dsh versions require the **tokenized launch URL** to exchange for the auth cookie — open it with `bash ~/dsh/start_dsh.sh`, which reads the current process's token from `~/dsh/storage/dsh.log` and only hands it to the browser after verifying it.
 - **`AbortSignal.any is not a function`**: old browser; `apply-frontend.sh` injects a polyfill.
 - **`crypto.randomUUID is not a function`**: LAN HTTP and older WebViews may not expose the API; `apply-frontend.sh` injects a secure UUID v4 fallback.
 - **Model not responding**: check the API Key in Models page and `~/.dsh/.credentials.yaml`.

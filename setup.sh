@@ -36,12 +36,14 @@ fi
 color() {
   [ "$USE_COLOR" -eq 1 ] && printf '\033[%sm' "$1" || true
 }
-info()  { printf '%s==>%s %s\n' "$(color '1;34')" "$(color '0')" "$*"; }
-ok()    { printf '%s[v]%s %s\n' "$(color '1;32')" "$(color '0')" "$*"; }
-warn()  { printf '%s[!]%s %s\n' "$(color '1;33')" "$(color '0')" "$*"; }
-error() { printf '%s[x]%s %s\n' "$(color '1;31')" "$(color '0')" "$*" >&2; }
+info()  { status_clear; printf '%s==>%s %s\n' "$(color '1;34')" "$(color '0')" "$*"; status_render; }
+ok()    { status_clear; printf '%s[v]%s %s\n' "$(color '1;32')" "$(color '0')" "$*"; status_render; }
+warn()  { status_clear; printf '%s[!]%s %s\n' "$(color '1;33')" "$(color '0')" "$*"; status_render; }
+error() { status_clear; printf '%s[x]%s %s\n' "$(color '1;31')" "$(color '0')" "$*" >&2; status_render; }
 step()  {
+  status_clear
   printf '\n%s━━ %s ━━%s\n' "$(color '1;36')" "$*" "$(color '0')"
+  status_step "$*"
 }
 # 运行子命令：默认全量写入 setup.log，--verbose 时同时透传到终端。
 run_hidden() {
@@ -52,47 +54,112 @@ run_hidden() {
   fi
 }
 
-SPINNER_PID=""
-SPINNER_LABEL=""
-spinner_start() {
-  SPINNER_LABEL="$1"
-  if [ "$VERBOSE" -eq 0 ] && [ -t 1 ]; then
-    local chars=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
-    (
-      while :; do
-        for c in "${chars[@]}"; do
-          printf '\r[%s] %s' "$c" "$SPINNER_LABEL"
-          sleep 0.1
-        done
-      done
-    ) &
-    SPINNER_PID=$!
-  else
-    printf '%s...\n' "$SPINNER_LABEL"
-  fi
+# ------------------------------------------------------- 常驻状态指示器
+# 从脚本开头一直显示到脚本结束（不是只在长命令期间才出现）：
+#   [⠹] 3/10 安装 dsh · 已用 1分02秒
+# 实现要点：
+#   - 动画由后台 ticker 子 shell 负责，它每 0.15s 读一次 STATUS_FILE 里的文本并重画，
+#     所以父 shell 更新状态只需写文件（子 shell 看不到父 shell 的变量更新）。
+#   - 状态行常驻在"当前行"，任何正式输出前必须先 status_clear 擦掉它，打完再 status_render
+#     补回，否则文字会互相覆盖。info/ok/warn/error/step 已全部按此包装。
+#   - 只在 TTY 且非 --verbose 时启用；--verbose 要透传原始输出、非 TTY（重定向/日志）没有
+#     光标控制，两者都退回"打印一行静态提示"的老行为。
+#   - 耗时直接用 SECONDS：bash 子 shell 会继承并继续累加父 shell 的秒数（已实测）。
+STATUS_TTY=0
+if [ "$VERBOSE" -eq 0 ] && [ -t 1 ]; then STATUS_TTY=1; fi
+STATUS_ON=0
+STATUS_PID=""
+STATUS_FILE=""   # 仅 TTY 模式在 status_start 里创建，避免非 TTY 运行也留临时文件
+STATUS_STEP="准备中"
+STATUS_OVERRIDE=""
+status_render() {
+  [ "$STATUS_ON" -eq 1 ] || return 0
+  printf '%s' "${STATUS_OVERRIDE:-$STATUS_STEP}" > "$STATUS_FILE" 2>/dev/null || true
 }
-spinner_stop() {
-  if [ -n "$SPINNER_PID" ]; then
-    kill "$SPINNER_PID" 2>/dev/null || true
-    wait "$SPINNER_PID" 2>/dev/null || true
-    printf '\r\033[K'
-    SPINNER_PID=""
-  fi
+status_clear() {
+  [ "$STATUS_ON" -eq 1 ] || return 0
+  printf '\r\033[K'
 }
-# 长时间命令：非 verbose 时显示 spinner，verbose 时直接透传原始输出。
+# 终端列数。取不到就用保守值 40（手机 Termux 竖屏常见宽度）。
+# 必须先知道宽度再画：状态行一旦超过终端宽度就会自动折行，而 \r\033[K 只擦得掉当前行的
+# 开头，折下去的那截擦不掉——6.7 帧/秒不停重画就会把屏幕一路往下刷（实测 40 列下 4 秒
+# 滚屏 23 次，就是用户看到的"刷屏"）。
+status_cols() {
+  local c=""
+  c="$(stty size 2>/dev/null | awk '{print $2}')" || true          # stdin 是终端时最省事
+  if [ -z "$c" ]; then c="$(stty size 2>/dev/null </dev/tty | awk '{print $2}')" || true; fi
+  # 取不到宽度（无控制终端）就按 30 列保守截断：宁可显示短一点，也绝不折行刷屏。
+  # 注意 COLUMNS 不能当兜底——它不会导出给脚本子进程（实测 unset）。
+  # 也不要把"过窄"的实测值改大（那等于主动制造折行），测到多少就按多少算。
+  case "$c" in ''|*[!0-9]*) c=30 ;; esac
+  [ "$c" -gt 0 ] || c=30
+  printf '%s' "$c"
+}
+# 记录当前主步骤（run_hidden_spinner 的临时文案结束后会回到这里）。
+status_step() {
+  STATUS_STEP="$1"
+  status_render
+}
+status_start() {
+  [ "$STATUS_TTY" -eq 1 ] || return 0
+  STATUS_FILE="$(mktemp)"
+  STATUS_ON=1
+  status_render
+  (
+    local chars=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏) i=0 label cols budget maxchars stamp
+    # 行内固定开销：'[X] '(4) + ' · '(3) + 时钟 'M:SS'(最长 5) + 安全余量 2 = 14 列
+    local reserved=14
+    cols="$(status_cols)"
+    # 终端被旋转/缩放时内核发 SIGWINCH：bash 会在当前 sleep 结束后立刻跑 trap（≤0.15s），
+    # 比等 3s 轮询快得多；下面的轮询只作为兜底。
+    trap 'cols="$(status_cols)"' WINCH
+    while :; do
+      if [ $((i % 20)) -eq 0 ]; then cols="$(status_cols)"; fi   # 约每 3s 复查一次（终端可被旋转/缩放）
+      label="$(cat "$STATUS_FILE" 2>/dev/null || true)"
+      stamp="$(printf '%d:%02d' $((SECONDS / 60)) $((SECONDS % 60)))"
+      budget=$((cols - reserved)); [ "$budget" -lt 6 ] && budget=6
+      # 含非 ASCII（本脚本文案多为中文）时按 2 列/字符保守估算，宁可截短也绝不折行。
+      # 判定用参数展开而不是 [[ == *[!-~]* ]]：后者在 [[ ]] 里是语法错误，而
+      # 【[![:print:]]】在 UTF-8 locale 下会把中文当可打印字符，判不出来。
+      if [ -n "${label//[ -~]/}" ]; then maxchars=$((budget / 2)); else maxchars=$budget; fi
+      if [ "${#label}" -gt "$maxchars" ]; then label="${label:0:$((maxchars - 1))}…"; fi
+      printf '\r\033[K%s[%s]%s %s %s· %s%s' \
+        "$(color '1;36')" "${chars[$((i % 10))]}" "$(color '0')" \
+        "$label" "$(color '2')" "$stamp" "$(color '0')"
+      i=$((i + 1))
+      sleep 0.15
+    done
+  ) &
+  STATUS_PID=$!
+}
+# 停止并擦除状态行；幂等（正常结束与 on_exit 都会调用，第二次是空操作——
+# 否则 EXIT trap 会在完成横幅之后又发一次擦行转义）。
+status_stop() {
+  [ "$STATUS_ON" -eq 1 ] || return 0
+  STATUS_ON=0
+  if [ -n "$STATUS_PID" ]; then
+    kill "$STATUS_PID" 2>/dev/null || true
+    wait "$STATUS_PID" 2>/dev/null || true
+    STATUS_PID=""
+  fi
+  printf '\r\033[K'
+}
+# 长时间命令：状态行常驻时只改文案（动画交给常驻 ticker，避免两个 spinner 抢同一行），
+# 非 TTY / --verbose 时退回一行静态提示。
 run_hidden_spinner() {
-  local label="$1"
+  local label="$1" rc=0
   shift
-  if [ "$VERBOSE" -eq 0 ] && [ -t 1 ]; then
-    spinner_start "$label"
-    run_hidden "$@"
-    local rc=$?
-    spinner_stop
+  if [ "$STATUS_TTY" -eq 1 ]; then
+    STATUS_OVERRIDE="$label"
+    status_render
+    run_hidden "$@" || rc=$?
+    STATUS_OVERRIDE=""
+    status_render
     return "$rc"
   fi
-  # 非 TTY 或 verbose：不启动 spinner，只给一行静态提示。
   if [ "$VERBOSE" -eq 0 ]; then
-    printf '%s...\n' "$label"
+    # 标签本身已经带省略号（"正在安装…..."），这里直接原样打印，别再加一个变成"......"
+    printf '%s\n' "$label"
   fi
   run_hidden "$@"
 }
@@ -103,14 +170,19 @@ run_hidden_spinner() {
 DSH_TMP=""
 on_exit() {
   local rc=$?
+  status_stop                 # 先擦掉常驻状态行，否则失败日志会叠在它上面
+  if [ -n "$STATUS_FILE" ]; then rm -f "$STATUS_FILE" 2>/dev/null || true; fi
   if [ -n "$DSH_TMP" ]; then rm -f "$DSH_TMP" 2>/dev/null || true; fi
   if [ "$rc" -ne 0 ]; then
-    spinner_stop
     printf '\n%s[x]%s 安装失败（退出码 %s），最近日志：\n' "$(color '1;31')" "$(color '0')" "$rc" >&2
-    tail -25 "$SETUP_LOG" 2>/dev/null >&2 || true
+    # ⚠️ 不能写 `tail ... 2>/dev/null >&2`：重定向从左到右生效，`2>/dev/null` 先把 stderr
+    # 指向 /dev/null，`>&2` 再把 stdout 复制成同一个 /dev/null，日志尾部会被整个吞掉
+    # （实测过：横幅照常打印、"最近日志："后面永远是空的）。
+    if [ -s "$SETUP_LOG" ]; then tail -25 "$SETUP_LOG" >&2; fi
   fi
 }
 trap on_exit EXIT
+status_start   # 状态指示器从这里开始，一直显示到脚本结束（见末尾 status_stop）
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"   # 脚本真实目录（脚本中段会 cd，须用绝对路径）
 DSH_NPM="@deepseek-ai/dsh"
@@ -197,6 +269,7 @@ run_hidden_spinner "  正在下载 Node headers（约 1 分钟）..." timeout 30
 GYP_GIPI="$HOME/.cache/node-gyp/$NODE_VER/include/node/common.gypi"
 if [ -f "$GYP_GIPI" ]; then
   info "修补 common.gypi: 定义 android_ndk_path 为空（修 node-pty 的 Undefined variable 错误）"
+  status_clear   # 下面 python 直接往终端打印，先擦掉常驻状态行免得两行文字叠在一起
   python3 - "$GYP_GIPI" <<'PY'
 import sys
 p = sys.argv[1]
@@ -259,18 +332,10 @@ else
   warn "  缺少 patches/patch-dsh-android-link.js，跳过硬链接修复"
 fi
 
-# 4a-verify: 快速验证 link→rename / no-replace 回退补丁确实就位。
-# 只做静态检查和临时目录写入测试，不触碰 ~/.dsh/sessions，不破坏现有会话。
-HFIX_VERIFY="$SCRIPT_DIR/patches/verify-android-link-fix.js"
-if [ -f "$HFIX_VERIFY" ]; then
-  if run_hidden node "$HFIX_VERIFY" --root "$DSH_DIR/node_modules/@deepseek-ai"; then
-    ok "  android 硬链接修复验证通过（会话/附件/fs-local）"
-  else
-    warn "  [!!] android 硬链接修复验证未通过，请人工检查对应补丁"
-  fi
-else
-  warn "  缺少 patches/verify-android-link-fix.js，跳过硬链接修复验证"
-fi
+# 4a-verify 不在这里跑：它要等到 sharp WASM 回退（下面 step 5/10）之后。
+# 原因：验证脚本的附件测试会 import dsh-attachment-local，而该模块在加载时 import sharp；
+# npm install 会清空 node_modules，sharp 在 step 5 之前必然加载失败，于是每次全新安装/升级
+# 都会打出"硬链接修复验证未通过"的假失败。见 step 5/10 之后的 verify 段。
 
 # 4b: Android flock 原生绑定（修发消息时 "flock is not supported on android-arm64"）。
 #     node-addon-system 无 Android 预编译包，用 clang 编译其自带 src/flock.c 成本机
@@ -291,6 +356,7 @@ fi
 # （lib/runner-launch-*.js），锚点已不在 lib/index.js。因此按通配扫描整个 lib 目录，
 # 命中才报成功；未命中明确告警（而非像早先那样无条件打印"已修补"的假成功）。
 SP_LIB="$DSH_DIR/node_modules/@deepseek-ai/dsh-subprocess-local/lib"
+status_clear   # python 的 patched/[skip]/[warn] 直接写终端，先擦掉常驻状态行
 if python3 - "$SP_LIB" <<'PY'
 import glob, os, sys
 lib = sys.argv[1]
@@ -332,6 +398,7 @@ if grep -q "dsh-android: 普通回车换行" "$CB" 2>/dev/null; then
   ok "  client-ui-conversation 回车补丁已就位"
 else
   cp -f "$CB" "$CB_BAK" 2>/dev/null || true
+  status_clear   # python 的 patched/ERROR 直接写终端，先擦掉常驻状态行
   if ! python3 - "$CB" <<'PY'
 import sys
 p = sys.argv[1]
@@ -388,16 +455,36 @@ elif [ -z "$SHARP_VER" ]; then
   # 读不到 sharp 版本就不能猜：装错版本的 wasm 比不装更糟（ABI/协议不匹配）。
   warn "  无法确定 sharp 版本（sharp 未安装？），跳过 sharp-wasm32 回退"
 else
+  # 在临时目录里装 wasm 包，再拷进 dsh 的 node_modules。npm 输出写入 setup.log：
+  # 早先把输出丢进 /dev/null，装失败时 set -e 只会抛一句无线索的"安装失败"，日志尾部也是空的。
   SWTMP="$(mktemp -d)"
-  cd "$SWTMP"
-  npm init -y >/dev/null 2>&1
-  npm install "@img/sharp-wasm32@$SHARP_VER" >/dev/null 2>&1
+  if ! ( cd "$SWTMP" && npm init -y >/dev/null 2>&1 && npm install "@img/sharp-wasm32@$SHARP_VER" ) >>"$SETUP_LOG" 2>&1; then
+    rm -rf "$SWTMP"
+    error "  sharp-wasm32@${SHARP_VER} 安装失败（原因见 $SETUP_LOG）。sharp 无 Android 原生包，缺 wasm 会让附件模块加载失败。"
+    exit 1
+  fi
   mkdir -p "$DSH_DIR/node_modules/@img"
-  cp -r node_modules/@img/sharp-wasm32 "$DSH_DIR/node_modules/@img/"
-  cp -r node_modules/@emnapi "$DSH_DIR/node_modules/" 2>/dev/null || true
-  cd "$HOME"
+  cp -r "$SWTMP/node_modules/@img/sharp-wasm32" "$DSH_DIR/node_modules/@img/"
+  # @emnapi/runtime 是 sharp-wasm32 的运行时依赖，缺它 wasm 加载即失败——这里的错误不能吞。
+  cp -r "$SWTMP/node_modules/@emnapi" "$DSH_DIR/node_modules/"
   rm -rf "$SWTMP"
   ok "  sharp-wasm32@${SHARP_VER} 已安装"
+fi
+
+# 4a-verify: 快速验证 link→rename / no-replace 回退补丁确实就位。
+# 只做静态检查和临时目录写入测试，不触碰 ~/.dsh/sessions，不破坏现有会话。
+# ⚠️ 必须放在 sharp WASM 回退之后：验证脚本的附件测试会 import dsh-attachment-local，
+# 而它 import sharp；sharp 不可加载时该测试必然抛 Could not load the "sharp" module，
+# 变成每次安装/升级都误报"硬链接修复验证未通过"的假失败。
+HFIX_VERIFY="$SCRIPT_DIR/patches/verify-android-link-fix.js"
+if [ -f "$HFIX_VERIFY" ]; then
+  if run_hidden node "$HFIX_VERIFY" --root "$DSH_DIR/node_modules/@deepseek-ai"; then
+    ok "  android 硬链接修复验证通过（会话/附件/fs-local）"
+  else
+    warn "  [!!] android 硬链接修复验证未通过，请人工检查对应补丁"
+  fi
+else
+  warn "  缺少 patches/verify-android-link-fix.js，跳过硬链接修复验证"
 fi
 
 # ------------------------------------------------------ 6/10 dsh 包装脚本
@@ -417,7 +504,8 @@ if [ ! -x "$NODE_BIN" ] || [ ! -f "$DSH_BIN" ]; then
   warn "  [!!] 未找到 node($NODE_BIN) 或 dsh bin.js($DSH_BIN)，跳过包装脚本重建，保留 $DSH_CMD"
 else
   if [ -L "$DSH_CMD" ]; then
-    warn "  $DSH_CMD 是符号链接（npm 覆盖产物：$(readlink "$DSH_CMD" 2>/dev/null || echo '?')），将替换为独立包装脚本"
+    # 这是 npm install -g 的正常产物（每次升级都会出现），不是错误，故用 info 而非 warn。
+    info "  $DSH_CMD 被 npm 覆盖为符号链接（$(readlink "$DSH_CMD" 2>/dev/null || echo '?')），重建为独立包装脚本"
   fi
   DSH_BACKUP="$DSH_CMD.dsh-android.bak"
   if [ -e "$DSH_CMD" ] || [ -L "$DSH_CMD" ]; then
@@ -515,6 +603,8 @@ fi
 # ---------------------------------------------------------------- 10/10 完成
 ELAPSED="$(( $(date +%s) - START_TIME ))"
 step "10/10 完成"
+# 状态指示器到此为止：先擦掉常驻状态行，再打完成横幅，否则横幅会和它叠在同一行。
+status_stop
 printf '%s════════════════════════════════════════%s\n' "$(color '1;36')" "$(color '0')"
 printf '%s  安装完成 ✅%s\n' "$(color '1;32')" "$(color '0')"
 printf '  耗时        : %s\n' "$(printf '%d分%02d秒' $((ELAPSED / 60)) $((ELAPSED % 60)))"
