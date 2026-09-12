@@ -1,11 +1,6 @@
 #!/data/data/com.termux/files/usr/bin/bash
-# 修复 DSH grep/glob 报 "ripgrep launch failed"（Termux/Android）：
-#   根因：@vscode/ripgrep 仅对 darwin/win32/linux 预编译，Termux(android) 平台包缺失，
-#     dsh-tool-fs-search 硬编到它导致失败，尽管系统已有 `rg`。
-#   修复：(1) 把缺失平台包软链到系统 `rg`；(2) 给 resolveRgPath() 加系统 `rg` 回退
-#         （RG_PATH env -> `which rg` -> PATH）。
-#   幂等；每次 npm/yarn/pnpm 更新 dsh 会清空 node_modules，更新后必须重跑本脚本。
-# 用法：bash apply-rg-fix.sh ；DSH_ROOT=... bash apply-rg-fix.sh 覆盖默认安装目录
+# 修复 grep/glob 报 "ripgrep launch failed"：@vscode/ripgrep 无 Android 平台包，软链平台包到系统 rg 并给 resolveRgPath() 加回退。
+# 用法：bash apply-rg-fix.sh；幂等，dsh 更新清空 node_modules 后必须重跑。
 set -euo pipefail
 
 DSH_ROOT="${DSH_ROOT:-/data/data/com.termux/files/usr/lib/node_modules/@deepseek-ai/dsh}"
@@ -35,7 +30,7 @@ echo "==> step 1/3: symlink packaged platform rg -> system rg"
 mkdir -p "$PLATFORM_BIN"
 ln -sf "$RG" "$PLATFORM_BIN/rg"
 
-# ---- 2. patch resolveRgPath() fallback (idempotent) ----
+# 1. 软链平台包到系统 rg（@vscode/ripgrep 期望的路径）
 echo "==> step 2/3: patch resolveRgPath() fallback"
 node - "$SEARCH_LIB" <<'JS'
 const fs = require('fs');
@@ -195,7 +190,7 @@ fs.writeFileSync(lib, src);
 console.log('    patched OK');
 JS
 
-# ---- 3. verify in a fresh node process ----
+# 3. 验证：用全新 node 子进程实际解析一次 rg 路径并打印版本
 echo "==> step 3/3: verify resolution in a fresh node process"
 if ! (
   cd "$(dirname "$SEARCH_LIB")"

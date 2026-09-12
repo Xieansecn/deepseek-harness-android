@@ -1,7 +1,6 @@
 #!/data/data/com.termux/files/usr/bin/bash
-# 应用 JS 性能补丁到已安装的 dsh 运行时 bundle（patches/01~05.patch，基于 rc.6）。
-# 幂等：已应用自动跳过；已过时/上游已实现的补丁（0.1.2-rc.1 起 01/02/03/05）跳过并注明原因，
-# 失败非 0 退出。当前实际只应用 04-frontend-static-cache。
+# 对已安装的 dsh 运行时 bundle 应用 JS 性能补丁（patches/01~05.patch）；幂等，过时的自动跳过并注明原因。
+# 用法：bash apply-js-patches.sh；当前实际只有 04-frontend-static-cache 仍生效。
 set -euo pipefail
 
 DSH_PACKAGES_DIR="${DSH_PACKAGES_DIR:-/data/data/com.termux/files/usr/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai}"
