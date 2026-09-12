@@ -107,7 +107,8 @@ bash setup.sh                 # 升级 dsh 或 Node 后必须重跑
 | 变量 | 默认值 | 作用 |
 |---|---|---|
 | `DSH_READY_TIMEOUT` | `90` | 等 dsh 打印带 token URL 的最长秒数（冷启动实测 ~12s，未打补丁 ~22s，留足余量） |
-| `DSH_STOP_TIMEOUT` | `10` | 停止时等待进程退出的最长秒数，超时后 `SIGKILL` |
+| `DSH_STOP_GRACE` | `1.5` | 停止时给 dsh 优雅退出的秒数；超时补发一次 `SIGTERM`（dsh 自己的"二次信号立即强退"，实测 0.17s）。设大些（如 `6`）可让它自己退完 |
+| `DSH_STOP_TIMEOUT` | `6` | 补发 `SIGTERM` 后仍不退时，等多久 `SIGKILL` 兜底 |
 | `DSH_VIA_APP` | `mark.via` | 优先打开的浏览器包名（Via） |
 | `DSH_OPEN_APP` | 空 | 强制指定浏览器包名/组件，优先级最高，如 `com.android.chrome` |
 | `DSH_OPEN_CHOOSER` | `0` | 设为 `1` 时弹系统应用选择器 |
@@ -372,7 +373,8 @@ bash setup.sh                 # must re-run after upgrading dsh or Node
 | Variable | Default | Purpose |
 |---|---|---|
 | `DSH_READY_TIMEOUT` | `90` | Max seconds to wait for the tokenized URL (cold start ~12s patched, ~22s unpatched; kept generous) |
-| `DSH_STOP_TIMEOUT` | `10` | Max seconds to wait for exit when stopping, then `SIGKILL` |
+| `DSH_STOP_GRACE` | `1.5` | Seconds dsh gets to exit gracefully; after that a second `SIGTERM` is sent (dsh's own "second signal quits now", measured 0.17s). Raise it (e.g. `6`) to let it finish disposing |
+| `DSH_STOP_TIMEOUT` | `6` | After that second `SIGTERM`, how long to wait before the `SIGKILL` fallback |
 | `DSH_VIA_APP` | `mark.via` | Browser package to prefer (Via) |
 | `DSH_OPEN_APP` | empty | Force a browser package/component (highest priority), e.g. `com.android.chrome` |
 | `DSH_OPEN_CHOOSER` | `0` | Set to `1` to show the system app chooser |
