@@ -466,8 +466,7 @@ else
   if [ -e "$DSH_CMD" ] || [ -L "$DSH_CMD" ]; then
     cp -P -f "$DSH_CMD" "$DSH_BACKUP" 2>/dev/null || true
   fi
-# 权限模式：Android 无 bwrap/landlock，必须 danger-full-access（文本取自 config/cordis.patch.yml）。
-# ⚠️ 目标文件可能已有用户其它配置层：缺权限层时【追加】，绝不用 cat > 整体重写。
+  # 临时文件由 on_exit（全脚本唯一的 EXIT trap）统一清理，此处不注册 trap。
   DSH_TMP="$PREFIX_BIN/.dsh-wrapper.tmp.$$"
   cat > "$DSH_TMP" <<EOF
 #!/data/data/com.termux/files/usr/bin/sh
@@ -495,13 +494,15 @@ fi
 
 # ----------------------------------------------------- 7/9 启动/停止/重启脚本
 step "7/9 启动/停止/重启脚本"
+# 三个脚本从仓库复制到 ~/dsh/（真实绝对路径，不依赖 PATH）。
 mkdir -p "$INSTALL_DIR/storage"
 cp "$SCRIPT_DIR/start_dsh.sh"         "$INSTALL_DIR/start_dsh.sh"
 cp "$SCRIPT_DIR/stop_dsh.sh"          "$INSTALL_DIR/stop_dsh.sh"
 cp "$SCRIPT_DIR/restart_dsh_now.sh"   "$INSTALL_DIR/restart_dsh_now.sh"
 chmod +x "$INSTALL_DIR/start_dsh.sh" "$INSTALL_DIR/stop_dsh.sh" "$INSTALL_DIR/restart_dsh_now.sh"
 
-# 7/9 写入启动/停止/重启脚本（真实路径绝对复制）。
+# 权限模式：Android 无 bwrap/landlock，必须 danger-full-access（文本取自 config/cordis.patch.yml）。
+# ⚠️ 目标文件可能已有用户其它配置层：缺权限层时【追加】，绝不用 cat > 整体重写。
 PROFILE_PATCH="$HOME/.dsh/profiles/web/cordis.patch.yml"
 SANDBOX_LAYER_FILE="$SCRIPT_DIR/config/cordis.patch.yml"
 if [ -f "$SANDBOX_LAYER_FILE" ]; then
@@ -523,8 +524,8 @@ if ! grep -q "danger-full-access" "$PROFILE_PATCH" 2>/dev/null; then
   fi
 fi
 
-# 8/9 JS 性能补丁属增强项：失败只警告、继续执行，避免留下半完成状态。
 # -------------------------------------------------- 8/9 JS 性能补丁(可选)
+# 属增强项：失败只警告、继续执行，避免留下半完成状态。
 if [ -f "$SCRIPT_DIR/apply-js-patches.sh" ]; then
   step "8/9 JS 性能补丁"
   if run_hidden bash "$SCRIPT_DIR/apply-js-patches.sh"; then
