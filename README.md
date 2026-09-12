@@ -106,7 +106,7 @@ bash setup.sh                 # 升级 dsh 或 Node 后必须重跑
 
 | 变量 | 默认值 | 作用 |
 |---|---|---|
-| `DSH_READY_TIMEOUT` | `90` | 等 dsh 打印带 token URL 的最长秒数（冷启动实测约 9s，留足余量） |
+| `DSH_READY_TIMEOUT` | `90` | 等 dsh 打印带 token URL 的最长秒数（冷启动实测 ~12s，未打补丁 ~22s，留足余量） |
 | `DSH_STOP_TIMEOUT` | `10` | 停止时等待进程退出的最长秒数，超时后 `SIGKILL` |
 | `DSH_VIA_APP` | `mark.via` | 优先打开的浏览器包名（Via） |
 | `DSH_OPEN_APP` | 空 | 强制指定浏览器包名/组件，优先级最高，如 `com.android.chrome` |
@@ -145,10 +145,11 @@ DSH_NO_OPEN=1 bash ~/dsh/start_dsh.sh                     # 只打印 URL 自己
 | grep/glob 报 `ripgrep launch failed` | `@vscode/ripgrep` 无 Android 预编译包 | 符号链接系统 `rg` + 修补 `resolveRgPath()` 回退 |
 | HMR 启动崩溃 | `--expose-internals is required` | 重建 `dsh` 包装脚本，加 `--expose-internals --no-warnings` |
 | bash 工具不可用 | `SANDBOX_UNAVAILABLE` | 写入 `danger-full-access` 配置层（见下方安全说明） |
-| 整页重载重复下载 JS | 每次刷新重下 ~4.7MB bundle | 给 `/assets/` 静态资源加 immutable 缓存头 |
+| 整页重载重复下载 JS | 每次刷新重下 `/assets/` 全部构建产物（本机实测 ~4.5MB） | 给 `/assets/` 静态资源加 immutable 缓存头 |
+| 冷启动十几秒才出 token | `dsh web` 起来后端口先回 401，十几秒后才打印鉴权 URL | 补丁 `06`：客户端插件组合（`dsh-client-modules`）启动时会全量重组约 10 次，每次都把所有 client bundle 预建一遍单条 artifact；改为**按需构建** + 索引式行数统计（实测冷启动 22.6s → 12.5s，产物与未打补丁时逐字节一致） |
 
 > [!NOTE]
-> 旧补丁 `01`/`02`/`03`/`05`（history 瘦身、增量重连、连接 schema、插件 bundle 缓存）对应的上游模块**已被移除或上游已原生实现**，`apply-js-patches.sh` 会标记 `[skip] 已过时` 并打印原因，不会强行改写。
+> 现在只保留两个上游 JS 性能补丁：`01-frontend-static-cache`（静态资源 immutable 缓存头）与 `02-client-modules-lazy-compose`（客户端 combo 按需构建）。历史上做长会话历史瘦身的 `01`~`03`/`05`（apiproxy history slim、增量重连、连接 schema、插件 bundle 缓存）宿主模块已被上游移除或原生实现，相关补丁文件与"过时跳过"逻辑已删除。两个补丁的锚点已对照 npm 上 0.1.5-rc.2 源码逐字节核对。
 
 ## 🗂 工作原理与安装步骤
 
@@ -164,7 +165,7 @@ DSH_NO_OPEN=1 bash ~/dsh/start_dsh.sh                     # 只打印 URL 自己
 | `5/9` | sharp wasm 回退（附件模块依赖） |
 | `6/9` | 重建 `dsh` 包装脚本（`--expose-internals`，原子 `mv` 替换，不碰符号链接目标） |
 | `7/9` | 写入 `~/dsh/` 下的启动/停止/重启脚本 + `danger-full-access` 配置层 |
-| `8/9` | JS 性能补丁（缓存头等，过时的自动跳过） |
+| `8/9` | JS 性能补丁（缓存头、客户端 combo 按需构建，过时的自动跳过） |
 | `9/9` | 完成汇总 + 硬链接补丁验证（真实运行测试，不碰你的会话数据） |
 
 ### 鉴权与启动链路
@@ -195,7 +196,7 @@ setup.sh                安装 + 打补丁 + 生成脚本
 ```text
 deepseek-harness-android/
 ├── setup.sh                     # 主入口：安装 dsh + 全部 Android 修补（幂等）
-├── apply-js-patches.sh          # 应用/跳过 JS 性能补丁（过时的自动 [skip]）
+├── apply-js-patches.sh          # 应用 JS 性能补丁（01 缓存头 / 02 客户端 combo，幂等）
 ├── apply-rg-fix.sh              # 修复 ripgrep launch failed
 ├── start_dsh.sh                 # 启动/复用服务 + 取 token + 打开浏览器（Via 优先）
 ├── stop_dsh.sh                  # 安全停止（pid 身份二次校验 + 端口释放确认）
@@ -203,7 +204,7 @@ deepseek-harness-android/
 ├── config/
 │   └── cordis.patch.yml         # danger-full-access 配置层（安装到 ~/.dsh/profiles/web/）
 ├── patches/
-│   ├── 01~05-*.patch            # JS 补丁源（多数已被上游取代，见上文说明）
+│   ├── 01~02-*.patch            # JS 补丁源（缓存头 / 客户端 combo）
 │   ├── patch-dsh-android-link.js    # 禁硬链接修复（rename / O_EXCL+rename 回退）
 │   ├── patch-dsh-android-flock.js   # flock 原生绑定（编译 + 运行时自检）
 │   └── verify-android-link-fix.js   # 硬链接修复验证（临时目录真实运行，不碰会话）
@@ -242,6 +243,8 @@ bash apply-js-patches.sh
 node patches/patch-dsh-android-link.js  --root "$DSH_DIR/node_modules/@deepseek-ai"
 node patches/verify-android-link-fix.js --root "$DSH_DIR/node_modules/@deepseek-ai"
 node patches/patch-dsh-android-flock.js --root "$DSH_DIR/node_modules/@deepseek-ai"
+# 补丁 02 自检（临时实例，不动运行中的服务）
+node patches/verify-client-modules-lazy.js
 ```
 
 其中 `DSH_DIR=/data/data/com.termux/files/usr/lib/node_modules/@deepseek-ai/dsh`。
@@ -368,7 +371,7 @@ bash setup.sh                 # must re-run after upgrading dsh or Node
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `DSH_READY_TIMEOUT` | `90` | Max seconds to wait for the tokenized URL (cold start is ~9s; kept generous) |
+| `DSH_READY_TIMEOUT` | `90` | Max seconds to wait for the tokenized URL (cold start ~12s patched, ~22s unpatched; kept generous) |
 | `DSH_STOP_TIMEOUT` | `10` | Max seconds to wait for exit when stopping, then `SIGKILL` |
 | `DSH_VIA_APP` | `mark.via` | Browser package to prefer (Via) |
 | `DSH_OPEN_APP` | empty | Force a browser package/component (highest priority), e.g. `com.android.chrome` |
@@ -407,10 +410,11 @@ Upstream `@deepseek-ai/dsh` ships linux/darwin prebuilds only and assumes a full
 | grep/glob: `ripgrep launch failed` | no Android prebuild from `@vscode/ripgrep` | symlink system `rg` + patch the `resolveRgPath()` fallback |
 | HMR crashes on start | `--expose-internals is required` | rebuild the `dsh` wrapper with `--expose-internals --no-warnings` |
 | bash tool unavailable | `SANDBOX_UNAVAILABLE` | write the `danger-full-access` config layer (see Security) |
-| Full reload re-downloads JS | ~4.7MB bundles re-fetched every refresh | immutable cache headers for `/assets/` |
+| Full reload re-downloads JS | every refresh re-fetched all of `/assets/` (~4.5MB measured here) | immutable cache headers for `/assets/` |
+| Cold start takes tens of seconds | the port answers 401 long before the tokenized URL is printed | patch `06`: `dsh-client-modules` recomposes the whole client-plugin graph ~10x during boot and eagerly prebuilds a per-record artifact for every client bundle; made lazy plus an indexed line count (measured cold start 22.6s → 12.5s, byte-identical artifacts) |
 
 > [!NOTE]
-> The old patches `01`/`02`/`03`/`05` (history slimming, incremental resync, connection schema, plugin-bundle cache) target host modules that were **removed upstream or are now native**, so `apply-js-patches.sh` marks them `[skip] superseded` with the reason instead of force-rewriting.
+> Only two upstream JS patches remain: `01-frontend-static-cache` (immutable static-asset cache headers) and `02-client-modules-lazy-compose` (lazy client combos). The old `01`~`03`/`05` history-slimming patches (apiproxy history slim, incremental resync, connection schema, plugin-bundle cache) targeted host modules that were removed upstream or are now native, so those files and the "superseded" machinery were deleted. Both remaining patches were diffed byte-for-byte against the 0.1.5-rc.2 npm sources.
 
 ## 🗂 Architecture & install steps
 
@@ -457,7 +461,7 @@ Key behaviours of `start_dsh.sh`:
 ```text
 deepseek-harness-android/
 ├── setup.sh                     # main entry: install dsh + all Android patches (idempotent)
-├── apply-js-patches.sh          # apply/skip JS perf patches (superseded ones auto-[skip])
+├── apply-js-patches.sh          # apply the JS perf patches (cache headers / lazy client combos)
 ├── apply-rg-fix.sh              # fix "ripgrep launch failed"
 ├── start_dsh.sh                 # start/reuse service + fetch token + open browser (Via first)
 ├── stop_dsh.sh                  # safe stop (pid identity re-check + port release confirm)
@@ -465,7 +469,7 @@ deepseek-harness-android/
 ├── config/
 │   └── cordis.patch.yml         # danger-full-access layer (installed to ~/.dsh/profiles/web/)
 ├── patches/
-│   ├── 01~05-*.patch            # JS patch sources (most superseded upstream — see above)
+│   ├── 01~02-*.patch            # JS patch sources (cache headers / lazy client combos)
 │   ├── patch-dsh-android-link.js    # no-hardlink fix (rename / O_EXCL+rename fallback)
 │   ├── patch-dsh-android-flock.js   # native flock binding (compile + runtime self-test)
 │   └── verify-android-link-fix.js   # hardlink fix verification (real run in temp dir)

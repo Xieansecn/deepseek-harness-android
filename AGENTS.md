@@ -6,19 +6,19 @@
 
 它不是独立的源码项目。仓库里的代码是**胶水脚本 + 补丁**：它们负责安装上游 `dsh` 包，然后对 **已安装到 `/data/data/com.termux/files/usr/lib/node_modules/@deepseek-ai/dsh`** 的那份 node_modules 做一系列 Android 兼容修补（直接改写目标文件）。绝大多数改动不落在这份仓库内，而是落在 `dsh` 安装目录里。
 
-> 当前已在 `deepseek-harness 0.1.5-rc.1` 上验证，向下兼容 rc.6 / rc.7 及更早。
+> 当前基准：`@deepseek-ai/dsh` **0.1.5-rc.1**（其 node_modules 里的 `@deepseek-ai/*` 为 **0.1.5-rc.2**）。补丁锚点已对照 npm 上同版本源码逐字节核对——安装树 == 上游源码 + `patches/01`、`02` 两个补丁，别无改动（用 `npm pack` 下载同名同版本 tarball、反向 dry-run 后 `diff` 验证）。
 
 ## 目录结构
 
 | 路径 | 作用 |
 |---|---|
 | `setup.sh` | **主入口**。安装构建依赖 → 修补 node-gyp → 编译安装 dsh（android30）→ 应用后端补丁 → sharp wasm 回退 → 重建 `dsh` 包装脚本 → 写入启动/停止/重启脚本与 `danger-full-access` 配置 → 调用各 `apply-*.sh` → 硬链接补丁验证。默认简洁输出，原始命令写入 `~/dsh/setup.log`；支持 `./setup.sh --verbose` 透传原始输出。安装/升级后必须重跑。 |
-| `apply-js-patches.sh` | 应用 JS 性能补丁（幂等）。0.1.2-rc.1 起实际只有 `04`（静态资源 immutable 缓存头）仍生效；`01`/`02`/`03`/`05` 已过时（宿主模块被上游移除/重组或上游已原生实现），按 `SUPERSEDED_NOTE` 自动 `[skip]` 并注明原因。 |
+| `apply-js-patches.sh` | 应用两个 JS 性能补丁：`01-frontend-static-cache`（静态资源 immutable 缓存头）、`02-client-modules-lazy-compose`（客户端 combo 按需构建，冷启动 22s→12s）。幂等：已应用 `[skip]`，锚点失配 `[FAIL]` 且不落盘（`setup.sh` 只告警不中断）。 |
 | `apply-rg-fix.sh` | 修复 grep/glob 报 `ripgrep launch failed`（symlink 系统 `rg` + 修补 `resolveRgPath()` 回退；幂等）。 |
 | `start_dsh.sh` | 启动/复用 `dsh web` 服务，提取并校验带 token 的鉴权 URL，然后按包名优先用 **Via**（`am start`）打开浏览器，找不到再回退系统默认浏览器。 |
 | `stop_dsh.sh` | 按 pid 文件 + 兜底模式安全停止 dsh。 |
 | `restart_dsh_now.sh` | 重启 dsh web，使用 `--no-open` 并写入与 `start_dsh.sh` 相同的 `dsh.log`，保证后续能提取当前进程 token。 |
-| `patches/` | 补丁源文件：`01`~`05` 为 `apply-js-patches.sh` 用的 `.patch`；`patch-dsh-android-link.js` 为 Android 禁 hardlink 修复（会话直接发布改 `rename()`；no-replace 路径用「O_EXCL 占位+rename」回退）；`patch-dsh-android-flock.js` 为 Android flock 原生绑定（编译 `src/flock.c` + 改 `lib/flock.js`）；`verify-android-link-fix.js` 为硬链接补丁验证脚本（含附件/fs-local 真实运行测试）。 |
+| `patches/` | 补丁源文件：`01`~`02` 为 `apply-js-patches.sh` 用的 `.patch`；`patch-dsh-android-link.js` 为 Android 禁 hardlink 修复（会话直接发布改 `rename()`；no-replace 路径用「O_EXCL 占位+rename」回退）；`patch-dsh-android-flock.js` 为 Android flock 原生绑定（编译 `src/flock.c` + 改 `lib/flock.js`）；`verify-android-link-fix.js` 为硬链接补丁验证脚本（含附件/fs-local 真实运行测试）；`verify-client-modules-lazy.js` 为补丁 02 的自检（临时实例 + 资源逐字节比对）。 |
 | `config/cordis.patch.yml` | sandbox `danger-full-access` 配置层，安装到 `~/.dsh/profiles/web/cordis.patch.yml`。 |
 | `docs/index.html` | 说明文档站。 |
 | `README.md` | 中英文用户文档（安装、修复项、FAQ）。 |
@@ -60,14 +60,14 @@ dsh Web UI 已从“裸 URL 即可访问”改为 **进程 launch token + 持久
 - **⚠️ 打开浏览器一律用 Termux 内建工具，不再走 `xdg-open`**：顺序是 ①`DSH_OPEN_APP=<包名/组件>`（显式覆盖）→ ②Via（默认 `DSH_VIA_APP=mark.via`，用 `am start -a android.intent.action.VIEW -d <url> <pkg>` 按包名打开）→ ③系统默认浏览器（`termux-open-url` 不带包名）→ ④`DSH_OPEN_CHOOSER=1` 才用 `xdg-open --chooser`。按包名打开同时也避开了 PWA 对 `?token=` 的 scope 劫持。
   - **⚠️ `termux-open-url <url> [pkg]` 的退出码不可用**：它内部 `am start ... > /dev/null`（**不重定向 stderr**），包名不存在时只打印 `Error: Activity not started...` 但仍返回 0，所以无法据此回退。判定要用 `am start` 自己的退出码（包名不存在 = 1，成功 = 0，本机实测）。
   - **⚠️ 不要用 `am start ... | grep` 判定成败**：管道退出码是 `grep` 的，会把失败当成功（实测踩过）。要么直接看 `am` 的退出码，要么把输出先落文件。
-- **⚠️ 脚本语言与性能约定（`start_dsh.sh`/`stop_dsh.sh`/`restart_dsh_now.sh`）**：只用 POSIX sh 语法（不用 `local` / `[[ ]]` / 数组 / `<<<` / `$SECONDS`；`$(())`、`case`、参数展开都可用），这样 `bash -n` + `dash -n` 都能过。**但"快"不靠换 shell**：本机实测 bash 空启动 11ms、dash 17ms（换 dash 更慢），真正的成本是 **fork+exec 约 19ms**（实测 100×`true` = 1.9s）——所以禁止在轮询循环里每次起子进程：旧 `wait_ready` 每秒起 4 个（`grep|tail` + 2×`curl`，单轮 128ms），现在改为**流式读 `tail -f`** + `kill -0` 内建探测 + 端口探测只做一次。唯一无法消除的部分是 dsh 自身的 plugin loader settle（冷启动实测约 9s），脚本侧实测 9.99s→9.13s，不要承诺"秒开"。
+- **⚠️ 脚本语言与性能约定（`start_dsh.sh`/`stop_dsh.sh`/`restart_dsh_now.sh`）**：只用 POSIX sh 语法（不用 `local` / `[[ ]]` / 数组 / `<<<` / `$SECONDS`；`$(())`、`case`、参数展开都可用），这样 `bash -n` + `dash -n` 都能过。**但"快"不靠换 shell**：本机实测 bash 空启动 11ms、dash 17ms（换 dash 更慢），真正的成本是 **fork+exec 约 19ms**（实测 100×`true` = 1.9s）——所以禁止在轮询循环里每次起子进程：旧 `wait_ready` 每秒起 4 个（`grep|tail` + 2×`curl`，单轮 128ms），现在改为**流式读 `tail -f`** + `kill -0` 内建探测 + 端口探测只做一次。脚本侧开销实测只在 0.1s 量级（服务已在跑时的复用路径 3 次实测 0.10–0.13s）；等待全部来自 dsh 自身的 plugin loader settle——打上 `02` 后冷启动到打印 token 约 12s（未打时约 22s），不要承诺"秒开"。
   - **⚠️ 管道子 shell 里 `return 0` 不会从函数返回**：`f(){ ... | while read l; do ... return 0; done; }` 的 `return` 只结束那个子 shell，函数返回值来自管道末尾状态；同理循环里对变量赋值也传不回父 shell。判定成功要看**结果文件非空**，或把状态写进文件（`start_dsh.sh` 的 `RESULT_FILE`/`PORT_FILE` 就是这个用途）。
   - **⚠️ `test -s` 判的是"大小>0"，不是"存在"**：`: > "$f"` 建出 0 字节文件，`[ -s "$f" ]` 永远为假（实测踩过：降级打开裸 URL 的路径因此完全不可达）。标记文件要用 `printf 'up' > "$f"` 写进内容。
   - **⚠️ `set -u` 下函数参数要写 `${1:-}`**：`open_gui` 被无参调用时 `[ -n "$1" ]` 会直接报 unbound variable 中止。
   - **⚠️ 临时文件路径不要用 `VAR=x cmd` 形式初始化**：那是在子 shell 里赋值，主 shell 里 `VAR` 仍为空。
   - 停止脚本的耗时同样不在 kill 本身，而在等 node 收尾（SIGTERM 后自己退出）；`stop_dsh.sh` 先 `kill -0` 内建等主进程、再探一次端口确认释放，之后才 `SIGKILL` 兜底。
 - **幂等性要求**：所有 `apply-*.sh` 和 `setup.sh` 中的修补必须可重复执行——已应用则跳过（用 grep 特征标记或 `patch -R --dry-run` 检测），内容变化时在原地刷新。新增修补者请保持这一约定。
-- **版本漂移容错**：dsh 升级会清空并重组 node_modules，补丁可能失效。若锚点文本找不到，必须打印警告并跳过错（退出码 0），不要强行改写导致整体失败。参考 `apply-js-patches.sh` 的 `SUPERSEDED_NOTE` 模式。
+- **版本漂移容错**：dsh 升级会清空并重组 node_modules，补丁可能失效。若锚点文本找不到，必须打印警告并跳过、不落盘。`apply-js-patches.sh` 的 `[FAIL] 锚点失配` 分支即此约定（正向 dry-run 不通过就只计数），`setup.sh` 对它的非 0 退出码只告警。
 - **不破坏上游**：只做最小侵入式文本替换（`python3` 或 `node` 读改写），替换前用特征字符串确认目标仍在，替换后打印说明。
 - **中文注释**：脚本注释与用户提示用中文；`apply-rg-fix.sh` 英文注释遵循其原样。
 
@@ -92,6 +92,8 @@ node patches/patch-dsh-android-link.js --root "$DSH_DIR/node_modules/@deepseek-a
 node patches/verify-android-link-fix.js --root "$DSH_DIR/node_modules/@deepseek-ai"
 # Android flock 原生绑定（编译 + 自检 + 改 flock.js）
 node patches/patch-dsh-android-flock.js --root "$DSH_DIR/node_modules/@deepseek-ai"
+# 补丁 02 自检（--port 0 临时实例，不打扰正在跑的服务）
+node patches/verify-client-modules-lazy.js
 ```
 
 ## 测试与验证
@@ -101,7 +103,8 @@ node patches/patch-dsh-android-flock.js --root "$DSH_DIR/node_modules/@deepseek-
 - 涉及 `resolveRgPath()` 的改动，`apply-rg-fix.sh` 已在第 3 步用 fresh node subprocess 实际解析并打印版本自证。
 - 硬链接补丁验证：`patches/verify-android-link-fix.js` 会做静态检查 + 临时目录真实运行测试（附件保存/去重、fs-local 新建文件在 `link()`=EACCES 下必须成功），**不会读取/修改 `~/.dsh/sessions`**。**⚠️ 它必须在 `setup.sh` 的 sharp WASM 回退之后运行**：附件测试要 `import dsh-attachment-local`，该模块加载时 `import sharp`；`npm install` 清空 node_modules 后 sharp 在回退前必然加载失败，会误报"硬链接修复验证未通过"。
 - flock 绑定验证：`patches/patch-dsh-android-flock.js` 自带运行时自检（真实 open 两个 fd：首次加锁成功、第二次竞争返回 `EAGAIN`），失败会非 0 退出。
-- 鉴权启动验证：`start_dsh.sh` 的 `auth_url_valid()` 会用 `curl` 验证日志中的 token URL 返回 `303/302`；如果返回 401，说明 token 已过期/日志陈旧，应重启 dsh。
+- 性能补丁 `02` 的验证：`node patches/verify-client-modules-lazy.js`（`--port 0` 起临时实例，核对单条/批量 bundle 与 sourcemap、未知 URL 404、HEAD 200，并打印启动到 token 的秒数）。手工做等价验证时：另起一个实例 `dsh web --no-open --port 3099`，从 `GET /` 的 `window["__DSH_BOOT__"]` 里取资源 URL，把它与**未打补丁实例**（`3080`，进程里还是旧代码）的响应逐字节比对——单条 bundle、sourcemap、批量 combo 都必须一致（rev 含随机 nonce，比对前去掉 `//# sourceMappingURL=` 那行；`.map` 请求的 URL 要把每个 `client.js` 都换成 `client.js.map`），未知 URL 仍须 404。冷启动 A/B 就测"从启动到日志出现 token"的秒数：同一脚本交替跑，本机实测未打补丁 22.6s / 打补丁 12.5s。
+- 鉴权启动验证：`start_dsh.sh` 的 `check_url()` 会用 `curl` 验证日志中的 token URL 返回 `303/302`；如果返回 401，说明 token 已过期/日志陈旧，应重启 dsh。
 
 ## 安全注意（这个仓库有意为之）
 
@@ -118,5 +121,7 @@ node patches/patch-dsh-android-flock.js --root "$DSH_DIR/node_modules/@deepseek-
 - **原生 addon 的 Android 适配**：上游 `@deepseek-ai/node-addon-system` 只发布 linux/darwin 预编译包。`flock` 路径（`patch-dsh-android-flock.js`）用 clang 编译其自带 `src/flock.c` 为 `bin/android-<arch>/system.node`，并改 `lib/flock.js` 在 `android` 下加载本地绑定（Node headers 取 `$PREFIX/include/node` 或 `~/.cache/node-gyp/<ver>/include/node`）。其它原生 addon 若报 “not supported on android-*” 可照此模式处理。
 - 终端 / 平台检测：`process.platform === "android"` 需视同 `"linux"` 处理（subprocess、终端检测等）。**⚠️ 锚点可能在内容哈希 bundle 里**：0.1.5-rc.1 起 `createProcessInspector()` 被内联进 `dsh-subprocess-local/lib/runner-launch-*.js`，`lib/index.js` 里已找不到 `new LinuxProcessInspector(...)`。因此 `setup.sh` 的 4c 按通配扫描整个 `lib/` 目录，命中才报成功，未命中明确告警——不要退回「只 grep 单个固定文件 + 无条件打印成功」的写法（那会制造假成功，终端功能静默失效）。
 - **补丁必须报真话**：修补步骤只有在确认锚点命中后才可打印成功；锚点未命中要打印 `warn`（按版本漂移约定不中断 setup），绝不可像早期 4c 那样 `str.replace()` 未命中却仍写回文件并打印 “patched”。同理，`anchor_precheck` 的 marker 必须是「打上补丁后才会出现」的特征串，否则预检永远报 OK、掩盖问题。
+- **`02-client-modules-lazy-compose`（客户端 combo，冷启动 22s→12s）**：改 `dsh-client-modules/lib/index.js` 三处——①`newlineCount` 用 `charCodeAt` 索引循环（与 for-of 结果等价；10.8MB 实测 302ms→60ms）；②`buildCombo` 行数只数一次（`line += lineCount + 1`，尾部 `;\n` 恰好一行）；③`compose()` 不再为每条记录急切构建 artifact，改为 `singleRecords`（URL → 记录 + 是否 sourcemap）+ `singleResponses` 按需缓存，`bundleResource` 用 `?? this.singleResponse(url)` 兜底。**⚠️ 判 sourcemap 不能用 `url.endsWith(".map")`**：combo URL 形如 `/plugins/??<id>/client.js.map&rev=<rev>`，`.map` 后面还有 `&rev=`（早期版本因此把 JS 当 map 回了）。`singleRecords`/`singleResponses` 每次 `compose()` 重建，`rebuilt()` 后 rev 变化不会命中旧 URL。
+  - 背景：`dsh web` 启动期间 `ClientModuleRegistry` 会因 `internal/plugin` 事件**全量重组约 10 次**（构造时 1 次 + 每个后加载的 client bundle 各 1 次，实测 table 大小 0→48→…→60），每次都为全部 client bundle 重算批量 combo + 逐条 combo。本机 10.8MB client 源码、60 条记录时一次 compose 约 2s，故光是组合就占冷启动一半以上；挂载的 client 插件越多越慢（上游默认就带 6.9MB 的 `dsh-client-ui-sidebar-documentpreview`）。
 - **本仓库不改动 dsh 前端界面文件**：不注入 CSS/JS、不改 `dsh-web-frontend/dist/index.html` 的 viewport、不改 manifest。历史上有 `apply-frontend.sh` + `patches/mobile.css`/`mobile.js` 做移动端适配，已删除——它依赖上游构建产物里的类名/DOM 结构，每次 dsh 升级都会漂移，且与「只做最小侵入式文本替换」的约定冲突。前端问题请提给上游；本仓库只保证启动/鉴权链路。
 - **不要为了鉴权去改动 dsh 前端界面**：前端已经能通过 `?token=` 自动换 cookie。项目脚本只需要保证打开正确的 token URL、日志文件一致、--no-open 不干扰浏览器打开流程。
