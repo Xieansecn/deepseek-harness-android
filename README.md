@@ -109,6 +109,7 @@ bash setup.sh                 # 升级 dsh 或 Node 后必须重跑
 | `DSH_READY_TIMEOUT` | `90` | 等 dsh 打印带 token URL 的最长秒数（冷启动实测 ~12s，未打补丁 ~22s，留足余量） |
 | `DSH_STOP_GRACE` | `1.5` | 停止时给 dsh 优雅退出的秒数；超时补发一次 `SIGTERM`（dsh 自己的"二次信号立即强退"，实测 0.17s）。设大些（如 `6`）可让它自己退完 |
 | `DSH_STOP_TIMEOUT` | `6` | 补发 `SIGTERM` 后仍不退时，等多久 `SIGKILL` 兜底 |
+| `DSH_HINTS` | `0` | `1` 时启动脚本额外打印 PWA 排查提示并尝试复制 URL 到剪贴板（默认静默） |
 | `DSH_VIA_APP` | `mark.via` | 优先打开的浏览器包名（Via） |
 | `DSH_OPEN_APP` | 空 | 强制指定浏览器包名/组件，优先级最高，如 `com.android.chrome` |
 | `DSH_OPEN_CHOOSER` | `0` | 设为 `1` 时弹系统应用选择器 |
@@ -262,7 +263,7 @@ node patches/verify-client-modules-lazy.js
 
 - **页面白屏 / 打不开**：确认在 Termux 里跑；看 `~/dsh/storage/dsh.log`。
 - **直接开 `127.0.0.1:3080` 显示 401**：正常，新版需要带 token URL，用 `bash ~/dsh/start_dsh.sh`。
-- **浏览器落在了裸地址**：多半是 PWA 劫持，按脚本打印的提示试 `DSH_ORIGIN=localhost`。
+- **浏览器落在了裸地址**：多半是 PWA 劫持，试 `DSH_ORIGIN=localhost`；`DSH_HINTS=1 bash ~/dsh/start_dsh.sh` 会打印三条排查办法。
 - **没有用 Via 打开**：确认 Via 包名为 `mark.via`（不同渠道包名可能不同），可用 `DSH_VIA_APP=<包名>` 指定。
 - **模型没反应**：检查 Models 页的 API Key 与 `~/.dsh/.credentials.yaml`。
 - **升级 dsh / Node 后异常**：重跑 `bash setup.sh`。
@@ -375,6 +376,7 @@ bash setup.sh                 # must re-run after upgrading dsh or Node
 | `DSH_READY_TIMEOUT` | `90` | Max seconds to wait for the tokenized URL (cold start ~12s patched, ~22s unpatched; kept generous) |
 | `DSH_STOP_GRACE` | `1.5` | Seconds dsh gets to exit gracefully; after that a second `SIGTERM` is sent (dsh's own "second signal quits now", measured 0.17s). Raise it (e.g. `6`) to let it finish disposing |
 | `DSH_STOP_TIMEOUT` | `6` | After that second `SIGTERM`, how long to wait before the `SIGKILL` fallback |
+| `DSH_HINTS` | `0` | `1` makes the start script print the PWA troubleshooting hints and try copying the URL to the clipboard (silent by default) |
 | `DSH_VIA_APP` | `mark.via` | Browser package to prefer (Via) |
 | `DSH_OPEN_APP` | empty | Force a browser package/component (highest priority), e.g. `com.android.chrome` |
 | `DSH_OPEN_CHOOSER` | `0` | Set to `1` to show the system app chooser |
@@ -526,7 +528,7 @@ All patch scripts are **idempotent**: run them twice and the second run reports 
 
 - **Blank page / cannot open**: make sure you are inside Termux; check `~/dsh/storage/dsh.log`.
 - **Opening `127.0.0.1:3080` directly shows 401**: expected — the new auth needs the tokenized URL; use `bash ~/dsh/start_dsh.sh`.
-- **The browser lands on the bare URL**: most likely PWA hijacking; try `DSH_ORIGIN=localhost` as printed by the script.
+- **The browser lands on the bare URL**: most likely PWA hijacking; try `DSH_ORIGIN=localhost`, or `DSH_HINTS=1 bash ~/dsh/start_dsh.sh` to print the three workarounds.
 - **It did not open in Via**: verify Via's package is `mark.via` (it can differ per distribution channel) and set `DSH_VIA_APP=<pkg>` if needed.
 - **Model not responding**: check the API key on the Models page and `~/.dsh/.credentials.yaml`.
 - **Broken after upgrading dsh / Node**: re-run `bash setup.sh`.

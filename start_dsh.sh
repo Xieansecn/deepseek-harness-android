@@ -149,21 +149,22 @@ open_gui() {
   open_url "$_target"
 }
 
-# 打印/复制/打开带 token URL；PWA 排查提示只在默认 origin 且真的会打开浏览器时给。
+# 打印/复制/打开带 token URL；排查提示（PWA 绕行 + 剪贴板）默认不打印，DSH_HINTS=1 才显示。
+# 剪贴板一次要 0.75s 且会读回校验（失败不谎报），自动打开浏览器时纯属浪费，故默认不碰。
 announce_and_open() {
   if [ "$NO_OPEN" = "1" ] || [ "${DSH_NO_OPEN:-0}" = "1" ]; then
     echo "[dsh] 服务已就绪（--no-open / DSH_NO_OPEN=1，未打开浏览器）：$1"
     return 0
   fi
   echo "[dsh] 打开 (带 token) $1"
-  if [ "$OPEN_HOST" = "127.0.0.1" ]; then
+  if [ "${DSH_HINTS:-0}" = "1" ] && [ "$OPEN_HOST" = "127.0.0.1" ]; then
     echo "[dsh] 若浏览器落在裸地址/显示 401（退回系统默认浏览器且该 origin 装过 PWA 时会发生：PWA 按 start_url 打开会丢掉 token），依次试："
     echo "[dsh]   1) DSH_ORIGIN=localhost bash ~/dsh/start_dsh.sh     # 换 origin，绕开 PWA（已验证可用）"
     echo "[dsh]   2) DSH_NO_OPEN=1 bash ~/dsh/start_dsh.sh            # 只打印 URL，自己粘到浏览器新标签页"
     echo "[dsh]   3) DSH_OPEN_APP=com.android.chrome bash ~/dsh/start_dsh.sh   /   DSH_OPEN_CHOOSER=1 ..."
   fi
-  if copy_url "$1"; then
-    echo "[dsh] 已复制该 URL 到剪贴板，可直接粘贴到浏览器新标签页"
+  if [ "${DSH_HINTS:-0}" = "1" ]; then
+    copy_url "$1" && echo "[dsh] 已复制该 URL 到剪贴板"
   fi
   open_url "$1"
 }
@@ -208,7 +209,7 @@ wait_for_token() {
 # A 复用：日志最后一条 token 仍可用就直接打开。
 wait_and_open() {
   if [ "$NO_OPEN" != "1" ]; then
-    echo "[dsh] 正在等待 dsh 打印带 token 的鉴权 URL（最长 ${READY_TIMEOUT}s）..."
+    echo "[dsh] 等待就绪（最长 ${READY_TIMEOUT}s）..."
   fi
   _rc=0
   wait_for_token || _rc=$?
