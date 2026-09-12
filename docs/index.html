@@ -75,7 +75,6 @@ bash ~/dsh/stop_dsh.sh    # 停止</pre>
       <tr><td>sharp 无法加载</td><td><code>Could not load sharp module</code></td><td>安装 <code>@img/sharp-wasm32</code> wasm 回退</td></tr>
       <tr><td>HMR 启动崩溃</td><td><code>--expose-internals is required</code></td><td>包装脚本加 <code>--expose-internals</code></td></tr>
       <tr><td>bash 工具不可用</td><td><code>SANDBOX_UNAVAILABLE</code></td><td>权限模式设 <code>danger-full-access</code></td></tr>
-      <tr><td>前端不适配竖屏</td><td>桌面布局、触控目标小等</td><td><code>apply-frontend.sh</code> 注入移动端 CSS/JS</td></tr>
     </table>
 
     <h2>五、安全说明</h2>
@@ -89,7 +88,6 @@ bash ~/dsh/stop_dsh.sh    # 停止</pre>
     <h2>六、常见问题</h2>
     <ul>
       <li><b>页面白屏/打不开</b>：确认在 Termux 环境；看日志 <code>~/dsh/storage/dsh.log</code>。</li>
-      <li><b><code>AbortSignal.any is not a function</code></b>：浏览器过旧，<code>apply-frontend.sh</code> 已注入 polyfill。</li>
       <li><b>模型没反应</b>：检查 Models 页 API Key 与 <code>~/.dsh/.credentials.yaml</code>。</li>
       <li><b>换机/重装</b>：重跑 <code>bash setup.sh</code>。</li>
     </ul>
@@ -149,7 +147,6 @@ bash ~/dsh/stop_dsh.sh    # stop</pre>
       <tr><td>sharp fails to load</td><td><code>Could not load sharp module</code></td><td>install <code>@img/sharp-wasm32</code> wasm fallback</td></tr>
       <tr><td>HMR crashes on start</td><td><code>--expose-internals is required</code></td><td>wrapper script adds <code>--expose-internals</code></td></tr>
       <tr><td>bash tool unavailable</td><td><code>SANDBOX_UNAVAILABLE</code></td><td>permission mode <code>danger-full-access</code></td></tr>
-      <tr><td>Frontend not mobile-ready</td><td>desktop layout, small touch targets</td><td><code>apply-frontend.sh</code> injects mobile CSS/JS</td></tr>
     </table>
 
     <h2>5. Security notes</h2>
@@ -163,7 +160,6 @@ bash ~/dsh/stop_dsh.sh    # stop</pre>
     <h2>6. FAQ</h2>
     <ul>
       <li><b>Blank screen / cannot open</b>: make sure it's Termux; check <code>~/dsh/storage/dsh.log</code>.</li>
-      <li><b><code>AbortSignal.any is not a function</code></b>: old browser; <code>apply-frontend.sh</code> injects a polyfill.</li>
       <li><b>Model not responding</b>: check the API Key in Models page and <code>~/.dsh/.credentials.yaml</code>.</li>
       <li><b>Reinstall / new device</b>: re-run <code>bash setup.sh</code>.</li>
     </ul>

@@ -13,13 +13,12 @@
 | 路径 | 作用 |
 |---|---|
 | `setup.sh` | **主入口**。安装构建依赖 → 修补 node-gyp → 编译安装 dsh（android30）→ 应用后端补丁 → sharp wasm 回退 → 重建 `dsh` 包装脚本 → 写入启动/停止/重启脚本与 `danger-full-access` 配置 → 调用各 `apply-*.sh` → 硬链接补丁验证。默认简洁输出，原始命令写入 `~/dsh/setup.log`；支持 `./setup.sh --verbose` 透传原始输出。安装/升级后必须重跑。 |
-| `apply-frontend.sh` | 向 `dsh-web-frontend/dist/index.html` 注入移动端 CSS/JS、viewport/manifest 适配（幂等）。 |
 | `apply-js-patches.sh` | 应用 JS 性能补丁（幂等）。0.1.2-rc.1 起实际只有 `04`（静态资源 immutable 缓存头）仍生效；`01`/`02`/`03`/`05` 已过时（宿主模块被上游移除/重组或上游已原生实现），按 `SUPERSEDED_NOTE` 自动 `[skip]` 并注明原因。 |
 | `apply-rg-fix.sh` | 修复 grep/glob 报 `ripgrep launch failed`（symlink 系统 `rg` + 修补 `resolveRgPath()` 回退；幂等）。 |
-| `start_dsh.sh` | 启动/复用 `dsh web` 服务，提取并校验带 token 的鉴权 URL，然后用 `termux-open-url` 打开浏览器。 |
+| `start_dsh.sh` | 启动/复用 `dsh web` 服务，提取并校验带 token 的鉴权 URL，然后按包名优先用 **Via**（`am start`）打开浏览器，找不到再回退系统默认浏览器。 |
 | `stop_dsh.sh` | 按 pid 文件 + 兜底模式安全停止 dsh。 |
 | `restart_dsh_now.sh` | 重启 dsh web，使用 `--no-open` 并写入与 `start_dsh.sh` 相同的 `dsh.log`，保证后续能提取当前进程 token。 |
-| `patches/` | 补丁源文件：`01`~`05` 为 `apply-js-patches.sh` 用的 `.patch`；`patch-dsh-android-link.js` 为 Android 禁 hardlink 修复（会话直接发布改 `rename()`；no-replace 路径用「O_EXCL 占位+rename」回退）；`patch-dsh-android-flock.js` 为 Android flock 原生绑定（编译 `src/flock.c` + 改 `lib/flock.js`）；`verify-android-link-fix.js` 为硬链接补丁验证脚本（含附件/fs-local 真实运行测试）；`mobile.css`/`mobile.js` 为 `apply-frontend.sh` 注入内容。 |
+| `patches/` | 补丁源文件：`01`~`05` 为 `apply-js-patches.sh` 用的 `.patch`；`patch-dsh-android-link.js` 为 Android 禁 hardlink 修复（会话直接发布改 `rename()`；no-replace 路径用「O_EXCL 占位+rename」回退）；`patch-dsh-android-flock.js` 为 Android flock 原生绑定（编译 `src/flock.c` + 改 `lib/flock.js`）；`verify-android-link-fix.js` 为硬链接补丁验证脚本（含附件/fs-local 真实运行测试）。 |
 | `config/cordis.patch.yml` | sandbox `danger-full-access` 配置层，安装到 `~/.dsh/profiles/web/cordis.patch.yml`。 |
 | `docs/index.html` | 说明文档站。 |
 | `README.md` | 中英文用户文档（安装、修复项、FAQ）。 |
@@ -58,6 +57,15 @@ dsh Web UI 已从“裸 URL 即可访问”改为 **进程 launch token + 持久
 - **dsh 包装脚本内容**：统一为 `exec node --expose-internals --no-warnings <绝对路径>/lib/bin.js "$@"`。lib/bin.js 的 shebang 是 `#!/usr/bin/env node`，缺 `--expose-internals`，故必须重建包装脚本。
 - **进程匹配用 `[b]in.js` 括号技巧**：`pgrep/pkill -f` 可能匹配到含模式串的调用 shell 自身。模式写成 `.../lib/[b]in.js web`（含 dsh 绝对路径 + `web` 子命令），避免自匹配误杀；避免用裸 `-f` 子串。
 - **按 pid 文件杀进程前必做身份二次确认**：pid 文件记录的 pid 可能被系统复用给无关进程。kill 前须 `pgrep -f "$DSH_WEB_PATTERN" | grep -qx "$pid"` 或 `ps -p "$pid" -o args= | grep -q "$DSH_WEB_PATTERN"` 确认它确实是 dsh web（与 stop_dsh.sh 一致），否则跳过走兜底匹配。
+- **⚠️ 打开浏览器一律用 Termux 内建工具，不再走 `xdg-open`**：顺序是 ①`DSH_OPEN_APP=<包名/组件>`（显式覆盖）→ ②Via（默认 `DSH_VIA_APP=mark.via`，用 `am start -a android.intent.action.VIEW -d <url> <pkg>` 按包名打开）→ ③系统默认浏览器（`termux-open-url` 不带包名）→ ④`DSH_OPEN_CHOOSER=1` 才用 `xdg-open --chooser`。按包名打开同时也避开了 PWA 对 `?token=` 的 scope 劫持。
+  - **⚠️ `termux-open-url <url> [pkg]` 的退出码不可用**：它内部 `am start ... > /dev/null`（**不重定向 stderr**），包名不存在时只打印 `Error: Activity not started...` 但仍返回 0，所以无法据此回退。判定要用 `am start` 自己的退出码（包名不存在 = 1，成功 = 0，本机实测）。
+  - **⚠️ 不要用 `am start ... | grep` 判定成败**：管道退出码是 `grep` 的，会把失败当成功（实测踩过）。要么直接看 `am` 的退出码，要么把输出先落文件。
+- **⚠️ 脚本语言与性能约定（`start_dsh.sh`/`stop_dsh.sh`/`restart_dsh_now.sh`）**：只用 POSIX sh 语法（不用 `local` / `[[ ]]` / 数组 / `<<<` / `$SECONDS`；`$(())`、`case`、参数展开都可用），这样 `bash -n` + `dash -n` 都能过。**但"快"不靠换 shell**：本机实测 bash 空启动 11ms、dash 17ms（换 dash 更慢），真正的成本是 **fork+exec 约 19ms**（实测 100×`true` = 1.9s）——所以禁止在轮询循环里每次起子进程：旧 `wait_ready` 每秒起 4 个（`grep|tail` + 2×`curl`，单轮 128ms），现在改为**流式读 `tail -f`** + `kill -0` 内建探测 + 端口探测只做一次。唯一无法消除的部分是 dsh 自身的 plugin loader settle（冷启动实测约 9s），脚本侧实测 9.99s→9.13s，不要承诺"秒开"。
+  - **⚠️ 管道子 shell 里 `return 0` 不会从函数返回**：`f(){ ... | while read l; do ... return 0; done; }` 的 `return` 只结束那个子 shell，函数返回值来自管道末尾状态；同理循环里对变量赋值也传不回父 shell。判定成功要看**结果文件非空**，或把状态写进文件（`start_dsh.sh` 的 `RESULT_FILE`/`PORT_FILE` 就是这个用途）。
+  - **⚠️ `test -s` 判的是"大小>0"，不是"存在"**：`: > "$f"` 建出 0 字节文件，`[ -s "$f" ]` 永远为假（实测踩过：降级打开裸 URL 的路径因此完全不可达）。标记文件要用 `printf 'up' > "$f"` 写进内容。
+  - **⚠️ `set -u` 下函数参数要写 `${1:-}`**：`open_gui` 被无参调用时 `[ -n "$1" ]` 会直接报 unbound variable 中止。
+  - **⚠️ 临时文件路径不要用 `VAR=x cmd` 形式初始化**：那是在子 shell 里赋值，主 shell 里 `VAR` 仍为空。
+  - 停止脚本的耗时同样不在 kill 本身，而在等 node 收尾（SIGTERM 后自己退出）；`stop_dsh.sh` 先 `kill -0` 内建等主进程、再探一次端口确认释放，之后才 `SIGKILL` 兜底。
 - **幂等性要求**：所有 `apply-*.sh` 和 `setup.sh` 中的修补必须可重复执行——已应用则跳过（用 grep 特征标记或 `patch -R --dry-run` 检测），内容变化时在原地刷新。新增修补者请保持这一约定。
 - **版本漂移容错**：dsh 升级会清空并重组 node_modules，补丁可能失效。若锚点文本找不到，必须打印警告并跳过错（退出码 0），不要强行改写导致整体失败。参考 `apply-js-patches.sh` 的 `SUPERSEDED_NOTE` 模式。
 - **不破坏上游**：只做最小侵入式文本替换（`python3` 或 `node` 读改写），替换前用特征字符串确认目标仍在，替换后打印说明。
@@ -78,7 +86,6 @@ bash ~/dsh/restart_dsh_now.sh # 重启 dsh web
 ```bash
 # 单独重跑某个修补（避免整树重装）
 bash apply-rg-fix.sh
-bash apply-frontend.sh
 bash apply-js-patches.sh
 # 硬链接补丁与验证
 node patches/patch-dsh-android-link.js --root "$DSH_DIR/node_modules/@deepseek-ai"
@@ -111,5 +118,5 @@ node patches/patch-dsh-android-flock.js --root "$DSH_DIR/node_modules/@deepseek-
 - **原生 addon 的 Android 适配**：上游 `@deepseek-ai/node-addon-system` 只发布 linux/darwin 预编译包。`flock` 路径（`patch-dsh-android-flock.js`）用 clang 编译其自带 `src/flock.c` 为 `bin/android-<arch>/system.node`，并改 `lib/flock.js` 在 `android` 下加载本地绑定（Node headers 取 `$PREFIX/include/node` 或 `~/.cache/node-gyp/<ver>/include/node`）。其它原生 addon 若报 “not supported on android-*” 可照此模式处理。
 - 终端 / 平台检测：`process.platform === "android"` 需视同 `"linux"` 处理（subprocess、终端检测等）。**⚠️ 锚点可能在内容哈希 bundle 里**：0.1.5-rc.1 起 `createProcessInspector()` 被内联进 `dsh-subprocess-local/lib/runner-launch-*.js`，`lib/index.js` 里已找不到 `new LinuxProcessInspector(...)`。因此 `setup.sh` 的 4c 按通配扫描整个 `lib/` 目录，命中才报成功，未命中明确告警——不要退回「只 grep 单个固定文件 + 无条件打印成功」的写法（那会制造假成功，终端功能静默失效）。
 - **补丁必须报真话**：修补步骤只有在确认锚点命中后才可打印成功；锚点未命中要打印 `warn`（按版本漂移约定不中断 setup），绝不可像早期 4c 那样 `str.replace()` 未命中却仍写回文件并打印 “patched”。同理，`anchor_precheck` 的 marker 必须是「打上补丁后才会出现」的特征串，否则预检永远报 OK、掩盖问题。
-- 前端适配：viewport 用 `interactive-widget=resizes-content`、`viewport-fit=cover`；manifest `display` 用 `standalone`（保证软键盘跟随）；普通回车=换行、Ctrl/Cmd+Enter=发送；Web Crypto / `AbortSignal.any` 在 LAN HTTP 与旧 WebView 缺失，需注入基于 `crypto.getRandomValues()` 的 polyfill。
+- **本仓库不改动 dsh 前端界面文件**：不注入 CSS/JS、不改 `dsh-web-frontend/dist/index.html` 的 viewport、不改 manifest。历史上有 `apply-frontend.sh` + `patches/mobile.css`/`mobile.js` 做移动端适配，已删除——它依赖上游构建产物里的类名/DOM 结构，每次 dsh 升级都会漂移，且与「只做最小侵入式文本替换」的约定冲突。前端问题请提给上游；本仓库只保证启动/鉴权链路。
 - **不要为了鉴权去改动 dsh 前端界面**：前端已经能通过 `?token=` 自动换 cookie。项目脚本只需要保证打开正确的 token URL、日志文件一致、--no-open 不干扰浏览器打开流程。
