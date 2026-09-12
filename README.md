@@ -143,12 +143,13 @@ DSH_NO_OPEN=1 bash ~/dsh/start_dsh.sh                     # 只打印 URL 自己
 | `link()` 被 SELinux 禁用 | 会话/附件保存、会话迁移、`write` 新建文件报 `EACCES` | 会话日志直接发布改 `rename()`；no-replace 场景回退「O_EXCL 占位 + rename」；附件遍历/清理容忍 `EACCES`/`ENOENT` |
 | `flock` 在 Android 不可用 | 发消息报 `flock is not supported on android-arm64` | 用 clang 把 `node-addon-system` 自带 `src/flock.c` 编成本机 `system.node`，并让 `lib/flock.js` 在 android 下加载它（含真实加锁自检） |
 | PTY 终端检测失败 | `unsupported on platform android` | subprocess 把 `android` 视同 `linux`（锚点可能在内容哈希 bundle 里，按通配扫描 `lib/`） |
+| 安卓输入法回车直接发送 | 打不出多行：回车即发送 | 修补 `dsh-client-ui-conversation`：普通回车=换行，`Ctrl/Cmd+Enter`=发送（唯一「失败即回滚并中断安装」的补丁） |
 | sharp 无法加载 | `Could not load sharp module` | 安装 `@img/sharp-wasm32` wasm 回退（含 `@emnapi/runtime`） |
 | grep/glob 报 `ripgrep launch failed` | `@vscode/ripgrep` 无 Android 预编译包 | 符号链接系统 `rg` + 修补 `resolveRgPath()` 回退 |
 | HMR 启动崩溃 | `--expose-internals is required` | 重建 `dsh` 包装脚本，加 `--expose-internals --no-warnings` |
 | bash 工具不可用 | `SANDBOX_UNAVAILABLE` | 写入 `danger-full-access` 配置层（见下方安全说明） |
 | 整页重载重复下载 JS | 每次刷新重下 `/assets/` 全部构建产物（本机实测 ~4.5MB） | 给 `/assets/` 静态资源加 immutable 缓存头 |
-| 冷启动十几秒才出 token | `dsh web` 起来后端口先回 401，十几秒后才打印鉴权 URL | 补丁 `06`：客户端插件组合（`dsh-client-modules`）启动时会全量重组约 10 次，每次都把所有 client bundle 预建一遍单条 artifact；改为**按需构建** + 索引式行数统计（实测冷启动 22.6s → 12.5s，产物与未打补丁时逐字节一致） |
+| 冷启动十几秒才出 token | `dsh web` 起来后端口先回 401，十几秒后才打印鉴权 URL | 补丁 `02`：客户端插件组合（`dsh-client-modules`）启动时会全量重组约 10 次，每次都把所有 client bundle 预建一遍单条 artifact；改为**按需构建** + 索引式行数统计（实测冷启动 22.6s → 12.5s，产物与未打补丁时逐字节一致） |
 
 > [!NOTE]
 > 现在只保留两个上游 JS 性能补丁：`01-frontend-static-cache`（静态资源 immutable 缓存头）与 `02-client-modules-lazy-compose`（客户端 combo 按需构建）。历史上做长会话历史瘦身的 `01`~`03`/`05`（apiproxy history slim、增量重连、连接 schema、插件 bundle 缓存）宿主模块已被上游移除或原生实现，相关补丁文件与"过时跳过"逻辑已删除。两个补丁的锚点已对照 npm 上 0.1.5-rc.2 源码逐字节核对。
@@ -163,12 +164,12 @@ DSH_NO_OPEN=1 bash ~/dsh/start_dsh.sh                     # 只打印 URL 自己
 | `1/9` | 安装构建依赖：`cmake clang make binutils pkg-config python nodejs ripgrep` |
 | `2/9` | 准备 Node headers（慢则切 npmmirror） |
 | `3/9` | `npm install -g` 安装 dsh（android30 目标，`--allow-scripts` 放行原生包） |
-| `4/9` | 后端兼容补丁：link→rename 回退、flock 原生绑定、subprocess 平台检测 |
-| `5/9` | sharp wasm 回退（附件模块依赖） |
+| `4/9` | 后端兼容补丁：link→rename 回退、flock 原生绑定、subprocess 平台检测（android≡linux）、作曲栏「回车=换行」、grep/glob ripgrep 修复 |
+| `5/9` | sharp wasm 回退（附件模块依赖），紧接硬链接补丁验证（临时目录真实运行，不碰会话数据；必须排在 wasm 回退之后，否则附件模块 `import sharp` 失败会误报） |
 | `6/9` | 重建 `dsh` 包装脚本（`--expose-internals`，原子 `mv` 替换，不碰符号链接目标） |
 | `7/9` | 写入 `~/dsh/` 下的启动/停止/重启脚本 + `danger-full-access` 配置层 |
-| `8/9` | JS 性能补丁（缓存头、客户端 combo 按需构建，过时的自动跳过） |
-| `9/9` | 完成汇总 + 硬链接补丁验证（真实运行测试，不碰你的会话数据） |
+| `8/9` | JS 性能补丁（`01` 静态资源缓存头 / `02` 客户端 combo 按需构建；锚点失配只告警不中断） |
+| `9/9` | 完成汇总 |
 
 ### 鉴权与启动链路
 
@@ -410,12 +411,13 @@ Upstream `@deepseek-ai/dsh` ships linux/darwin prebuilds only and assumes a full
 | `link()` blocked by SELinux | `EACCES` saving sessions/attachments, migrating sessions, and when the `write` tool creates a file | session-log publish uses `rename()`; no-replace paths fall back to "O_EXCL reserve + rename"; attachment walks/cleanup tolerate `EACCES`/`ENOENT` |
 | `flock` unavailable | `flock is not supported on android-arm64` when sending a message | compile `node-addon-system`'s bundled `src/flock.c` with clang into a local `system.node` and load it from `lib/flock.js` on android (with a real lock self-test) |
 | PTY terminal detection fails | `unsupported on platform android` | treat `android` as `linux` in subprocess (the anchor may live in a content-hashed bundle, so `lib/` is glob-scanned) |
+| Enter sends instead of a newline | cannot type multi-line input | patch `dsh-client-ui-conversation`: Enter = newline, `Ctrl/Cmd+Enter` = send (the only patch that rolls back and aborts the install on failure) |
 | sharp fails to load | `Could not load sharp module` | install the `@img/sharp-wasm32` wasm fallback (plus `@emnapi/runtime`) |
 | grep/glob: `ripgrep launch failed` | no Android prebuild from `@vscode/ripgrep` | symlink system `rg` + patch the `resolveRgPath()` fallback |
 | HMR crashes on start | `--expose-internals is required` | rebuild the `dsh` wrapper with `--expose-internals --no-warnings` |
 | bash tool unavailable | `SANDBOX_UNAVAILABLE` | write the `danger-full-access` config layer (see Security) |
 | Full reload re-downloads JS | every refresh re-fetched all of `/assets/` (~4.5MB measured here) | immutable cache headers for `/assets/` |
-| Cold start takes tens of seconds | the port answers 401 long before the tokenized URL is printed | patch `06`: `dsh-client-modules` recomposes the whole client-plugin graph ~10x during boot and eagerly prebuilds a per-record artifact for every client bundle; made lazy plus an indexed line count (measured cold start 22.6s → 12.5s, byte-identical artifacts) |
+| Cold start takes tens of seconds | the port answers 401 long before the tokenized URL is printed | patch `02`: `dsh-client-modules` recomposes the whole client-plugin graph ~10x during boot and eagerly prebuilds a per-record artifact for every client bundle; made lazy plus an indexed line count (measured cold start 22.6s → 12.5s, byte-identical artifacts) |
 
 > [!NOTE]
 > Only two upstream JS patches remain: `01-frontend-static-cache` (immutable static-asset cache headers) and `02-client-modules-lazy-compose` (lazy client combos). The old `01`~`03`/`05` history-slimming patches (apiproxy history slim, incremental resync, connection schema, plugin-bundle cache) targeted host modules that were removed upstream or are now native, so those files and the "superseded" machinery were deleted. Both remaining patches were diffed byte-for-byte against the 0.1.5-rc.2 npm sources.
@@ -430,12 +432,12 @@ Upstream `@deepseek-ai/dsh` ships linux/darwin prebuilds only and assumes a full
 | `1/9` | Install build deps: `cmake clang make binutils pkg-config python nodejs ripgrep` |
 | `2/9` | Prepare Node headers (switch to npmmirror when slow) |
 | `3/9` | `npm install -g` dsh (android30 target, `--allow-scripts` for native packages) |
-| `4/9` | Backend patches: link→rename fallback, native flock binding, subprocess platform detection |
-| `5/9` | sharp wasm fallback (attachments depend on it) |
+| `4/9` | Backend patches: link→rename fallback, native flock binding, subprocess platform detection (android≡linux), composer Enter = newline, grep/glob ripgrep fix |
+| `5/9` | sharp wasm fallback (attachments depend on it), immediately followed by the hardlink verification (real run in a temp dir, never touches your sessions; it must come after the wasm fallback or the attachment module's `import sharp` fails and reports a false negative) |
 | `6/9` | Rebuild the `dsh` wrapper (`--expose-internals`, atomic `mv` replace that never follows the symlink target) |
 | `7/9` | Write start/stop/restart scripts into `~/dsh/` + the `danger-full-access` config layer |
-| `8/9` | JS performance patches (cache headers etc.; superseded ones skipped) |
-| `9/9` | Summary + hardlink verification (real run in a temp dir, never touches your sessions) |
+| `8/9` | JS performance patches (`01` static-asset cache headers / `02` lazy client combos; an anchor mismatch only warns) |
+| `9/9` | Summary |
 
 ### Auth & startup flow
 
