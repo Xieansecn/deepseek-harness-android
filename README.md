@@ -5,7 +5,7 @@
 **在 Android 手机的 Termux 里原生运行 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)**
 **Run DeepSeek Harness natively inside Termux on Android**
 
-[![tested](https://img.shields.io/badge/tested-0.1.5--rc.1-blue)](#-兼容性--compatibility)
+[![tested](https://img.shields.io/badge/tested-0.1.5--rc.3-blue)](#-兼容性--compatibility)
 [![platform](https://img.shields.io/badge/platform-Android%20%C2%B7%20Termux-green)](#-环境要求--requirements)
 [![license](https://img.shields.io/badge/license-MIT-lightgrey)](#license)
 
@@ -14,8 +14,8 @@
 </div>
 
 > [!IMPORTANT]
-> 已在 **deepseek-harness `0.1.5-rc.1`** 上实测通过，向下兼容 `rc.6` / `rc.7` 及更早版本。
-> Tested on **deepseek-harness `0.1.5-rc.1`**, back-compatible with `rc.6` / `rc.7` and earlier.
+> 已在 **deepseek-harness `0.1.5-rc.3`**（npm `latest`）上实测通过；`0.1.7-rc.2` 线亦已适配（`setup.sh` 与运行期脚本可用，见下方「JS 性能补丁」对 `03` 的说明）。
+> Tested on **deepseek-harness `0.1.5-rc.3`** (npm `latest`); the `0.1.7-rc.2` line is also covered (see the note on patch `03` under JS perf patches).
 
 ---
 
@@ -116,6 +116,7 @@ bash setup.sh                 # 升级 dsh 或 Node 后必须重跑
 | `DSH_ORIGIN` | `127.0.0.1` | 打开给浏览器的 origin；`localhost` 可绕开 PWA 对 `?token=` 的劫持 |
 | `DSH_PORT` | `3080` | 服务端口 |
 | `NO_COLOR` | 空 | 非空则关闭彩色输出 |
+| `DSH_VERSION` | 空（跟随 npm `latest`） | 钉住安装版本，如 `DSH_VERSION=0.1.7-rc.2 bash setup.sh`，用于灰度/回退 |
 
 ### 打开浏览器的顺序
 
@@ -152,7 +153,8 @@ DSH_NO_OPEN=1 bash ~/dsh/start_dsh.sh                     # 只打印 URL 自己
 | 冷启动十几秒才出 token | `dsh web` 起来后端口先回 401，十几秒后才打印鉴权 URL | 补丁 `02`：客户端插件组合（`dsh-client-modules`）启动时会全量重组约 10 次，每次都把所有 client bundle 预建一遍单条 artifact；改为**按需构建** + 索引式行数统计（实测冷启动 22.6s → 12.5s，产物与未打补丁时逐字节一致） |
 
 > [!NOTE]
-> 现在只保留两个上游 JS 性能补丁：`01-frontend-static-cache`（静态资源 immutable 缓存头）与 `02-client-modules-lazy-compose`（客户端 combo 按需构建）。历史上做长会话历史瘦身的 `01`~`03`/`05`（apiproxy history slim、增量重连、连接 schema、插件 bundle 缓存）宿主模块已被上游移除或原生实现，相关补丁文件与"过时跳过"逻辑已删除。两个补丁的锚点已对照 npm 上 0.1.5-rc.2 源码逐字节核对。
+> 现在保留三个上游 JS 性能补丁：`01-frontend-static-cache`（静态资源 immutable 缓存头）、`02-client-modules-lazy-compose`（客户端 combo 按需构建）与 `03-client-modules-newline-count`（`newlineCount` 改索引循环，10.8MB 实测 302ms→60ms）。
+> `01`/`02` 面向 0.1.5 线；`0.1.7` 起上游已原生实现 combo 惰性化（`lazyBody`），`02` 锚点会失配并被安全跳过，此时由**与版本无关**的 `03` 继续保住这处热点。历史上做长会话历史瘦身的补丁（apiproxy history slim、增量重连、连接 schema、插件 bundle 缓存）宿主模块已被上游移除或原生实现，相关文件与"过时跳过"逻辑已删除。三个补丁的锚点均已对照 npm 对应版本源码逐字节核对。
 
 ## 🗂 工作原理与安装步骤
 
@@ -199,7 +201,7 @@ setup.sh                安装 + 打补丁 + 生成脚本
 ```text
 deepseek-harness-android/
 ├── setup.sh                     # 主入口：安装 dsh + 全部 Android 修补（幂等）
-├── apply-js-patches.sh          # 应用 JS 性能补丁（01 缓存头 / 02 客户端 combo，幂等）
+├── apply-js-patches.sh          # 应用 JS 性能补丁（01 缓存头 / 02 combo 惰性化 / 03 newlineCount，幂等）
 ├── apply-rg-fix.sh              # 修复 ripgrep launch failed
 ├── start_dsh.sh                 # 启动/复用服务 + 取 token + 打开浏览器（Via 优先）
 ├── stop_dsh.sh                  # 安全停止（pid 身份二次校验 + 端口释放确认）
@@ -272,7 +274,7 @@ node patches/verify-client-modules-lazy.js
 
 ## 🧪 兼容性 / Compatibility
 
-- **作者实测**：Huawei Mate 60（ALN-AL80），HarmonyOS 4.2.0（build 4.2.0.186），**无 root**，Termux（Node v26，aarch64），deepseek-harness `0.1.5-rc.1`。
+- **作者实测**：Huawei Mate 60（ALN-AL80），HarmonyOS 4.2.0（build 4.2.0.186），**无 root**，Termux（Node v26，aarch64），deepseek-harness `0.1.5-rc.3`。
 - 不同机型 / ROM 可能有差异：部分 ROM 通过 SELinux 禁用 `link()`、命名空间沙箱权限不同、bwrap/landlock 可用性不同等。
 - `setup.sh` 覆盖通用 Android 场景，个别机型可能仍需额外适配。
 
@@ -384,6 +386,7 @@ bash setup.sh                 # must re-run after upgrading dsh or Node
 | `DSH_ORIGIN` | `127.0.0.1` | Origin handed to the browser; `localhost` avoids PWA hijacking of `?token=` |
 | `DSH_PORT` | `3080` | Service port |
 | `NO_COLOR` | empty | Non-empty disables colored output |
+| `DSH_VERSION` | empty (npm `latest`) | Pin the installed version, e.g. `DSH_VERSION=0.1.7-rc.2 bash setup.sh` |
 
 ### Browser open order
 
@@ -420,7 +423,8 @@ Upstream `@deepseek-ai/dsh` ships linux/darwin prebuilds only and assumes a full
 | Cold start takes tens of seconds | the port answers 401 long before the tokenized URL is printed | patch `02`: `dsh-client-modules` recomposes the whole client-plugin graph ~10x during boot and eagerly prebuilds a per-record artifact for every client bundle; made lazy plus an indexed line count (measured cold start 22.6s → 12.5s, byte-identical artifacts) |
 
 > [!NOTE]
-> Only two upstream JS patches remain: `01-frontend-static-cache` (immutable static-asset cache headers) and `02-client-modules-lazy-compose` (lazy client combos). The old `01`~`03`/`05` history-slimming patches (apiproxy history slim, incremental resync, connection schema, plugin-bundle cache) targeted host modules that were removed upstream or are now native, so those files and the "superseded" machinery were deleted. Both remaining patches were diffed byte-for-byte against the 0.1.5-rc.2 npm sources.
+> Three upstream JS patches remain: `01-frontend-static-cache` (immutable static-asset cache headers), `02-client-modules-lazy-compose` (lazy client combos) and `03-client-modules-newline-count` (`newlineCount` switched to an index loop; measured 302ms→60ms on 10.8MB).
+> `01`/`02` target the 0.1.5 line; upstream implemented combo laziness natively (`lazyBody`) in 0.1.7, so `02` misses its anchors and is skipped safely, while the version-agnostic `03` keeps that hotspot fast. The old history-slimming patches (apiproxy history slim, incremental resync, connection schema, plugin-bundle cache) targeted host modules that were removed upstream or are now native, so those files and the "superseded" machinery were deleted. All three patches were diffed byte-for-byte against the corresponding npm sources.
 
 ## 🗂 Architecture & install steps
 
@@ -467,7 +471,7 @@ Key behaviours of `start_dsh.sh`:
 ```text
 deepseek-harness-android/
 ├── setup.sh                     # main entry: install dsh + all Android patches (idempotent)
-├── apply-js-patches.sh          # apply the JS perf patches (cache headers / lazy client combos)
+├── apply-js-patches.sh          # apply the JS perf patches (cache headers / lazy combos / newlineCount)
 ├── apply-rg-fix.sh              # fix "ripgrep launch failed"
 ├── start_dsh.sh                 # start/reuse service + fetch token + open browser (Via first)
 ├── stop_dsh.sh                  # safe stop (pid identity re-check + port release confirm)
@@ -538,7 +542,7 @@ All patch scripts are **idempotent**: run them twice and the second run reports 
 
 ## 🧪 Compatibility
 
-- **Author's setup**: Huawei Mate 60 (ALN-AL80), HarmonyOS 4.2.0 (build 4.2.0.186), **no root**, Termux (Node v26, aarch64), deepseek-harness `0.1.5-rc.1`.
+- **Author's setup**: Huawei Mate 60 (ALN-AL80), HarmonyOS 4.2.0 (build 4.2.0.186), **no root**, Termux (Node v26, aarch64), deepseek-harness `0.1.5-rc.3`.
 - Phones/ROMs differ: some block the `link()` syscall via SELinux, namespace-sandbox permissions vary, and bwrap/landlock availability differs.
 - `setup.sh` covers the common Android cases; specific devices may still need extra tweaks.
 

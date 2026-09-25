@@ -10,23 +10,25 @@
 
 ## 2. 版本基准与已验证状态
 
-- 当前基准：`@deepseek-ai/dsh` **0.1.5-rc.1**，其 `node_modules/@deepseek-ai/*` 为 **0.1.5-rc.2**（`@deepseek-ai/node-addon-system` 用独立版本号，当前 0.1.2）。
-- **JS 补丁锚点核对（可复现）**：`npm pack @deepseek-ai/dsh-client-modules@0.1.5-rc.2 @deepseek-ai/dsh-host-frontend-static@0.1.5-rc.2` → 把安装树里对应的 `lib/index.js` 拷出来、**反向**打上 `patches/01`、`patches/02` → 与上游源码 `diff` **逐字节一致**。也就是说这两个包的这两个文件上，安装树 = 上游源码 + 补丁 01/02，没有额外漂移（其它差异来自第 4 节那几张 Android 补丁表与应用侧改动）。
-- 本机最近一次实测通过的检查：`bash apply-js-patches.sh`（两个补丁都 `[skip]`，退出码 0）、`bash apply-rg-fix.sh`（fresh node 解析出 `/data/data/com.termux/files/usr/bin/rg` = ripgrep 15.2.0）、`node patches/verify-android-link-fix.js --root …`（6 项全 `[OK]`）。
+- 当前基准：`@deepseek-ai/dsh` **0.1.5-rc.3**（= npm `latest`），其 `node_modules/@deepseek-ai/*` 同为 **0.1.5-rc.3**（`@deepseek-ai/node-addon-system` 用独立版本号，当前 0.1.2）。
+- **次新基准（已适配，未转正）**：`next` = **0.1.7-rc.2**。该线把 client-ui 从 41 个包扩到 50 个、给 `resolveRgPath()` 加了 electron `.asar` 分支、并用原生 `lazyBody` 取代了补丁 02 的 combo 惰性化。0.1.7 上：补丁 01 命中、补丁 02 **锚点失配（预期，上游已原生实现）**、补丁 03 命中、link/flock/4c/回车补丁全部命中、`apply-rg-fix.sh` 命中新锚点。`setup.sh` 可 `DSH_VERSION=0.1.7-rc.2` 灰度验证。
+- **JS 补丁锚点核对（可复现，正向更省事）**：`npm pack @deepseek-ai/dsh-client-modules@<ver> @deepseek-ai/dsh-host-frontend-static@<ver>` → 解包 → 对上游源码**正向**打 `patches/01`、`02`、`03` → 与安装树 `diff` **逐字节一致**。本机已对 `0.1.5-rc.3` 验过：`client-modules/lib/index.js` 与 `host-frontend-static/lib/index.js` 均 IDENTICAL（安装树 = 上游 + 01/02/03，无额外漂移；其它差异来自第 4 节那几张 Android 补丁表与应用侧改动）。
+- 本机最近一次实测通过的检查：`bash apply-js-patches.sh`（三个补丁都 `[skip]`，退出码 0）、`bash apply-rg-fix.sh`（fresh node 解析出 `/data/data/com.termux/files/usr/bin/rg` = ripgrep 15.2.0）、`node patches/verify-android-link-fix.js --root …`（6 项全 `[OK]`）、`node patches/patch-dsh-android-flock.js`（编译产物可加载 + 真实加锁自检）、`node patches/verify-client-modules-lazy.js`（全 PASS，启动到 token 13.99s）。
 
 ## 3. 目录结构
 
 | 路径 | 作用 |
 |---|---|
 | `setup.sh` | **主入口**。0~9 步：锚点预检 → 依赖 → Node headers → 安装 dsh → 后端兼容补丁 → sharp WASM 回退 + 硬链接验证 → 重建 `dsh` 包装脚本 → 安装启动/停止/重启脚本与权限层 → JS 性能补丁 → 汇总。默认简洁输出，原始命令写入 `~/dsh/setup.log`；`--verbose` / `SETUP_VERBOSE=1` 透传原始输出。安装/升级后必须重跑。 |
-| `apply-js-patches.sh` | 应用 `patches/01`、`02` 两个 JS 性能补丁（静态资源 immutable 缓存头；客户端 combo 按需构建，冷启动 22s→12s）。幂等：已应用 `[skip]`，锚点失配 `[FAIL]` 且不落盘（`setup.sh` 对它的非 0 退出码只告警）。 |
-| `apply-rg-fix.sh` | 修复 grep/glob 报 `ripgrep launch failed`（软链系统 `rg` 到 `@vscode/ripgrep-android-arm64/bin/rg` + 给 `resolveRgPath()` 加回退）。幂等；`setup.sh` 里失败会中断安装。 |
+| `apply-js-patches.sh` | 应用 `patches/01`、`02`、`03` 三个 JS 性能补丁（静态资源 immutable 缓存头；客户端 combo 按需构建，冷启动 22s→12s；`newlineCount` 索引循环）。**分层设计**：`01/02` 面向 0.1.5 线，`03` 与版本无关。幂等：已应用 `[skip]`，锚点失配 `[FAIL]` 且不落盘（`setup.sh` 对它的非 0 退出码只告警）。 |
+| `apply-rg-fix.sh` | 修复 grep/glob 报 `ripgrep launch failed`（软链系统 `rg` 到 `@vscode/ripgrep-android-arm64/bin/rg` + 给 `resolveRgPath()` 加回退，已识别 4 种上游形态）。**锚点漂移不再判死**：软链本身就能让 `@vscode/ripgrep` 解析成功，故未识别形态时只 `warn`，成败交给第 3 步 fresh node 的实际解析结果。 |
 | `start_dsh.sh` | 启动/复用 `dsh web`：流式读日志取带 token 的鉴权 URL、`curl` 校验 303/302，然后按包名优先用 **Via**（`am start`）打开浏览器，找不到再回退系统默认浏览器。默认静默（提示/剪贴板只在 `DSH_HINTS=1`）。 |
 | `stop_dsh.sh` | 安全停止：pid 文件 + 身份二次确认；梯子是「优雅窗口 `DSH_STOP_GRACE` → 补发一次 `SIGTERM` → `SIGKILL` 兜底」。 |
 | `restart_dsh_now.sh` | 重启：复用 `stop_dsh.sh` + `start_dsh.sh --no-open`，写 `storage/dsh_restart.log`，最后 `curl` 确认端口。 |
 | `config/cordis.patch.yml` | sandbox `danger-full-access` 配置层，安装到 `~/.dsh/profiles/web/cordis.patch.yml`（缺该层时**追加**，不覆盖用户其它配置层）。 |
 | `patches/01-frontend-static-cache.patch` | 给 `dsh-host-frontend-static` 的 `/assets/` 加 immutable 缓存头、其余 `no-cache`。 |
-| `patches/02-client-modules-lazy-compose.patch` | 客户端 combo 按需构建（`dsh-client-modules`），冷启动 22s→12s。 |
+| `patches/02-client-modules-lazy-compose.patch` | 客户端 combo 按需构建（`dsh-client-modules`），冷启动 22s→12s。**仅 0.1.5 线**；0.1.7 起上游有原生 `lazyBody`，锚点失配会被跳过。 |
+| `patches/03-client-modules-newline-count.patch` | 只把 `newlineCount()` 的 for-of 换成 `charCodeAt` 索引循环（10.8MB 实测 302ms→60ms）。锚点跨 0.1.5/0.1.7 稳定，是版本无关的兜底性能补丁；02 已应用时它自动 `[skip]`。 |
 | `patches/patch-dsh-android-link.js` | Android 禁 hardlink 修复（会话直接发布改 `rename()`；no-replace 路径用「O_EXCL 占位 + rename」回退）。 |
 | `patches/patch-dsh-android-flock.js` | Android flock 原生绑定：clang 编译 `src/flock.c` 为 `bin/android-<arch>/system.node`，改 `lib/flock.js` 在 android 下加载它；自带真实加锁自检。 |
 | `patches/verify-android-link-fix.js` | 硬链接补丁验证（静态检查 + 临时目录真实运行：附件保存/去重、fs-local 新建文件在 `link()`=EACCES 下必须成功）。 |
@@ -38,10 +40,10 @@
 
 | 步骤 | 做什么 |
 |---|---|
-| `0/9` | **锚点预检** `anchor_precheck()`：只读检查 7 条「文件路径\|补丁后特征串\|标签」（路径支持通配）。未命中只 `warn`，不中断。 |
+| `0/9` | **锚点预检** `anchor_precheck()`：只读检查 7 条「文件路径\|补丁后特征串\|标签」（路径支持通配）+ 1 条 `lib/profile-boot-*.js` 的 `forceExitOnce`/`interrupt(code)` 探测（停止梯子前提，内容哈希名故用通配）。未命中只 `warn`，不中断。 |
 | `1/9` | `pkg update/install`（`cmake clang make binutils pkg-config python nodejs ripgrep`）；探测 npmjs/nodejs.org 是否慢，慢则**仅本次会话** export `npm_config_registry` / `npm_config_disturl` 到 npmmirror。 |
 | `2/9` | `npx node-gyp install` 拉 Node headers，再往 `~/.cache/node-gyp/<ver>/include/node/common.gypi` 的 `'variables': {` 后插入 `'android_ndk_path%': ''`（Termux 无 NDK，否则 node-pty 构建失败）。 |
-| `3/9` | `npm install -g @deepseek-ai/dsh`：`CFLAGS/CXXFLAGS=-target aarch64-linux-android30 -I$PREFIX/include`，`--allow-scripts=…dsh-subprocess-local,koffi,node-pty,@google/genai,protobufjs`。校验 `node-pty` 的 `build/Release/pty.node` 能加载、koffi 预编译包能加载；node-pty 缺产物直接 `exit 1`。 |
+| `3/9` | `npm install -g @deepseek-ai/dsh`：`CFLAGS/CXXFLAGS=-target aarch64-linux-android30 -I$PREFIX/include`，`--allow-scripts="$ALLOW_SCRIPTS"`。校验 `node-pty` 的 `build/Release/pty.node` 能加载、koffi 预编译包能加载；node-pty 缺产物直接 `exit 1`。之后跑**白名单自检**：扫描安装树里所有带 `preinstall/install/postinstall` 的包，凡不在白名单内的列出并 `warn`（npm 会静默跳过它们的构建）——0.1.7 的依赖大重组就是靠它发现的。支持 `DSH_VERSION=<ver>` 钉版本。 |
 | `4/9` | 后端兼容补丁，见下表。 |
 | `5/9` | **sharp WASM 回退**：比对 `sharp` 与 `@img/sharp-wasm32` 版本，一致才跳过；否则在临时目录装同版本 wasm 包，先 `rm -rf` 再 `cp`（旧目录直接 `cp -r` 是合并、会版本混装），并补 `@emnapi`。之后立刻跑 **硬链接验证**（必须在这一步之后，见第 7 节）。 |
 | `6/9` | 重建 `dsh` 包装脚本（`--expose-internals --no-warnings`，临时文件 + `mv -f` 原子替换，绝不 `cat >` 覆盖符号链接）。 |
@@ -57,7 +59,7 @@
 | `node-addon-system`（flock） | `node patches/patch-dsh-android-flock.js --root …` | 只 `warn`，继续（但发消息会失败） |
 | `dsh-subprocess-local/lib/*.js`（android≡linux 终端检测） | `python3` 通配扫描整个 `lib/`，命中才写 | 未命中锚点 → 退出码 3 → `warn`，继续 |
 | `dsh-client-ui-conversation/lib/client.js`（作曲栏「回车=换行」） | `python3` 单点插入 + `.dsh-android.bak` 备份 | **唯一会中断安装的补丁**：锚点不唯一/失败 → 回滚备份 → `exit 1` |
-| `dsh-tool-fs-search/lib/index.js`（ripgrep） | `bash apply-rg-fix.sh` | 失败即中断（`setup.sh` 是 `set -e`，rg 不可用会让 grep/glob 全废） |
+| `dsh-tool-fs-search/lib/index.js`（ripgrep） | `bash apply-rg-fix.sh` | 脚本内部：锚点漂移只 `warn`；仅当 fresh node 实际解析 `resolveRgPath()` 失败才非 0 退出 → `setup.sh` 显式 `error`+`exit 1`（rg 不可用会让 grep/glob 全废） |
 
 ## 5. Web 鉴权与启动链路
 
@@ -132,6 +134,7 @@ dsh Web UI 用 **进程 launch token + 持久化签名 cookie** 鉴权：
 | `DSH_WEB_PATTERN` | `…/lib/[b]in.js web` | start/stop | 进程匹配模式（多安装并存时覆盖） |
 | `DSH_VIA_APP` / `DSH_OPEN_APP` / `DSH_OPEN_CHOOSER` | `mark.via` / 空 / `0` | start | 浏览器选择 |
 | `SETUP_VERBOSE` / `NO_COLOR` | 空 | setup | 透传原始输出 / 关色 |
+| `DSH_VERSION` | 空（跟随 npm `latest`） | setup | 钉安装版本，如 `DSH_VERSION=0.1.7-rc.2`，用于灰度/回退 |
 | `DSH_PACKAGES_DIR` | dsh 的 `node_modules/@deepseek-ai` | apply-js-patches | 目标包目录 |
 | `DSH_ROOT`、`RG_PATH` | dsh 安装根、`command -v rg` | apply-rg-fix | 目标根、指定系统 rg |
 | `DSH_DIR` | dsh 安装根 | verify-client-modules-lazy | 目标根（link/flock/verify-link 用 `--root`） |
@@ -154,6 +157,10 @@ Shell 语义：
 - **⚠️ 4d 作曲栏回车补丁要「先量唯一性再插」**：入口锚点 `if (event !== null && isComposingEvent(event, recentlyComposing)) return true;` 必须**恰好出现 1 次**、前导必须是纯空白缩进，否则退出码 2 → 回滚 `.dsh-android.bak` → `exit 1`（这是唯一会中断安装的补丁）。备份只在补丁成功或回滚成功后删除；回滚失败必须保留并提示人工处理。
 - **⚠️ 硬链接验证必须排在 sharp WASM 回退之后**：附件测试要 `import dsh-attachment-local`，该模块加载时 `import sharp`；`npm install` 清空 node_modules 后 sharp 在回退前必然加载失败，会误报“硬链接修复验证未通过”。
 - **⚠️ 判 sourcemap 不能用 `url.endsWith(".map")`**：combo URL 形如 `/plugins/??<id>/client.js.map&rev=<rev>`，`.map` 后面还有 `&rev=`（早期版本因此把 JS 当 map 回了）。补丁 02 的 `singleRecords` / `singleResponses` 每次 `compose()` 重建，`rebuilt()` 后 rev 变化不会命中旧 URL。
+- **⚠️ 性能补丁要分层，别把「上游已原生实现」的改动写死成唯一补丁**：0.1.7 起上游有原生 `lazyBody`，补丁 02 的 `compose()` 惰性化锚点必然失配。若只留 02，冷启动优化会在新版上整段失效。现在拆成 `02`（0.1.5 线全量）+ `03`（只改 `newlineCount`，锚点跨版本稳定），02 失配时 03 仍保住热点；02 已应用时 03 会因同一处已改而 `[skip]`，不冲突。
+- **⚠️ 补丁脚本的「锚点失配」不等于「功能不可用」，别让它中断安装**：`apply-rg-fix.sh` 第 1 步把系统 `rg` 软链成 `@vscode/ripgrep-android-arm64/bin/rg` 后，`@vscode/ripgrep` 只做 `require.resolve(\`${platformPkg}/bin/rg\`)`（**不校验 package.json**），所以**软链本身就足以让解析成功**，源码回退补丁只是双保险。因此 0.1.7 新增 electron `.asar` 形态导致锚点漂移时，脚本改为只 `warn`，成败交给第 3 步 fresh node 的实际解析结果——否则「版本升级 → 锚点漂移 → `exit 1` → `setup.sh` 在 4f 整体中断」。
+- **⚠️ 带 token 的日志行可能不止一个 URL**：上游在绑定 `0.0.0.0` 时会打印 `dsh web: <loopback url> (LAN: <lan url>)`。`grep -oE … | tail -1` 会取到 **LAN** 地址。必须「先取最后一条含 `token=` 的行，再取该行**第一个** URL」（`start_dsh.sh` 的 `last_auth_url()` 与 `wait_for_token()` 都已如此）。loopback 部署下这条后缀不会出现，属潜在坑。
+- **⚠️ `lib/profile-boot-*.js` 是内容哈希名**：`createProcessShutdown`（首个信号走 dispose、重复信号 `forceExitOnce` 立即 `process.exit`）就定义在这里，文件名随版本变化（0.1.5-rc.3 为 `profile-boot-Dk-7KqJc.js`）。停止梯子依赖这个语义，但**不能硬编码文件名**；`anchor_precheck()` 用通配探测，漂移只 `warn`（后果是停止退化为等满 `DSH_STOP_TIMEOUT`）。
 - **⚠️ sharp wasm 版本必须与 sharp 一致**：只看“目录在不在”会在 sharp 升级后残留旧 wasm 时报假成功；装错版本比不装更糟。拷贝前先 `rm -rf` 目标目录（`cp -r src dst/` 是**合并**，旧文件会留下造成版本混装），且别忘了 `@emnapi/runtime`。
 
 ## 8. 常用命令
@@ -191,7 +198,8 @@ node patches/verify-client-modules-lazy.js [--timeout 120]
 - **硬链接**：`patches/verify-android-link-fix.js` 做静态检查 + 临时目录真实运行（附件保存/去重、fs-local 新建文件在 `link()`=EACCES 下必须成功），**不读取/修改 `~/.dsh/sessions`**；必须在 sharp 回退之后跑。
 - **flock**：`patches/patch-dsh-android-flock.js` 自带运行时自检（真实 open 两个 fd：首次加锁成功、第二次竞争返回 `EAGAIN`），失败非 0 退出。
 - **补丁 02**：`node patches/verify-client-modules-lazy.js`（内部用 `--port 0` 起临时实例；核对单条/批量 bundle 与 sourcemap、未知 URL 404、HEAD 200，并打印启动到 token 的秒数）。手工做等价验证时：另起一个实例 `dsh web --no-open --port 3099`，从 `GET /` 的 `window["__DSH_BOOT__"]` 取资源 URL，与**未打补丁实例**（`3080`，进程里还是旧代码）逐字节比对——单条 bundle、sourcemap、批量 combo 都必须一致（rev 含随机 nonce，比对前去掉 `//# sourceMappingURL=` 那行；`.map` 请求的 URL 要把每个 `client.js` 换成 `client.js.map`），未知 URL 仍须 404。冷启动 A/B 就测“从启动到日志出现 token”的秒数，同一脚本交替跑：本机实测未打补丁 22.6s / 打补丁 12.5s。
-- **补丁 01/02 锚点核对**：见第 2 节（`npm pack` + 反向 dry-run + `diff`）。
+- **补丁 01/02/03 锚点核对**：见第 2 节（`npm pack` + 正向打补丁 + `diff`）。分版本预期：0.1.5 线 `01[ok] 02[ok] 03[skip]`；0.1.7 线 `01[ok] 02[FAIL 锚点失配] 03[ok]`。
+- **安装脚本白名单自检**：`setup.sh` 3/9 末尾扫描安装树，列出所有带安装脚本的包并标 `[allowed]`/`[UNCOVERED]`；出现 `[UNCOVERED]` 即说明 npm 跳过了构建步骤，需把包名补进 `ALLOW_SCRIPTS`。
 - **鉴权启动**：`start_dsh.sh` 的 `check_url()` 用 `curl` 校验日志里的 token URL 返回 303/302；返回 401 说明 token 过期/日志陈旧，应重启 dsh。
 - **⚠️ 别拿本机的 3080 做破坏性实验**：这台设备上 3080 往往正跑着当前会话的 GUI，`stop_dsh.sh` / `restart_dsh_now.sh` 会把它一起停掉；验证补丁优先用 `--port 0` / `--port 3099` 的临时实例。
 
@@ -207,5 +215,6 @@ node patches/verify-client-modules-lazy.js [--timeout 120]
 - 凡涉及 `link()`（Android 部分 ROM 通过 SELinux 禁用 hardlink）：会话日志【直接发布】改 `rename()`；带 no-replace 语义的发布（会话迁移、附件发布/别名、write 新建文件）在 link 报 `EACCES`/`EPERM`/`EMLINK`/`ENOSYS`/`ENOTSUP` 时回退到「O_EXCL 占位 + rename」；附件祖先遍历/清理容忍 `EACCES`/`ENOENT`。
 - **原生 addon 的 Android 适配**：上游 `@deepseek-ai/node-addon-system` 只发布 linux/darwin 预编译包。`flock` 路径用 clang 编译其自带 `src/flock.c` 为 `bin/android-<arch>/system.node`，并改 `lib/flock.js` 在 `android` 下加载本地绑定（Node headers 取 `$PREFIX/include/node` 或 `~/.cache/node-gyp/<ver>/include/node`）。其它原生 addon 若报 “not supported on android-*” 可照此模式处理。
 - 终端 / 平台检测：`process.platform === "android"` 需视同 `"linux"` 处理（见第 7 节 4c 的通配扫描要求）。
-- **`02-client-modules-lazy-compose`**：改 `dsh-client-modules/lib/index.js` 三处——① `newlineCount` 用 `charCodeAt` 索引循环（与 for-of 等价；10.8MB 实测 302ms→60ms）；② `buildCombo` 行数只数一次（`line += lineCount + 1`，尾部 `;\n` 恰好一行）；③ `compose()` 不再为每条记录急切构建 artifact，改为 `singleRecords`（URL → 记录 + 是否 sourcemap）+ `singleResponses` 按需缓存，`bundleResource` 用 `?? this.singleResponse(url)` 兜底。背景：`dsh web` 启动期间 `ClientModuleRegistry` 会因 `internal/plugin` 事件**全量重组约 10 次**（构造 1 次 + 每个后加载的 client bundle 各 1 次，实测 table 大小 0→48→…→60），每次都为全部 client bundle 重算批量 combo + 逐条 combo；本机 10.8MB client 源码、60 条记录时一次 compose 约 2s，故光是组合就占冷启动一半以上；挂载的 client 插件越多越慢。
+- **`03-client-modules-newline-count`**：只改 `newlineCount()` 的循环写法（`for (const char of value)` → `charCodeAt` 索引循环），不改语义。它是**版本无关**的兜底性能补丁，锚点在 0.1.5/0.1.7 上都稳定。
+- **`02-client-modules-lazy-compose`（仅 0.1.5 线）**：改 `dsh-client-modules/lib/index.js` 三处——① `newlineCount` 用 `charCodeAt` 索引循环（与 for-of 等价；10.8MB 实测 302ms→60ms）；② `buildCombo` 行数只数一次（`line += lineCount + 1`，尾部 `;\n` 恰好一行）；③ `compose()` 不再为每条记录急切构建 artifact，改为 `singleRecords`（URL → 记录 + 是否 sourcemap）+ `singleResponses` 按需缓存，`bundleResource` 用 `?? this.singleResponse(url)` 兜底。背景：`dsh web` 启动期间 `ClientModuleRegistry` 会因 `internal/plugin` 事件**全量重组约 10 次**（构造 1 次 + 每个后加载的 client bundle 各 1 次，实测 table 大小 0→48→…→60），每次都为全部 client bundle 重算批量 combo + 逐条 combo；本机 10.8MB client 源码、60 条记录时一次 compose 约 2s，故光是组合就占冷启动一半以上；挂载的 client 插件越多越慢。
 - **本仓库不改动 dsh 前端界面文件**：不注入 CSS/JS、不改 `dsh-web-frontend/dist/index.html` 的 viewport、不改 manifest。历史上有 `apply-frontend.sh` + `patches/mobile.css`/`mobile.js` 做移动端适配，已删除——它依赖上游构建产物里的类名/DOM 结构，每次 dsh 升级都会漂移，且与「只做最小侵入式文本替换」的约定冲突。前端问题请提给上游；本仓库只保证启动/鉴权链路与后端兼容修补。
