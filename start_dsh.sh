@@ -68,8 +68,11 @@ is_running() {
 }
 
 # 日志里【最后一条】带 token URL，仅用于复用已在运行的服务。
+# ⚠️ 取该行里的【第一个】URL：dsh 在绑定 0.0.0.0 时会追加 " (LAN: <url>)"，
+# 若按全文件 tail -1 取匹配就会拿到 LAN 地址（loopback 部署下本不该用它）。
 last_auth_url() {
-  grep -oE 'https?://[^/[:space:]]*/\?token=[A-Za-z0-9_-]+' "$LOG_FILE" 2>/dev/null | tail -1
+  grep -E 'token=' "$LOG_FILE" 2>/dev/null | tail -1 \
+    | grep -oE 'https?://[^/[:space:]]*/\?token=[A-Za-z0-9_-]+' 2>/dev/null | head -1
 }
 
 # 校验带 token URL 返回 303/302 才算有效；AUTH_CODE 记录失败原因供降级提示。
@@ -191,7 +194,8 @@ wait_for_token() {
     _seen=$((_seen + 1))
 # 等 token → 打开；返回 0 表示已处理（带 token 或降级裸 URL），1 表示服务没起来。
     case "$_line" in *token=*) ;; *) continue ;; esac
-    _url="$(printf '%s\n' "$_line" | grep -oE 'https?://[^/[:space:]]*/\?token=[A-Za-z0-9_-]+' 2>/dev/null | tail -1)"
+# 同一行可能带 " (LAN: <url>)" 后缀：只取第一个 URL（loopback 部署下 LAN 地址不该交给浏览器）。
+    _url="$(printf '%s\n' "$_line" | grep -oE 'https?://[^/[:space:]]*/\?token=[A-Za-z0-9_-]+' 2>/dev/null | head -1)"
     [ -n "$_url" ] || continue
     if check_url "$_url"; then
       printf '%s' "$_url" > "$RESULT_FILE"
