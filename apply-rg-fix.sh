@@ -169,6 +169,56 @@ const PATCHED_NEW = [
   '}',
 ].join('\n');
 
+// 0.1.7-rc.2 起：@vscode/ripgrep 的解析结果外包了一层 electron asar 归一化（先赋给 dependency）。
+const NEW_ELECTRON_ORIG = [
+  'function resolveRgPath() {',
+  '\trgPathPromise ??= Promise.resolve().then(async () => {',
+  '\t\tconst executable = parse(process.execPath);',
+  '\t\tconst executableSidecar = process.platform === "win32" ? join(executable.dir, `${executable.name}-rg.exe`) : `${process.execPath}-rg`;',
+  '\t\tif ("pkg" in process && existsSync(executableSidecar)) return executableSidecar;',
+  '\t\tconst dependency = (await import("@vscode/ripgrep")).rgPath;',
+  '\t\treturn process.versions.electron === void 0 ? dependency : dependency.replace(/\\.asar(?=[\\\\/])/u, ".asar.unpacked");',
+  '\t});',
+  '\treturn rgPathPromise;',
+  '}',
+].join('\n');
+
+const PATCHED_ELECTRON = [
+  '/**',
+  ' * Locate a usable system `rg` binary as a fallback.',
+  ' *',
+  ' * `@vscode/ripgrep` only publishes prebuilt binaries for darwin/win32/linux;',
+  ' * on other platforms (Termux/Android, ...) its platform package is absent and',
+  ' * `import("@vscode/ripgrep")` rejects. When that happens the search tools fall',
+  ' * back to an `rg` found on `PATH` (or an explicit `RG_PATH`), keeping `grep` /',
+  ' * `glob` functional wherever ripgrep is installed system-wide.',
+  ' */',
+  'async function resolveSystemRg() {',
+  '\tif (process.env.RG_PATH) return process.env.RG_PATH;',
+  '\ttry {',
+  '\t\tconst { execFileSync } = await import("node:child_process");',
+  '\t\tconst which = process.platform === "win32" ? "where" : "which";',
+  '\t\tconst found = execFileSync(which, ["rg"], { encoding: "utf8" }).split(/\\r?\\n/)[0]?.trim();',
+  '\t\tif (found) return found;',
+  '\t} catch { /* no `which`/`where`; fall through to bare "rg" via PATH */ }',
+  '\treturn "rg";',
+  '}',
+  'function resolveRgPath() {',
+  '\trgPathPromise ??= Promise.resolve().then(async () => {',
+  '\t\tconst executable = parse(process.execPath);',
+  '\t\tconst executableSidecar = process.platform === "win32" ? join(executable.dir, `${executable.name}-rg.exe`) : `${process.execPath}-rg`;',
+  '\t\tif ("pkg" in process && existsSync(executableSidecar)) return executableSidecar;',
+  '\t\ttry {',
+  '\t\t\tconst dependency = (await import("@vscode/ripgrep")).rgPath;',
+  '\t\t\treturn process.versions.electron === void 0 ? dependency : dependency.replace(/\\.asar(?=[\\\\/])/u, ".asar.unpacked");',
+  '\t\t} catch {',
+  '\t\t\treturn resolveSystemRg();',
+  '\t\t}',
+  '\t});',
+  '\treturn rgPathPromise;',
+  '}',
+].join('\n');
+
 let originalFound = false;
 if (src.includes(ORIG)) {
   src = src.replace(ORIG, PATCHED_OLD);
@@ -179,15 +229,21 @@ if (src.includes(ORIG)) {
 } else if (src.includes(NEW_ORIG)) {
   src = src.replace(NEW_ORIG, PATCHED_NEW);
   originalFound = true;
+} else if (src.includes(NEW_ELECTRON_ORIG)) {
+  src = src.replace(NEW_ELECTRON_ORIG, PATCHED_ELECTRON);
+  originalFound = true;
 }
 
 if (!originalFound) {
-  console.error('ERROR: original resolveRgPath() not found in ' + lib);
-  console.error('The code likely changed in this version; patch manually.');
-  process.exit(1);
+  // 锚点漂移不再直接判死：第 1 步的平台包软链本身就能让 @vscode/ripgrep 解析成功
+  // （它只做 require.resolve(`${platformPkg}/bin/rg`)，不校验 package.json），
+  // 源码回退补丁只是双保险。真正是否可用交给 step 3 的实际解析结果判定。
+  console.log('    [warn] 未识别 resolveRgPath() 形态（dsh 版本漂移），跳过源码回退补丁');
+  console.log('           平台包软链已就位，改由 step 3 的实际解析结果判定成败');
+} else {
+  fs.writeFileSync(lib, src);
+  console.log('    patched OK');
 }
-fs.writeFileSync(lib, src);
-console.log('    patched OK');
 JS
 
 # 3. 验证：用全新 node 子进程实际解析一次 rg 路径并打印版本
