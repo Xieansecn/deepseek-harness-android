@@ -1,13 +1,15 @@
 #!/data/data/com.termux/files/usr/bin/bash
-# 对已安装的 dsh 运行时 bundle 应用 JS 性能补丁（patches/01~02.patch）；幂等：已应用则 [skip]。
+# 对已安装的 dsh 运行时 bundle 应用 JS 性能补丁（patches/01~03.patch）；幂等：已应用则 [skip]。
 # 用法：bash apply-js-patches.sh
-# 锚点核对基准：@deepseek-ai/dsh 0.1.5-rc.1（它 node_modules 里的 @deepseek-ai/* 为 0.1.5-rc.2，
-# 已与 npm 上同名同版本源码逐字节比对，确认安装树 == 上游源码 + 本目录这两个补丁）。
+# 补丁分层（版本漂移容错）：
+#   01/02 是 0.1.5 线的全量性能补丁（02 含 compose 惰性化，0.1.7 起上游已原生实现 lazyBody，锚点会失配→[FAIL] 跳过）；
+#   03 只改 newlineCount，锚点跨 0.1.5/0.1.7 都稳定，是版本无关的兜底性能补丁。
+# 逐字节核对方式：npm pack 对应版本源码 → 正向打补丁 → 与安装树 diff。
 set -euo pipefail
 
 DSH_PACKAGES_DIR="${DSH_PACKAGES_DIR:-/data/data/com.termux/files/usr/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
-PATCHES=(01-frontend-static-cache 02-client-modules-lazy-compose)
+PATCHES=(01-frontend-static-cache 02-client-modules-lazy-compose 03-client-modules-newline-count)
 
 [ -d "$DSH_PACKAGES_DIR" ] || { echo "[apply-js-patches] 未找到 dsh 安装目录: $DSH_PACKAGES_DIR"; exit 1; }
 
