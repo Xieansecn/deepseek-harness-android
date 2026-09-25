@@ -166,7 +166,12 @@ trap on_exit EXIT
 status_start   # 状态指示器从这里开始，一直显示到脚本结束（见末尾 status_stop）
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"   # 脚本真实目录（脚本中段会 cd，须用绝对路径）
-DSH_NPM="@deepseek-ai/dsh"
+# 默认跟随 npm 的 latest；可用 DSH_VERSION=0.1.7-rc.2 钉版本（灰度/回退时不必改脚本）。
+if [ -n "${DSH_VERSION:-}" ]; then
+  DSH_NPM="@deepseek-ai/dsh@${DSH_VERSION}"
+else
+  DSH_NPM="@deepseek-ai/dsh"
+fi
 DSH_DIR="/data/data/com.termux/files/usr/lib/node_modules/@deepseek-ai/dsh"
 INSTALL_DIR="$HOME/dsh"
 # ⚠️ 一律用真实绝对路径 /data/data/com.termux/files/usr/bin：/usr 在部分命名空间不可解析（实测 No such file or directory）。
@@ -200,6 +205,21 @@ anchor_precheck() {
       missing=$((missing+1))
     fi
   done
+  # 停止梯子依赖上游「重复信号立即强退」语义（profile-boot 的 createProcessShutdown.interrupt → forceExitOnce）。
+  # 该文件是内容哈希名（lib/profile-boot-<hash>.js），升级即改名，故按通配探测；漂移只告警——
+  # 后果是 stop_dsh.sh 退化为「等满 DSH_STOP_TIMEOUT 再 SIGKILL」，停止变慢但不会失败。
+  local pb_hit=0 pg
+  for pg in "$DSH_DIR"/lib/profile-boot-*.js; do
+    [ -f "$pg" ] || continue
+    if grep -qF "createProcessShutdown" "$pg" 2>/dev/null \
+       && grep -qF "forceExitOnce" "$pg" 2>/dev/null \
+       && grep -qF "interrupt(code)" "$pg" 2>/dev/null; then pb_hit=1; fi
+  done
+  if [ "$pb_hit" -eq 1 ]; then
+    ok "  [ok]   profile-boot 双信号强退语义（停止梯子前提）"
+  else
+    warn "  [warn] profile-boot 未检测到 interrupt/forceExitOnce（停止可能退化为等满 DSH_STOP_TIMEOUT 兜底）"
+  fi
   [ "$missing" -eq 0 ] && ok "  所有关键锚点就位" || true
 }
 anchor_precheck
@@ -264,10 +284,14 @@ step "3/9 安装 dsh（可能 5~15 分钟）"
 # 真正需要编译的只有 node-pty（无 android-arm64 预编译），koffi 3.x 走预编译包。
 PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
 EXTRA_FLAGS="-target aarch64-linux-android30 -I$PREFIX/include"
+# npm 12 只对 --allow-scripts 列出的包执行 install/postinstall（其余静默跳过）。
+# 上游新增带构建脚本的包时必须同步补进来，否则原生产物静默缺失——下方的自检负责发现。
+ALLOW_SCRIPTS="@deepseek-ai/dsh-subprocess-local,koffi,node-pty,@google/genai,protobufjs"
+info "  安装目标：${DSH_NPM}（装脚本白名单：${ALLOW_SCRIPTS}）"
 run_hidden_spinner "  正在安装 dsh 和编译原生模块（5~15 分钟）..." \
   env CFLAGS="$EXTRA_FLAGS" CXXFLAGS="$EXTRA_FLAGS" \
   npm install -g --no-audit --no-fund --loglevel=error \
-  --allow-scripts=@deepseek-ai/dsh-subprocess-local,koffi,node-pty,@google/genai,protobufjs "$DSH_NPM"
+  --allow-scripts="$ALLOW_SCRIPTS" "$DSH_NPM"
 if [ -f "$DSH_DIR/node_modules/node-pty/build/Release/pty.node" ]; then
   ok "  node-pty 编译产物就位 (build/Release/pty.node)"
 else
@@ -285,6 +309,56 @@ if (cd "$DSH_DIR/node_modules/koffi" && node -e "try{require('koffi');}catch(e){
 else
   warn "  koffi 预编译包无法加载（koffi 3.x 走 @koromix/koffi-*，无需本地编译）"
   warn "  若 dsh 在 win32 场景用到 koffi，对应功能会异常；请检查是否装了 @koromix/koffi-android-arm64。"
+fi
+
+# 安装脚本白名单自检：npm 12 只对 --allow-scripts 内的包跑 install/postinstall，其余静默跳过。
+# 上游依赖重组后（0.1.7 新增/改名了一批包）若冒出新的带脚本包，必须在这里被点出来，否则原生产物静默缺失。
+if node - "$DSH_DIR/node_modules" "$ALLOW_SCRIPTS" <<'JS'
+import fs from "node:fs";
+import path from "node:path";
+const [root, allowStr] = process.argv.slice(2);
+const CLR = process.env.SP_CLEAR ?? "";
+const allow = new Set(allowStr.split(",").map((s) => s.trim()).filter(Boolean));
+const found = new Map();
+const consider = (dir) => {
+  let pkg;
+  try { pkg = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")); } catch { return; }
+  const hooks = ["preinstall", "install", "postinstall"].filter((h) => typeof pkg.scripts?.[h] === "string");
+  if (hooks.length === 0) return;
+  const name = pkg.name ?? path.basename(dir);
+  if (!found.has(name)) found.set(name, hooks.join("/"));
+};
+const walk = (dir) => {
+  let ents;
+  try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+  for (const e of ents) {
+    if (!e.isDirectory()) continue;
+    if (e.name.startsWith("@")) { walk(path.join(dir, e.name)); continue; }
+    consider(path.join(dir, e.name));
+  }
+};
+walk(root);
+const lines = [];
+for (const [n, h] of found) lines.push(`    ${allow.has(n) ? "[allowed]  " : "[UNCOVERED]"} ${n} (${h})`);
+const uncovered = [...found.keys()].filter((n) => !allow.has(n));
+if (uncovered.length > 0) {
+  lines.push(`    [warn] ${uncovered.length} 个带安装脚本的包不在白名单内，其构建步骤已被 npm 跳过`);
+  console.log(CLR + lines.join("\n"));
+  process.exit(3);
+}
+lines.push(`    [ok] ${found.size} 个带安装脚本的包都在白名单内`);
+console.log(CLR + lines.join("\n"));
+JS
+then
+  ok "  安装脚本白名单覆盖完整"
+else
+  rc=$?
+  if [ "$rc" -eq 3 ]; then
+    warn "  [!!] 有带安装脚本的包不在 --allow-scripts 白名单（见上表）：其构建步骤被跳过，原生产物可能缺失。"
+    warn "       请把包名加入本脚本的 ALLOW_SCRIPTS 后重跑。"
+  else
+    warn "  [!!] 安装脚本白名单自检执行异常（退出码 $rc）"
+  fi
 fi
 
 # ------------------------------------------------------- 4/9 后端兼容补丁
@@ -393,12 +467,18 @@ PY
   fi
 fi
 
-# 4f ripgrep 修复：npm install 会清空 node_modules，每次更新后都必须重跑（脚本幂等，失败即中断 setup）。
+# 4f ripgrep 修复：npm install 会清空 node_modules，每次更新后都必须重跑（脚本幂等）。
+# ⚠️ apply-rg-fix.sh 内部已把「锚点漂移」降级为非致命（软链本身即可让 @vscode/ripgrep 解析成功），
+#    所以它非 0 退出只代表 resolveRgPath() 真解析不通（grep/glob 全废），此时必须中断。
 RG_FIX="$SCRIPT_DIR/apply-rg-fix.sh"
 if [ -f "$RG_FIX" ]; then
   info "4f/9 应用 grep/glob ripgrep 修复（dsh-rg-fix）"
-  run_hidden bash "$RG_FIX"
-  ok "  ripgrep 修复完成"
+  if run_hidden bash "$RG_FIX"; then
+    ok "  ripgrep 修复完成"
+  else
+    error "  ripgrep 修复失败：resolveRgPath() 实际解析不通过，grep/glob 将不可用。详见 $SETUP_LOG"
+    exit 1
+  fi
 else
   warn "  缺少 apply-rg-fix.sh，跳过 grep/glob ripgrep 修复"
 fi
