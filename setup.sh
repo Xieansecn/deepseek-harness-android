@@ -662,7 +662,7 @@ if [ -f "$SCRIPT_DIR/apply-js-patches.sh" ]; then
   if run_hidden bash "$SCRIPT_DIR/apply-js-patches.sh"; then
     ok "  JS 性能补丁完成"
   else
-    warn "  [!!] apply-js-patches.sh 退出码非 0。看上面标 [FAIL] 的那几条：真锚点失配（上游重构）或应用失败；不影响核心功能。"
+    warn "  [!!] apply-js-patches.sh 退出码非 0。看上面标 [FAIL] 的那几条：真锚点失配（上游重构）或应用失败（[deprecated] 是弃用围栏里的旧补丁，不算问题）；不影响核心功能。"
     warn "       可单独重试: bash $SCRIPT_DIR/apply-js-patches.sh"
   fi
 fi
