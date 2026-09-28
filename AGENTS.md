@@ -92,6 +92,7 @@ dsh Web UI 用 **进程 launch token + 持久化签名 cookie** 鉴权：
 ### 6.1 语言与输出
 
 - `setup.sh` 与 `apply-*.sh` 是 **bash**：`set -euo pipefail`，进度用 `info()/warn()/ok()/error()`，主步骤用 `step()`；注释与用户提示用中文；`apply-rg-fix.sh` 的英文注释保持原样。
+- **脚本头部与权限统一**：所有脚本的 shebang 一律写 **Termux 绝对路径**（`#!/data/data/com.termux/files/usr/bin/bash` 或 `.../node`），**不用 `#!/usr/bin/env …`**（`/usr/bin` 不可解析，见第 7 节）；`.sh` 与 `.js` 一律置**可执行位**（755），于是 `bash x.sh` / `node x.js` / 直接 `./x` 三种调用都成立。新增脚本请照此对齐——`verify-client-modules-lazy.js` 曾是唯一例外（`env` shebang + 644），2026-09 已对齐。
 - `start_dsh.sh` / `stop_dsh.sh` / `restart_dsh_now.sh` 的 **body 只用 POSIX sh**（不用 `local` / `[[ ]]` / 数组 / `<<<` / `$SECONDS`；`$(())`、`case`、参数展开都可用），要求 `bash -n` 与 `dash -n` 都能过（shebang 仍是 bash，用户可能用 `sh` 调）。**但“快”不靠换 shell**：本机实测 bash 空启动 11ms、dash 17ms，真正的成本是 **fork+exec ≈19ms**（100×`true` = 1.9s）——所以禁止在轮询里每次起子进程。等待用 `tail -n 0 -f` 流式读 + `kill -0` 内建探测，端口只探一次。
 - `setup.sh` 输出：默认原始子命令输出进 `~/dsh/setup.log`（`run_hidden`），终端只显示摘要；`--verbose` 用 `tee` 透传；`NO_COLOR=1` 或非 TTY 自动关色。ANSI 序列预先算进变量（`C_*`），输出路径零 fork。
 - **常驻状态行**（TTY 且非 `--verbose`）：从脚本开头一直显示到结束，后台 ticker 每 0.15s 重画 `[⠹] 当前步骤 · M:SS`。改输出代码时必须遵守：

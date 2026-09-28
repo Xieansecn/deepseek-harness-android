@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/data/data/com.termux/files/usr/bin/node
 /**
  * 验证 02-client-modules-lazy-compose 补丁：客户端 combo 改为按需构建后，服务端返回的字节必须与磁盘上的 client bundle 一致。
  *
