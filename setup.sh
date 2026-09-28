@@ -166,7 +166,8 @@ trap on_exit EXIT
 status_start   # 状态指示器从这里开始，一直显示到脚本结束（见末尾 status_stop）
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"   # 脚本真实目录（脚本中段会 cd，须用绝对路径）
-# 默认跟随 npm 的 latest；可用 DSH_VERSION=0.1.7-rc.2 钉版本（灰度/回退时不必改脚本）。
+# 默认跟随 npm 的 latest；仅在灰度/回退时用 DSH_VERSION=<ver> 钉版本（<ver> 从 npm 取）。
+# ⚠️ 不要在这里写死版本号：写死等于每次升级都得改脚本，也违背「默认跟随 latest」的语义。
 if [ -n "${DSH_VERSION:-}" ]; then
   DSH_NPM="@deepseek-ai/dsh@${DSH_VERSION}"
 else

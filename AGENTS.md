@@ -11,6 +11,7 @@
 ## 2. 版本基准与已验证状态
 
 - 当前基准：`@deepseek-ai/dsh` **0.1.7-rc.2**（= npm `latest` = `next`；`alpha` 为 0.1.7-alpha.2）。其 `node_modules/@deepseek-ai/*` 同为 **0.1.7-rc.2**（`@deepseek-ai/node-addon-system` 用独立版本号 0.1.2、`node-addon-require-builtin` 0.1.6）。
+- **⚠️ 版本号只表示「撰写/实测时点」，绝不能当逻辑依赖**：脚本与补丁一律**不得按版本号分支**（`setup.sh` 默认跟随 npm `latest`，`DSH_VERSION` 只由调用方按需传；补丁靠锚点/形状匹配，不靠版本串）。升级前后都用 `node -p "require('$DSH_DIR/package.json').version"` 与 `npm view @deepseek-ai/dsh dist-tags` 核对**实际**版本，再回来更新本行——在此之前，本行的版本号对代码没有任何约束力。
 - **0.1.7 相对 0.1.5 的两处关键变化**：
   1. **新增原生 addon 家族，缺平台包就完全起不来**。`node-addon-require-builtin` 经 `node-addon-native-custom-loader` 加载平台可选包 `<name>-<platform>-<arch>`，上游只发布 darwin/linux-gnu/win32-msvc 七个预编译包、**没有 android**；`runtimeSuffix()` 对未知平台回退成 `${process.platform}-${process.arch}`（Termux 即 `android-arm64`），解析失败后 loader 会依次尝试 optional-package → local-build，但 published 安装不含 binding.gyp/src（上游 README 明说 "fail closed instead of compiling unvalidated local binaries"），于是 `dsh-app-boot` 的 `internalModules()`（**无条件** `createRequire(...)("node-addon-require-builtin")`，无 JS 回退）抛 `No usable native binding found` → host preparation 失败 → dsh 起不来。由 `patches/patch-dsh-android-require-builtin.js` 补平台包解决。
   2. 客户端 combo 惰性化已由上游原生 `lazyBody` 实现，补丁 02 的锚点必然失配（预期，`[FAIL]` 跳过，不影响运行）；补丁 01/03 仍命中。`resolveRgPath()` 也多了 electron `.asar` 归一化分支。
@@ -142,7 +143,7 @@ dsh Web UI 用 **进程 launch token + 持久化签名 cookie** 鉴权：
 | `DSH_WEB_PATTERN` | `…/lib/[b]in.js web` | start/stop | 进程匹配模式（多安装并存时覆盖） |
 | `DSH_VIA_APP` / `DSH_OPEN_APP` / `DSH_OPEN_CHOOSER` | `mark.via` / 空 / `0` | start | 浏览器选择 |
 | `SETUP_VERBOSE` / `NO_COLOR` | 空 | setup | 透传原始输出 / 关色 |
-| `DSH_VERSION` | 空（跟随 npm `latest`） | setup | 钉安装版本，如 `DSH_VERSION=0.1.7-rc.2`，用于灰度/回退 |
+| `DSH_VERSION` | 空（跟随 npm `latest`） | setup | **仅**灰度/回退时钉版本（`DSH_VERSION=<ver>`，`<ver>` 从 npm 取）；默认留空，别写死 |
 | `DSH_PACKAGES_DIR` | dsh 的 `node_modules/@deepseek-ai` | apply-js-patches | 目标包目录 |
 | `DSH_ROOT`、`RG_PATH` | dsh 安装根、`command -v rg` | apply-rg-fix | 目标根、指定系统 rg |
 | `DSH_DIR` | dsh 安装根 | verify-client-modules-lazy | 目标根（link/flock/verify-link 用 `--root`） |
@@ -217,6 +218,16 @@ node patches/verify-client-modules-lazy.js [--timeout 120]
 ```
 
 其中 `DSH_DIR=/data/data/com.termux/files/usr/lib/node_modules/@deepseek-ai/dsh`。
+
+升级前后都该做的版本核对（**脚本里不要写死版本号**）：
+
+```bash
+node -p "require('$DSH_DIR/package.json').version"                         # 当前装的 dsh
+node "$(readlink -f "$(command -v npm)")" view @deepseek-ai/dsh dist-tags   # 上游 latest/next/alpha
+```
+
+⚠️ 本机 npm 走的是 `registry.npmmirror.com`（见 `~/.npmrc`），镜像可能滞后：要判断「上游到底发了什么」，直连官方注册表核对，例如
+`curl -s https://registry.npmjs.org/@deepseek-ai/dsh | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s)["dist-tags"]))'`。
 
 ## 9. 测试与验证
 

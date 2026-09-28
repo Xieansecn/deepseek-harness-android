@@ -14,8 +14,8 @@
 </div>
 
 > [!IMPORTANT]
-> 已在 **deepseek-harness `0.1.7-rc.2`**（npm `latest`）上实测通过；`0.1.7` 起上游原生实现了客户端 combo 惰性化，故性能补丁 `02` 会自动跳过（见下方「JS 性能补丁」对 `03` 的说明）。
-> Tested on **deepseek-harness `0.1.7-rc.2`** (npm `latest`); since `0.1.7` upstream implements client-combo laziness natively, perf patch `02` is skipped automatically (see the note on patch `03` under JS perf patches).
+> 已在 **deepseek-harness `0.1.7-rc.2`**（**撰写时**的 npm `latest`；当前 latest 用 `npm view @deepseek-ai/dsh version` 查）上实测通过；`0.1.7` 起上游原生实现了客户端 combo 惰性化，故性能补丁 `02` 会自动跳过（见下方「JS 性能补丁」对 `03` 的说明）。
+> Tested on **deepseek-harness `0.1.7-rc.2`** (the npm `latest` **at the time of writing**; check the current one with `npm view @deepseek-ai/dsh version`); since `0.1.7` upstream implements client-combo laziness natively, perf patch `02` is skipped automatically (see the note on patch `03` under JS perf patches).
 
 ---
 
@@ -116,7 +116,7 @@ bash setup.sh                 # 升级 dsh 或 Node 后必须重跑
 | `DSH_ORIGIN` | `127.0.0.1` | 打开给浏览器的 origin；`localhost` 可绕开 PWA 对 `?token=` 的劫持 |
 | `DSH_PORT` | `3080` | 服务端口 |
 | `NO_COLOR` | 空 | 非空则关闭彩色输出 |
-| `DSH_VERSION` | 空（跟随 npm `latest`） | 钉住安装版本，如 `DSH_VERSION=0.1.7-rc.2 bash setup.sh`，用于灰度/回退 |
+| `DSH_VERSION` | 空（跟随 npm `latest`） | **仅**灰度/回退时钉版本：`DSH_VERSION=<ver> bash setup.sh`，`<ver>` 从 `npm view @deepseek-ai/dsh versions` 取。默认留空——写死版本号会让升级永远跟不上 |
 
 ### 打开浏览器的顺序
 
@@ -279,7 +279,7 @@ node patches/verify-client-modules-lazy.js
 
 ## 🧪 兼容性 / Compatibility
 
-- **作者实测**：Huawei Mate 60（ALN-AL80），HarmonyOS 4.2.0（build 4.2.0.186），**无 root**，Termux（Node v26，aarch64），deepseek-harness `0.1.7-rc.2`。
+- **作者实测**：Huawei Mate 60（ALN-AL80），HarmonyOS 4.2.0（build 4.2.0.186），**无 root**，Termux（Node v26，aarch64），deepseek-harness `0.1.7-rc.2`（实测时点）。
 - 不同机型 / ROM 可能有差异：部分 ROM 通过 SELinux 禁用 `link()`、命名空间沙箱权限不同、bwrap/landlock 可用性不同等。
 - `setup.sh` 覆盖通用 Android 场景，个别机型可能仍需额外适配。
 
@@ -391,7 +391,7 @@ bash setup.sh                 # must re-run after upgrading dsh or Node
 | `DSH_ORIGIN` | `127.0.0.1` | Origin handed to the browser; `localhost` avoids PWA hijacking of `?token=` |
 | `DSH_PORT` | `3080` | Service port |
 | `NO_COLOR` | empty | Non-empty disables colored output |
-| `DSH_VERSION` | empty (npm `latest`) | Pin the installed version, e.g. `DSH_VERSION=0.1.7-rc.2 bash setup.sh` |
+| `DSH_VERSION` | empty (npm `latest`) | Pin **only** for canary/rollback: `DSH_VERSION=<ver> bash setup.sh`, with `<ver>` from `npm view @deepseek-ai/dsh versions`. Leave it empty by default — hardcoding a version blocks upgrades |
 
 ### Browser open order
 
@@ -552,7 +552,7 @@ All patch scripts are **idempotent**: run them twice and the second run reports 
 
 ## 🧪 Compatibility
 
-- **Author's setup**: Huawei Mate 60 (ALN-AL80), HarmonyOS 4.2.0 (build 4.2.0.186), **no root**, Termux (Node v26, aarch64), deepseek-harness `0.1.7-rc.2`.
+- **Author's setup**: Huawei Mate 60 (ALN-AL80), HarmonyOS 4.2.0 (build 4.2.0.186), **no root**, Termux (Node v26, aarch64), deepseek-harness `0.1.7-rc.2` (at the time of testing).
 - Phones/ROMs differ: some block the `link()` syscall via SELinux, namespace-sandbox permissions vary, and bwrap/landlock availability differs.
 - `setup.sh` covers the common Android cases; specific devices may still need extra tweaks.
 
