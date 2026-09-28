@@ -27,7 +27,10 @@ function resolveRoot(optRoot) {
 	// 见 patch-dsh-android-link.js：不用 `npm root -g`（Termux 的 /usr/bin 不可解析，
 	// npm 的 `#!/usr/bin/env node` shebang 会报 bad interpreter），直接从 node 路径推导。
 	const globalRoot = path.join(path.dirname(path.dirname(process.execPath)), "lib", "node_modules");
-	return path.join(globalRoot, "@deepseek-ai", "dsh", "node_modules", "@deepseek-ai");
+	const derived = path.join(globalRoot, "@deepseek-ai", "dsh", "node_modules", "@deepseek-ai");
+	// 推导目录不存在时返回 null，让调用方的「无法定位…请用 --root 指定」成为**可达**路径
+	// （否则那是死代码，报错会退化成后面那句含糊的「目标目录不完整」）。
+	return fs.existsSync(derived) ? derived : null;
 }
 
 function assert(cond, msg) {

@@ -238,8 +238,13 @@ anchor_precheck() {
   # node-addon-require-builtin-<platform>-<arch> 提供绑定，上游没有 android 版。缺它时
   # dsh-app-boot 的 internalModules() 会抛 "No usable native binding found"，
   # host preparation 失败、**dsh 完全起不来**。该包不在 @deepseek-ai/ 命名空间下，故单独探测。
-  local rb_dir="$DSH_DIR/node_modules/node-addon-require-builtin-android-arm64"
-  if [ -f "$rb_dir/index.js" ] && grep -qF "dsh-android-require-builtin" "$rb_dir/index.js" 2>/dev/null; then
+  # ⚠️ 平台包名后缀随架构变（android-arm64 / android-arm…），用通配探测、别写死后缀——
+  # 写死会让 armv7 上的一次健康安装被预检误报成「dsh 将无法启动」。
+  local rb_hit=0 rbg
+  for rbg in "$DSH_DIR"/node_modules/node-addon-require-builtin-android-*/index.js; do
+    if [ -f "$rbg" ] && grep -qF "dsh-android-require-builtin" "$rbg" 2>/dev/null; then rb_hit=1; fi
+  done
+  if [ "$rb_hit" -eq 1 ]; then
     ok "  [ok]   node-addon-require-builtin android 平台包（dsh 启动前提）"
   else
     warn "  [warn] node-addon-require-builtin android 平台包缺失——dsh 将无法启动（No usable native binding found）"

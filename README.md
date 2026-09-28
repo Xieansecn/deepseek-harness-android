@@ -143,9 +143,9 @@ DSH_NO_OPEN=1 bash ~/dsh/start_dsh.sh                     # 只打印 URL 自己
 | npm 拦截构建脚本 | node-pty / koffi 没有产物 | `--allow-scripts` 放行指定包 |
 | `link()` 被 SELinux 禁用 | 会话/附件保存、会话迁移、`write` 新建文件报 `EACCES` | 会话日志直接发布改 `rename()`；no-replace 场景回退「O_EXCL 占位 + rename」；附件遍历/清理容忍 `EACCES`/`ENOENT` |
 | `flock` 在 Android 不可用 | 发消息报 `flock is not supported on android-arm64` | 用 clang 把 `node-addon-system` 自带 `src/flock.c` 编成本机 `system.node`，并让 `lib/flock.js` 在 android 下加载它（含真实加锁自检） |
-| **dsh ≥0.1.7 完全起不来** | `No usable native binding found for node-addon-require-builtin-android-arm64`，`host preparation failed` | 上游新增的原生 addon 家族只发布 darwin/linux/win32 预编译包，没有 android。补一个 `node-addon-require-builtin-android-arm64` 平台包（纯 JS 实现，依赖包装脚本已带的 `--expose-internals`），并内置 `internalModules()` 自检 |
+| **dsh ≥0.1.7 完全起不来** | `No usable native binding found for node-addon-require-builtin-android-arm64`，`host preparation failed` | 上游新增的原生 addon 家族只发布 darwin/linux/win32 预编译包，没有 android。补一个 `node-addon-require-builtin-android-arm64` 平台包（纯 JS 实现，依赖包装脚本已带的 `--expose-internals`），并内置 `internalModules()` 自检（包名后缀随设备架构变化，如 armv7 上是 `-android-arm`） |
 | PTY 终端检测失败 | `unsupported on platform android` | subprocess 把 `android` 视同 `linux`（锚点可能在内容哈希 bundle 里，按通配扫描 `lib/`） |
-| 安卓输入法回车直接发送 | 打不出多行：回车即发送 | 修补 `dsh-client-ui-conversation`：普通回车=换行，`Ctrl/Cmd+Enter`=发送（唯一「失败即回滚并中断安装」的补丁） |
+| 安卓输入法回车直接发送 | 打不出多行：回车即发送 | 修补 `dsh-client-ui-conversation`：普通回车=换行，`Ctrl/Cmd+Enter`=发送（失败即回滚并中断安装；会中断安装的还有 4-boot 平台包、ripgrep、3/9 的 npm 安装） |
 | sharp 无法加载 | `Could not load sharp module` | 安装 `@img/sharp-wasm32` wasm 回退（含 `@emnapi/runtime`） |
 | grep/glob 报 `ripgrep launch failed` | `@vscode/ripgrep` 无 Android 预编译包 | 符号链接系统 `rg` + 修补 `resolveRgPath()` 回退 |
 | HMR 启动崩溃 | `--expose-internals is required` | 重建 `dsh` 包装脚本，加 `--expose-internals --no-warnings` |
@@ -418,9 +418,9 @@ Upstream `@deepseek-ai/dsh` ships linux/darwin prebuilds only and assumes a full
 | npm blocks build scripts | no node-pty / koffi artifacts | allow the packages via `--allow-scripts` |
 | `link()` blocked by SELinux | `EACCES` saving sessions/attachments, migrating sessions, and when the `write` tool creates a file | session-log publish uses `rename()`; no-replace paths fall back to "O_EXCL reserve + rename"; attachment walks/cleanup tolerate `EACCES`/`ENOENT` |
 | `flock` unavailable | `flock is not supported on android-arm64` when sending a message | compile `node-addon-system`'s bundled `src/flock.c` with clang into a local `system.node` and load it from `lib/flock.js` on android (with a real lock self-test) |
-| **dsh ≥0.1.7 won't start at all** | `No usable native binding found for node-addon-require-builtin-android-arm64`, `host preparation failed` | upstream's new native-addon family ships darwin/linux/win32 prebuilds only, none for android. Add a `node-addon-require-builtin-android-arm64` platform package (pure-JS implementation, relying on the `--expose-internals` the wrapper already sets) with a built-in `internalModules()` self-test |
+| **dsh ≥0.1.7 won't start at all** | `No usable native binding found for node-addon-require-builtin-android-arm64`, `host preparation failed` | upstream's new native-addon family ships darwin/linux/win32 prebuilds only, none for android. Add a `node-addon-require-builtin-android-arm64` platform package (pure-JS implementation, relying on the `--expose-internals` the wrapper already sets) with a built-in `internalModules()` self-test (the suffix follows the device arch, e.g. `-android-arm` on armv7) |
 | PTY terminal detection fails | `unsupported on platform android` | treat `android` as `linux` in subprocess (the anchor may live in a content-hashed bundle, so `lib/` is glob-scanned) |
-| Enter sends instead of a newline | cannot type multi-line input | patch `dsh-client-ui-conversation`: Enter = newline, `Ctrl/Cmd+Enter` = send (the only patch that rolls back and aborts the install on failure) |
+| Enter sends instead of a newline | cannot type multi-line input | patch `dsh-client-ui-conversation`: Enter = newline, `Ctrl/Cmd+Enter` = send (rolls back and aborts the install on failure; the 4-boot platform package, ripgrep and the 3/9 npm install also abort) |
 | sharp fails to load | `Could not load sharp module` | install the `@img/sharp-wasm32` wasm fallback (plus `@emnapi/runtime`) |
 | grep/glob: `ripgrep launch failed` | no Android prebuild from `@vscode/ripgrep` | symlink system `rg` + patch the `resolveRgPath()` fallback |
 | HMR crashes on start | `--expose-internals is required` | rebuild the `dsh` wrapper with `--expose-internals --no-warnings` |
