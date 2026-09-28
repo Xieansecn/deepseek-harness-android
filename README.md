@@ -5,7 +5,7 @@
 **在 Android 手机的 Termux 里原生运行 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)**
 **Run DeepSeek Harness natively inside Termux on Android**
 
-[![tested](https://img.shields.io/badge/tested-0.1.5--rc.3-blue)](#-兼容性--compatibility)
+[![tested](https://img.shields.io/badge/tested-0.1.7--rc.2-blue)](#-兼容性--compatibility)
 [![platform](https://img.shields.io/badge/platform-Android%20%C2%B7%20Termux-green)](#-环境要求--requirements)
 [![license](https://img.shields.io/badge/license-MIT-lightgrey)](#license)
 
@@ -14,8 +14,8 @@
 </div>
 
 > [!IMPORTANT]
-> 已在 **deepseek-harness `0.1.5-rc.3`**（npm `latest`）上实测通过；`0.1.7-rc.2` 线亦已适配（`setup.sh` 与运行期脚本可用，见下方「JS 性能补丁」对 `03` 的说明）。
-> Tested on **deepseek-harness `0.1.5-rc.3`** (npm `latest`); the `0.1.7-rc.2` line is also covered (see the note on patch `03` under JS perf patches).
+> 已在 **deepseek-harness `0.1.7-rc.2`**（npm `latest`）上实测通过；`0.1.7` 起上游原生实现了客户端 combo 惰性化，故性能补丁 `02` 会自动跳过（见下方「JS 性能补丁」对 `03` 的说明）。
+> Tested on **deepseek-harness `0.1.7-rc.2`** (npm `latest`); since `0.1.7` upstream implements client-combo laziness natively, perf patch `02` is skipped automatically (see the note on patch `03` under JS perf patches).
 
 ---
 
@@ -143,6 +143,7 @@ DSH_NO_OPEN=1 bash ~/dsh/start_dsh.sh                     # 只打印 URL 自己
 | npm 拦截构建脚本 | node-pty / koffi 没有产物 | `--allow-scripts` 放行指定包 |
 | `link()` 被 SELinux 禁用 | 会话/附件保存、会话迁移、`write` 新建文件报 `EACCES` | 会话日志直接发布改 `rename()`；no-replace 场景回退「O_EXCL 占位 + rename」；附件遍历/清理容忍 `EACCES`/`ENOENT` |
 | `flock` 在 Android 不可用 | 发消息报 `flock is not supported on android-arm64` | 用 clang 把 `node-addon-system` 自带 `src/flock.c` 编成本机 `system.node`，并让 `lib/flock.js` 在 android 下加载它（含真实加锁自检） |
+| **dsh ≥0.1.7 完全起不来** | `No usable native binding found for node-addon-require-builtin-android-arm64`，`host preparation failed` | 上游新增的原生 addon 家族只发布 darwin/linux/win32 预编译包，没有 android。补一个 `node-addon-require-builtin-android-arm64` 平台包（纯 JS 实现，依赖包装脚本已带的 `--expose-internals`），并内置 `internalModules()` 自检 |
 | PTY 终端检测失败 | `unsupported on platform android` | subprocess 把 `android` 视同 `linux`（锚点可能在内容哈希 bundle 里，按通配扫描 `lib/`） |
 | 安卓输入法回车直接发送 | 打不出多行：回车即发送 | 修补 `dsh-client-ui-conversation`：普通回车=换行，`Ctrl/Cmd+Enter`=发送（唯一「失败即回滚并中断安装」的补丁） |
 | sharp 无法加载 | `Could not load sharp module` | 安装 `@img/sharp-wasm32` wasm 回退（含 `@emnapi/runtime`） |
@@ -212,6 +213,7 @@ deepseek-harness-android/
 │   ├── 01~02-*.patch            # JS 补丁源（缓存头 / 客户端 combo）
 │   ├── patch-dsh-android-link.js    # 禁硬链接修复（rename / O_EXCL+rename 回退）
 │   ├── patch-dsh-android-flock.js   # flock 原生绑定（编译 + 运行时自检）
+│   ├── patch-dsh-android-require-builtin.js # ≥0.1.7 启动前提：补 android 平台包
 │   └── verify-android-link-fix.js   # 硬链接修复验证（临时目录真实运行，不碰会话）
 ├── docs/
 │   └── index.html               # 说明文档站
@@ -248,6 +250,7 @@ bash apply-js-patches.sh
 node patches/patch-dsh-android-link.js  --root "$DSH_DIR/node_modules/@deepseek-ai"
 node patches/verify-android-link-fix.js --root "$DSH_DIR/node_modules/@deepseek-ai"
 node patches/patch-dsh-android-flock.js --root "$DSH_DIR/node_modules/@deepseek-ai"
+node --expose-internals patches/patch-dsh-android-require-builtin.js --root "$DSH_DIR"
 # 补丁 02 自检（临时实例，不动运行中的服务）
 node patches/verify-client-modules-lazy.js
 ```
@@ -269,12 +272,14 @@ node patches/verify-client-modules-lazy.js
 - **浏览器落在了裸地址**：多半是 PWA 劫持，试 `DSH_ORIGIN=localhost`；`DSH_HINTS=1 bash ~/dsh/start_dsh.sh` 会打印三条排查办法。
 - **没有用 Via 打开**：确认 Via 包名为 `mark.via`（不同渠道包名可能不同），可用 `DSH_VIA_APP=<包名>` 指定。
 - **模型没反应**：检查 Models 页的 API Key 与 `~/.dsh/.credentials.yaml`。
+- **升级 dsh 后 dsh 起不来，日志报 `No usable native binding found`**：0.1.7 起上游新增原生 addon 家族但没发 android 预编译包。重跑 `bash setup.sh`（会补 `node-addon-require-builtin-android-arm64` 平台包）即可。
+- **`bad interpreter: /usr/bin/env` / `npm: not found`**：Termux 的 `/usr/bin` 不可解析，而 npm 的 shebang 是 `#!/usr/bin/env node`。`setup.sh` 已自动改用 `node npm-cli.js` 调用；若你自己敲 `npm` 报这个错，用 `node "$(readlink -f "$(command -v npm)")" …` 代替。
 - **升级 dsh / Node 后异常**：重跑 `bash setup.sh`。
 - **换机 / 重装**：重跑 `bash setup.sh` 即可。
 
 ## 🧪 兼容性 / Compatibility
 
-- **作者实测**：Huawei Mate 60（ALN-AL80），HarmonyOS 4.2.0（build 4.2.0.186），**无 root**，Termux（Node v26，aarch64），deepseek-harness `0.1.5-rc.3`。
+- **作者实测**：Huawei Mate 60（ALN-AL80），HarmonyOS 4.2.0（build 4.2.0.186），**无 root**，Termux（Node v26，aarch64），deepseek-harness `0.1.7-rc.2`。
 - 不同机型 / ROM 可能有差异：部分 ROM 通过 SELinux 禁用 `link()`、命名空间沙箱权限不同、bwrap/landlock 可用性不同等。
 - `setup.sh` 覆盖通用 Android 场景，个别机型可能仍需额外适配。
 
@@ -413,6 +418,7 @@ Upstream `@deepseek-ai/dsh` ships linux/darwin prebuilds only and assumes a full
 | npm blocks build scripts | no node-pty / koffi artifacts | allow the packages via `--allow-scripts` |
 | `link()` blocked by SELinux | `EACCES` saving sessions/attachments, migrating sessions, and when the `write` tool creates a file | session-log publish uses `rename()`; no-replace paths fall back to "O_EXCL reserve + rename"; attachment walks/cleanup tolerate `EACCES`/`ENOENT` |
 | `flock` unavailable | `flock is not supported on android-arm64` when sending a message | compile `node-addon-system`'s bundled `src/flock.c` with clang into a local `system.node` and load it from `lib/flock.js` on android (with a real lock self-test) |
+| **dsh ≥0.1.7 won't start at all** | `No usable native binding found for node-addon-require-builtin-android-arm64`, `host preparation failed` | upstream's new native-addon family ships darwin/linux/win32 prebuilds only, none for android. Add a `node-addon-require-builtin-android-arm64` platform package (pure-JS implementation, relying on the `--expose-internals` the wrapper already sets) with a built-in `internalModules()` self-test |
 | PTY terminal detection fails | `unsupported on platform android` | treat `android` as `linux` in subprocess (the anchor may live in a content-hashed bundle, so `lib/` is glob-scanned) |
 | Enter sends instead of a newline | cannot type multi-line input | patch `dsh-client-ui-conversation`: Enter = newline, `Ctrl/Cmd+Enter` = send (the only patch that rolls back and aborts the install on failure) |
 | sharp fails to load | `Could not load sharp module` | install the `@img/sharp-wasm32` wasm fallback (plus `@emnapi/runtime`) |
@@ -482,6 +488,7 @@ deepseek-harness-android/
 │   ├── 01~02-*.patch            # JS patch sources (cache headers / lazy client combos)
 │   ├── patch-dsh-android-link.js    # no-hardlink fix (rename / O_EXCL+rename fallback)
 │   ├── patch-dsh-android-flock.js   # native flock binding (compile + runtime self-test)
+│   ├── patch-dsh-android-require-builtin.js # dsh >=0.1.7 boot prerequisite: android platform pkg
 │   └── verify-android-link-fix.js   # hardlink fix verification (real run in temp dir)
 ├── docs/
 │   └── index.html               # documentation site
@@ -518,6 +525,7 @@ bash apply-js-patches.sh
 node patches/patch-dsh-android-link.js  --root "$DSH_DIR/node_modules/@deepseek-ai"
 node patches/verify-android-link-fix.js --root "$DSH_DIR/node_modules/@deepseek-ai"
 node patches/patch-dsh-android-flock.js --root "$DSH_DIR/node_modules/@deepseek-ai"
+node --expose-internals patches/patch-dsh-android-require-builtin.js --root "$DSH_DIR"
 ```
 
 where `DSH_DIR=/data/data/com.termux/files/usr/lib/node_modules/@deepseek-ai/dsh`.
@@ -537,12 +545,14 @@ All patch scripts are **idempotent**: run them twice and the second run reports 
 - **The browser lands on the bare URL**: most likely PWA hijacking; try `DSH_ORIGIN=localhost`, or `DSH_HINTS=1 bash ~/dsh/start_dsh.sh` to print the three workarounds.
 - **It did not open in Via**: verify Via's package is `mark.via` (it can differ per distribution channel) and set `DSH_VIA_APP=<pkg>` if needed.
 - **Model not responding**: check the API key on the Models page and `~/.dsh/.credentials.yaml`.
+- **dsh won't start after an upgrade, log says `No usable native binding found`**: since 0.1.7 upstream added a native-addon family but ships no android prebuild. Re-run `bash setup.sh` (it adds the `node-addon-require-builtin-android-arm64` platform package).
+- **`bad interpreter: /usr/bin/env` / `npm: not found`**: on Termux `/usr/bin` is not resolvable while npm's shebang is `#!/usr/bin/env node`. `setup.sh` already calls npm as `node npm-cli.js`; if you hit this typing `npm` yourself, use `node "$(readlink -f "$(command -v npm)")" …` instead.
 - **Broken after upgrading dsh / Node**: re-run `bash setup.sh`.
 - **New device / reinstall**: just re-run `bash setup.sh`.
 
 ## 🧪 Compatibility
 
-- **Author's setup**: Huawei Mate 60 (ALN-AL80), HarmonyOS 4.2.0 (build 4.2.0.186), **no root**, Termux (Node v26, aarch64), deepseek-harness `0.1.5-rc.3`.
+- **Author's setup**: Huawei Mate 60 (ALN-AL80), HarmonyOS 4.2.0 (build 4.2.0.186), **no root**, Termux (Node v26, aarch64), deepseek-harness `0.1.7-rc.2`.
 - Phones/ROMs differ: some block the `link()` syscall via SELinux, namespace-sandbox permissions vary, and bwrap/landlock availability differs.
 - `setup.sh` covers the common Android cases; specific devices may still need extra tweaks.
 

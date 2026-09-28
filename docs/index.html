@@ -70,6 +70,7 @@ bash ~/dsh/stop_dsh.sh    # 停止</pre>
       <tr><td>npm 拦截构建脚本</td><td>node-pty/koffi 无产物</td><td><code>--allow-scripts</code> 放行</td></tr>
       <tr><td><code>link()</code> 被禁（SELinux）</td><td>会话/附件保存、历史会话迁移、write 工具新建文件报 <code>EACCES</code></td><td>会话日志直接发布改 <code>rename()</code>；no-replace 路径回退「O_EXCL 占位 + rename」</td></tr>
       <tr><td><code>flock</code> 在 Android 不可用</td><td>发消息报 <code>flock is not supported on android-arm64</code></td><td>编译 <code>node-addon-system</code> 自带 <code>src/flock.c</code> 为本机 <code>system.node</code>，<code>flock.js</code> 在 android 下加载本地绑定</td></tr>
+      <tr><td><b>dsh ≥0.1.7 完全起不来</b></td><td><code>No usable native binding found for node-addon-require-builtin-android-arm64</code>，<code>host preparation failed</code></td><td>上游新增原生 addon 家族无 android 预编译包，补 <code>node-addon-require-builtin-android-arm64</code> 平台包（纯 JS，依赖包装脚本已带的 <code>--expose-internals</code>），含 <code>internalModules()</code> 自检</td></tr>
       <tr><td>安卓输入法回车直接发送</td><td>回车即发送，打不出多行</td><td>修补 <code>dsh-client-ui-conversation</code>：普通回车=换行，<code>Ctrl/Cmd+Enter</code>=发送</td></tr>
       <tr><td>PTY 终端检测失败</td><td><code>unsupported on platform android</code></td><td>subprocess 把 android 视同 linux</td></tr>
       <tr><td>grep/glob 报 <code>ripgrep launch failed</code></td><td><code>@vscode/ripgrep</code> 无 Android 平台预编译包</td><td>符号链接到系统 <code>rg</code> + <code>resolveRgPath()</code> 回退</td></tr>
@@ -96,7 +97,7 @@ bash ~/dsh/stop_dsh.sh    # 停止</pre>
     <h2>七、作者测试环境与兼容性</h2>
     <ul>
       <li><b>测试设备</b>：华为 Mate 60（ALN-AL80），HarmonyOS 4.2.0（build 4.2.0.186），<b>无 root</b>，Termux（Node v26，aarch64）。</li>
-      <li><b>实测版本</b>：deepseek-harness <code>0.1.5-rc.3</code>（npm <code>latest</code>）；<code>0.1.7-rc.2</code> 线亦已适配。</li>
+      <li><b>实测版本</b>：deepseek-harness <code>0.1.7-rc.2</code>（npm <code>latest</code>）。</li>
       <li>不同手机/ROM 差异可能导致额外问题（如部分 ROM 经 SELinux 禁用 <code>link()</code>、命名空间沙箱权限不同）。</li>
       <li><code>setup.sh</code> 覆盖通用 Android 场景，个别机型可能需额外适配。</li>
     </ul>
@@ -144,6 +145,7 @@ bash ~/dsh/stop_dsh.sh    # stop</pre>
       <tr><td>npm blocks build scripts</td><td>no node-pty/koffi output</td><td>allow via <code>--allow-scripts</code></td></tr>
       <tr><td><code>link()</code> blocked (SELinux)</td><td><code>EACCES</code> saving sessions/attachments, migrating sessions, creating files via the <code>write</code> tool</td><td>direct session-log publish uses <code>rename()</code>; no-replace paths fall back to "O_EXCL reserve + rename"</td></tr>
       <tr><td><code>flock</code> unavailable on Android</td><td><code>flock is not supported on android-arm64</code> when sending a message</td><td>compile <code>node-addon-system</code>'s bundled <code>src/flock.c</code> into a local <code>system.node</code>; <code>flock.js</code> loads it on android</td></tr>
+      <tr><td><b>dsh ≥0.1.7 won't start at all</b></td><td><code>No usable native binding found for node-addon-require-builtin-android-arm64</code>, <code>host preparation failed</code></td><td>upstream's new native-addon family ships no android prebuild; add a <code>node-addon-require-builtin-android-arm64</code> platform package (pure JS, relying on the wrapper's <code>--expose-internals</code>) with an <code>internalModules()</code> self-test</td></tr>
       <tr><td>Enter sends instead of a newline</td><td>Enter sends the message, multi-line input is impossible</td><td>patch <code>dsh-client-ui-conversation</code>: Enter = newline, <code>Ctrl/Cmd+Enter</code> = send</td></tr>
       <tr><td>PTY terminal detection fails</td><td><code>unsupported on platform android</code></td><td>treat android as linux in subprocess</td></tr>
       <tr><td>grep/glob report <code>ripgrep launch failed</code></td><td>no Android prebuilt binary from <code>@vscode/ripgrep</code></td><td>symlink to system <code>rg</code> + <code>resolveRgPath()</code> fallback</td></tr>
@@ -170,7 +172,7 @@ bash ~/dsh/stop_dsh.sh    # stop</pre>
     <h2>7. Author's test environment &amp; compatibility</h2>
     <ul>
       <li><b>Tested device</b>: Huawei Mate 60 (ALN-AL80), HarmonyOS 4.2.0 (build 4.2.0.186), <b>no root</b>, Termux (Node v26, aarch64).</li>
-      <li><b>Tested version</b>: deepseek-harness <code>0.1.5-rc.3</code> (npm <code>latest</code>); the <code>0.1.7-rc.2</code> line is also covered.</li>
+      <li><b>Tested version</b>: deepseek-harness <code>0.1.7-rc.2</code> (npm <code>latest</code>).</li>
       <li>Different phones/ROMs may behave differently (e.g. some ROMs block <code>link()</code> via SELinux, namespace-sandbox permissions vary).</li>
       <li><code>setup.sh</code> covers common Android cases; specific devices may need extra tweaks.</li>
     </ul>
