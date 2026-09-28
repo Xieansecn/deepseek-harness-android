@@ -155,7 +155,7 @@ DSH_NO_OPEN=1 bash ~/dsh/start_dsh.sh                     # 只打印 URL 自己
 
 > [!NOTE]
 > 现在保留三个上游 JS 性能补丁：`01-frontend-static-cache`（静态资源 immutable 缓存头）、`02-client-modules-lazy-compose`（客户端 combo 按需构建）与 `03-client-modules-newline-count`（`newlineCount` 改索引循环，10.8MB 实测 302ms→60ms）。
-> `01`/`02` 面向 0.1.5 线；`0.1.7` 起上游已原生实现 combo 惰性化（`lazyBody`），`02` 锚点会失配并被安全跳过，此时由**与版本无关**的 `03` 继续保住这处热点。历史上做长会话历史瘦身的补丁（apiproxy history slim、增量重连、连接 schema、插件 bundle 缓存）宿主模块已被上游移除或原生实现，相关文件与"过时跳过"逻辑已删除。三个补丁的锚点均已对照 npm 对应版本源码逐字节核对。
+> `01`/`02` 面向 0.1.5 线；`0.1.7` 起上游已原生实现 combo 惰性化（`lazyBody`），`02` 锚点会失配，但判据发现上游已用原生实现替代，故报 `[skip]` 而不是失败（第 8/9 步不再告警），此时由**与版本无关**的 `03` 继续保住这处热点。历史上做长会话历史瘦身的补丁（apiproxy history slim、增量重连、连接 schema、插件 bundle 缓存）宿主模块已被上游移除或原生实现，相关文件与"过时跳过"逻辑已删除。三个补丁的锚点均已对照 npm 对应版本源码逐字节核对。
 
 ## 🗂 工作原理与安装步骤
 
@@ -430,7 +430,7 @@ Upstream `@deepseek-ai/dsh` ships linux/darwin prebuilds only and assumes a full
 
 > [!NOTE]
 > Three upstream JS patches remain: `01-frontend-static-cache` (immutable static-asset cache headers), `02-client-modules-lazy-compose` (lazy client combos) and `03-client-modules-newline-count` (`newlineCount` switched to an index loop; measured 302ms→60ms on 10.8MB).
-> `01`/`02` target the 0.1.5 line; upstream implemented combo laziness natively (`lazyBody`) in 0.1.7, so `02` misses its anchors and is skipped safely, while the version-agnostic `03` keeps that hotspot fast. The old history-slimming patches (apiproxy history slim, incremental resync, connection schema, plugin-bundle cache) targeted host modules that were removed upstream or are now native, so those files and the "superseded" machinery were deleted. All three patches were diffed byte-for-byte against the corresponding npm sources.
+> `01`/`02` target the 0.1.5 line; upstream implemented combo laziness natively (`lazyBody`) in 0.1.7, so `02` misses its anchors but is reported as `[skip]` (upstream supersedes it, so step 8/9 no longer warns), while the version-agnostic `03` keeps that hotspot fast. The old history-slimming patches (apiproxy history slim, incremental resync, connection schema, plugin-bundle cache) targeted host modules that were removed upstream or are now native, so those files and the "superseded" machinery were deleted. All three patches were diffed byte-for-byte against the corresponding npm sources.
 
 ## 🗂 Architecture & install steps
 
