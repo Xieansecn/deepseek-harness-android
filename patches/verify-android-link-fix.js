@@ -21,16 +21,13 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { execSync } = require("node:child_process");
 
 function resolveRoot(optRoot) {
 	if (optRoot) return optRoot;
-	try {
-		const npmRoot = execSync("npm root -g", { encoding: "utf8" }).trim();
-		return path.join(npmRoot, "@deepseek-ai", "dsh", "node_modules", "@deepseek-ai");
-	} catch {
-		return null;
-	}
+	// 见 patch-dsh-android-link.js：不用 `npm root -g`（Termux 的 /usr/bin 不可解析，
+	// npm 的 `#!/usr/bin/env node` shebang 会报 bad interpreter），直接从 node 路径推导。
+	const globalRoot = path.join(path.dirname(path.dirname(process.execPath)), "lib", "node_modules");
+	return path.join(globalRoot, "@deepseek-ai", "dsh", "node_modules", "@deepseek-ai");
 }
 
 function assert(cond, msg) {

@@ -64,7 +64,10 @@ console.log(`实例已就绪：${origin}（启动到 token ${bootSeconds.toFixed
 const redirect = await fetch(authUrl, { redirect: "manual" });
 const cookie = (redirect.headers.getSetCookie?.() ?? []).map((value) => value.split(";")[0]).join("; ");
 check("带 token 的地址返回 303", redirect.status === 303, `http=${redirect.status}`);
-const get = (path) => fetch(`${origin}${path}`, { headers: { cookie } });
+// ⚠️ 0.1.5 的清单 URL 带前导 "/"（"/plugins/??…"），0.1.7 起不带（"plugins/??…"）。
+// 直接 `${origin}${path}` 在 0.1.7 上会拼出 "http://127.0.0.1:43655plugins/??…"
+// → fetch 抛 ERR_INVALID_URL。这里统一补前导斜杠，两种形态都能跑。
+const get = (p) => fetch(`${origin}${p.startsWith("/") ? p : `/${p}`}`, { headers: { cookie } });
 
 const html = await (await get("/")).text();
 const bootStart = html.indexOf("__DSH_BOOT__");
@@ -96,14 +99,23 @@ if (bootStart < 0) {
   for (const { entry, path } of samples) {
     const { source } = comboSource(readFileSync(path));
     const body = await (await get(entry.url)).text();
-    const mapUrl = entry.url.replace("/client.js&", "/client.js.map&");
+    // combo URL 形如 "<prefix>??<ids>"，其中 <ids> 结尾是 "…/client.js&rev=<rev>"。
+    // 实际可取的 sourcemap URL 要带 <prefix>（即 "plugins/"），而**响应体里写的**
+    // //# sourceMappingURL 形态随版本变过：0.1.5 是完整路径（"/plugins/??….map&rev="），
+    // 0.1.7 改成 combo 内相对形态（"??….map&rev="）。两种都接受。
+    const comboAt = entry.url.indexOf("??");
+    const comboPrefix = comboAt < 0 ? "" : entry.url.slice(0, comboAt);
+    const ids = comboAt < 0 ? entry.url : entry.url.slice(comboAt);
+    const mapRef = ids.replace("/client.js&", "/client.js.map&");
+    const mapUrl = `${comboPrefix}${mapRef}`;
     const mapResponse = await get(mapUrl);
     const mapText = await mapResponse.text();
     let parsed;
     try { parsed = JSON.parse(mapText); } catch { /* 下面统一报 FAIL */ }
     const section = parsed?.sections?.[0]?.map;
     const trailer = /^;\n\/\/# sourceMappingURL=([^\n]+)\n$/.exec(body.slice(source.length));
-    check(`单条 bundle 与磁盘文件一致: ${entry.id}`, body.startsWith(source) && trailer?.[1] === mapUrl, `bytes=${body.length} source=${source.length}`);
+    const refOk = trailer?.[1] === mapRef || trailer?.[1] === mapUrl;
+    check(`单条 bundle 与磁盘文件一致: ${entry.id}`, body.startsWith(source) && refOk, `bytes=${body.length} source=${source.length} mapRef=${trailer?.[1]}`);
     check(`sourcemap 可服务且结构完整: ${entry.id}`, mapResponse.status === 200 && parsed?.version === 3 && section?.mappings?.length > 0 && section.sources.length > 0, `http=${mapResponse.status} bytes=${mapText.length}`);
   }
   const batch = graph.batches.find((b) => b.phase === "application") ?? graph.batches[0];

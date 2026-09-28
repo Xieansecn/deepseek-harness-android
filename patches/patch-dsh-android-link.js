@@ -39,7 +39,6 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { execSync } = require("node:child_process");
 
 /** 把名字追加进 node:fs/promises 的导入（已存在则跳过；只增不删，避免制造未定义引用）。 */
 function ensureFsImport(src, addNames) {
@@ -321,10 +320,11 @@ function resolveRoot(optRoot) {
 		const dshPkg = require.resolve("@deepseek-ai/dsh/package.json");
 		candidates.push(path.join(path.dirname(dshPkg), "node_modules", "@deepseek-ai"));
 	} catch {}
-	try {
-		const npmRoot = execSync("npm root -g", { encoding: "utf8" }).trim();
-		candidates.push(path.join(npmRoot, "@deepseek-ai", "dsh", "node_modules", "@deepseek-ai"));
-	} catch {}
+	// 不走 `npm root -g`：Termux 上 /usr/bin 不可解析，npm-cli.js 的 shebang
+	// `#!/usr/bin/env node` 会让直接执行 npm 报 "bad interpreter"。全局 node_modules
+	// 可由当前 node 路径直接推出：<prefix>/bin/node -> <prefix>/lib/node_modules。
+	const globalRoot = path.join(path.dirname(path.dirname(process.execPath)), "lib", "node_modules");
+	candidates.push(path.join(globalRoot, "@deepseek-ai", "dsh", "node_modules", "@deepseek-ai"));
 	for (const c of candidates) {
 		if (PACKAGES.every((p) => fs.existsSync(path.join(c, p.name, p.file)))) return c;
 	}

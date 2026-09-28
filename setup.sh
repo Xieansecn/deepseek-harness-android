@@ -174,6 +174,20 @@ else
 fi
 DSH_DIR="/data/data/com.termux/files/usr/lib/node_modules/@deepseek-ai/dsh"
 INSTALL_DIR="$HOME/dsh"
+
+# ⚠️ npm 包装（Termux 必踩）：`/usr/bin` 在 Termux 的挂载命名空间里不可解析，而
+# npm-cli.js 的 shebang 写死 `#!/usr/bin/env node`，于是直接执行 `npm` 会报
+#   bad interpreter: /usr/bin/env: no such file or directory
+# （`/usr/bin/env` 不存在；Termux 的 env 在 $PREFIX/bin/env）。实测本机必现，
+# 会让第 3 步装 dsh 与第 5 步装 sharp-wasm32 **双双失败**。
+# 统一改成 `node <npm-cli.js> …`；若将来 shebang 正常或 npm 不存在则自动回退裸 npm。
+NPM_CMD=(npm)
+if NPM_BIN="$(command -v npm 2>/dev/null)"; then
+  NPM_REAL="$(readlink -f "$NPM_BIN" 2>/dev/null || printf '%s' "$NPM_BIN")"
+  case "$NPM_REAL" in
+    *.js) NPM_CMD=(node "$NPM_REAL") ;;
+  esac
+fi
 # ⚠️ 一律用真实绝对路径 /data/data/com.termux/files/usr/bin：/usr 在部分命名空间不可解析（实测 No such file or directory）。
 PREFIX_BIN="/data/data/com.termux/files/usr/bin"
 DSH_CMD="$PREFIX_BIN/dsh"
@@ -219,6 +233,16 @@ anchor_precheck() {
     ok "  [ok]   profile-boot 双信号强退语义（停止梯子前提）"
   else
     warn "  [warn] profile-boot 未检测到 interrupt/forceExitOnce（停止可能退化为等满 DSH_STOP_TIMEOUT 兜底）"
+  fi
+  # 0.1.7 新增的原生 addon 家族：node-addon-require-builtin 靠平台可选包
+  # node-addon-require-builtin-<platform>-<arch> 提供绑定，上游没有 android 版。缺它时
+  # dsh-app-boot 的 internalModules() 会抛 "No usable native binding found"，
+  # host preparation 失败、**dsh 完全起不来**。该包不在 @deepseek-ai/ 命名空间下，故单独探测。
+  local rb_dir="$DSH_DIR/node_modules/node-addon-require-builtin-android-arm64"
+  if [ -f "$rb_dir/index.js" ] && grep -qF "dsh-android-require-builtin" "$rb_dir/index.js" 2>/dev/null; then
+    ok "  [ok]   node-addon-require-builtin android 平台包（dsh 启动前提）"
+  else
+    warn "  [warn] node-addon-require-builtin android 平台包缺失——dsh 将无法启动（No usable native binding found）"
   fi
   [ "$missing" -eq 0 ] && ok "  所有关键锚点就位" || true
 }
@@ -290,7 +314,7 @@ ALLOW_SCRIPTS="@deepseek-ai/dsh-subprocess-local,koffi,node-pty,@google/genai,pr
 info "  安装目标：${DSH_NPM}（装脚本白名单：${ALLOW_SCRIPTS}）"
 run_hidden_spinner "  正在安装 dsh 和编译原生模块（5~15 分钟）..." \
   env CFLAGS="$EXTRA_FLAGS" CXXFLAGS="$EXTRA_FLAGS" \
-  npm install -g --no-audit --no-fund --loglevel=error \
+  "${NPM_CMD[@]}" install -g --no-audit --no-fund --loglevel=error \
   --allow-scripts="$ALLOW_SCRIPTS" "$DSH_NPM"
 if [ -f "$DSH_DIR/node_modules/node-pty/build/Release/pty.node" ]; then
   ok "  node-pty 编译产物就位 (build/Release/pty.node)"
@@ -363,6 +387,27 @@ fi
 
 # ------------------------------------------------------- 4/9 后端兼容补丁
 step "4/9 后端兼容补丁"
+
+# 4-boot: 补 node-addon-require-builtin 的 android 平台包（dsh ≥0.1.7 启动前提）。
+#     dsh-app-boot 的 internalModules() 无条件 require 该绑定，而上游只发布
+#     darwin/linux-gnu/win32-msvc 预编译包，Termux 上解析不到 →
+#     "No usable native binding found" → host preparation 失败、dsh 完全起不来。
+#     按 loader 的「平台可选包」约定补一个纯 JS 实现（dsh 包装脚本必带
+#     --expose-internals，require("internal/*") 直接可用，免 NDK 交叉编译）。
+#     失败必须 exit 1（不能只 warn）：没有它 dsh 根本起不来，
+#     与 4f 的 rg 同属「硬阻断」补丁。dsh <0.1.7 时脚本自身 SKIP（退 0）。
+RBFIX="$SCRIPT_DIR/patches/patch-dsh-android-require-builtin.js"
+if [ -f "$RBFIX" ]; then
+  if run_hidden node --expose-internals "$RBFIX" --root "$DSH_DIR"; then
+    ok "  android require-builtin 平台包就绪（dsh 启动前提）"
+  else
+    error "  [!!] require-builtin 平台包补丁失败——dsh 将无法启动（No usable native binding found）"
+    exit 1
+  fi
+else
+  error "  缺少 patches/patch-dsh-android-require-builtin.js，dsh 将无法启动"
+  exit 1
+fi
 
 # 4a 禁硬链接全链路修复（会话/附件发布、迁移、write 新建文件）；详见 patches/patch-dsh-android-link.js。
 HLFIX="$SCRIPT_DIR/patches/patch-dsh-android-link.js"
@@ -501,7 +546,7 @@ else
   # 在临时目录里装 wasm 包，再拷进 dsh 的 node_modules。npm 输出写入 setup.log：
   # 早先把输出丢进 /dev/null，装失败时 set -e 只会抛一句无线索的"安装失败"，日志尾部也是空的。
   SWTMP="$(mktemp -d)"
-  if ! ( cd "$SWTMP" && npm init -y >/dev/null 2>&1 && npm install "@img/sharp-wasm32@$SHARP_VER" ) >>"$SETUP_LOG" 2>&1; then
+  if ! ( cd "$SWTMP" && "${NPM_CMD[@]}" init -y >/dev/null 2>&1 && "${NPM_CMD[@]}" install "@img/sharp-wasm32@$SHARP_VER" ) >>"$SETUP_LOG" 2>&1; then
     rm -rf "$SWTMP"
     error "  sharp-wasm32@${SHARP_VER} 安装失败（原因见 $SETUP_LOG）。sharp 无 Android 原生包，缺 wasm 会让附件模块加载失败。"
     exit 1
