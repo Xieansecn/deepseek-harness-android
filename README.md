@@ -5,7 +5,7 @@
 **在 Android 手机的 Termux 里原生运行 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)**
 **Run DeepSeek Harness natively inside Termux on Android**
 
-[![tested](https://img.shields.io/badge/tested-0.1.7--rc.2-blue)](#-兼容性--compatibility)
+[![tested](https://img.shields.io/badge/tested-0.2.0--rc.2-blue)](#-兼容性--compatibility)
 [![platform](https://img.shields.io/badge/platform-Android%20%C2%B7%20Termux-green)](#-环境要求--requirements)
 [![license](https://img.shields.io/badge/license-MIT-lightgrey)](#license)
 
@@ -14,8 +14,8 @@
 </div>
 
 > [!IMPORTANT]
-> 已在 **deepseek-harness `0.1.7-rc.2`**（**撰写时**的 npm `latest`；当前 latest 用 `npm view @deepseek-ai/dsh version` 查）上实测通过；`0.1.7` 起上游原生实现了客户端 combo 惰性化，故性能补丁 `02` 在这条线上锚点失效、报 `[deprecated]`（不计失败），由 `03` 继续保住热点（见下方「JS 性能补丁」的说明）。
-> Tested on **deepseek-harness `0.1.7-rc.2`** (the npm `latest` **at the time of writing**; check the current one with `npm view @deepseek-ai/dsh version`); since `0.1.7` upstream implements client-combo laziness natively, perf patch `02` finds no anchor on that line and reports `[deprecated]` (not a failure), while `03` keeps the hotspot fast (see the notes under JS perf patches).
+> 已在 **deepseek-harness `0.2.0-rc.2`**（**撰写时**的 npm `latest` = `next`；当前 latest 用 `npm view @deepseek-ai/dsh version` 查）上实测通过：完整安装、全部补丁、`dsh web` 冷启动到 token 7~13s、鉴权 303→cookie→200、日志零 warn/error；`0.1.7-rc.2` 线同样通过（同层冷启动 12s、零告警）。`0.1.7` 起上游原生实现了客户端 combo 惰性化，故性能补丁 `02` 在这条线上锚点失效、报 `[deprecated]`（不计失败），由 `03` 继续保住热点（见下方「JS 性能补丁」的说明）。
+> Tested on **deepseek-harness `0.2.0-rc.2`** (the npm `latest` = `next` **at the time of writing**; check the current one with `npm view @deepseek-ai/dsh version`): full install, every patch, `dsh web` cold start to token in 7–13s, auth 303→cookie→200, zero warn/error lines. The `0.1.7-rc.2` line also passes (same layer, 12s cold start, no warnings). Since `0.1.7` upstream implements client-combo laziness natively, perf patch `02` finds no anchor on that line and reports `[deprecated]` (not a failure), while `03` keeps the hotspot fast (see the notes under JS perf patches).
 
 ---
 
@@ -163,7 +163,7 @@ bash ~/dsh/restart_dsh_now.sh
 
 - **第三方插件，不是本项目的一部分**：不打包、不修改，版本兼容与问题反馈都归它自己的仓库。
 - **它按 dsh `0.1.7-rc.2` 逐个核对了上游哈希类名，而哈希类名随版本漂移且是静默失效**（页面正常、效果全无）。升级 dsh 后请同步升级/重装它，或先卸载以确认问题归属——`bash setup.sh` 不会替你处理这一步，它只做后端修补。
-- **与本仓库互不干扰**：`setup.sh` 第 7 步只**追加**权限层到 `~/.dsh/profiles/web/cordis.patch.yml`，不覆盖 profile 里的其它配置层，所以装好插件后照常重跑 `setup.sh` 即可。
+- **与本仓库互不干扰**：`setup.sh` 第 7 步只把权限层**合并**进 `~/.dsh/profiles/web/cordis.patch.yml`——文件还是 dsh 的空数组模板（`[]`）就整体替换，已有你自己的配置层就追加——不覆盖 profile 里的其它配置层，所以装好插件后照常重跑 `setup.sh` 即可。
 - **「普通回车=换行」不在这个插件里**：那处按键映射要改产品包，仍由本仓库的 `setup.sh` 修补（见下文「原理」表）；插件只负责 `enterkeyhint=newline`。
 - **只对 `web` profile 有意义**，`tui` / `headless` 无关。
 - **鉴权链路不变**：仍用 `bash ~/dsh/start_dsh.sh` 打开带 token 的 URL，直接开裸地址依旧 401。
@@ -175,11 +175,13 @@ bash ~/dsh/restart_dsh_now.sh
 | 问题 | 现象 | 修复方式 |
 |---|---|---|
 | node-pty 编译失败 | `Undefined variable android_ndk_path` | 修补 node-gyp 缓存里的 `common.gypi` |
-| koffi 编译失败 | `statx` 的 `__u32` 编译错误 | 加 `-target aarch64-linux-android30` |
-| npm 拦截构建脚本 | node-pty / koffi 没有产物 | `--allow-scripts` 放行指定包 |
+| **koffi 原生模块不可用** | 上游 0.2.0-rc.2 把 `koffi` **精确钉在 3.1.1**；`@koromix/koffi-android-arm64` 从 3.2.1 才有预编译包，3.1.1 的 install 脚本会自愈式回退到本地编译、必死在 bionic 与 glibc 的 `statx` 原型差异上 | **故意不进 `--allow-scripts`**（`setup.sh` 的 `SKIP_SCRIPTS`）：npm 12 里白名单内的脚本**失败会让整次安装退 1**，白名单外只警告并跳过；dsh 的 koffi 调用点全是懒加载且 `platform === "win32"` 才走，Android 运行期用不到 |
+| npm 拦截构建脚本 | node-pty 等包没有原生产物 | `--allow-scripts` 放行**构建能在 Android 成功**的包；构建必然失败的包（如 koffi）反过来要放进 `SKIP_SCRIPTS`，否则整次安装会被它拖死 |
 | `link()` 被 SELinux 禁用 | 会话/附件保存、会话迁移、`write` 新建文件报 `EACCES` | 会话日志直接发布改 `rename()`；no-replace 场景回退「O_EXCL 占位 + rename」；附件遍历/清理容忍 `EACCES`/`ENOENT` |
 | `flock` 在 Android 不可用 | 发消息报 `flock is not supported on android-arm64` | 用 clang 把 `node-addon-system` 自带 `src/flock.c` 编成本机 `system.node`，并让 `lib/flock.js` 在 android 下加载它（含真实加锁自检） |
 | **dsh ≥0.1.7 完全起不来** | `No usable native binding found for node-addon-require-builtin-android-arm64`，`host preparation failed` | 上游新增的原生 addon 家族只发布 darwin/linux/win32 预编译包，没有 android。补一个 `node-addon-require-builtin-android-arm64` 平台包（纯 JS 实现，依赖包装脚本已带的 `--expose-internals`），并内置 `internalModules()` 自检（包名后缀随设备架构变化，如 armv7 上是 `-android-arm`） |
+| **`dsh web` 起不来：`YAMLException: end of the stream or a document separator is expected`** | 报错指向 `~/.dsh/profiles/web/cordis.patch.yml` 里我们自己写的 `- id: sandbox-policy`（形如 `(13:1)`） | dsh 首次启动（哪怕跑失败的那次）会自己在 profile 里写一份「空数组文档」模板（3 行注释 + `[]`）；旧版 `setup.sh` 只查有没有 `danger-full-access` 就无条件 `>>` 追加权限层，于是在一个**已经结束**的 YAML 文档后面再挂序列项，整个 profile 解析失败。现在由 `patches/apply-profile-patch.js` 按内容分类：空数组模板→**整体替换**、已有真实配置层→**追加**、残留裸 `[]`→**定点摘除**（现场修复），落盘前后都用 dsh 自己的 `loadOverlayPatches()` 真解析校验，坏文件一个字节都不动（夹具 30 断言） |
+| **日志出现 `permission: composed sandbox and approval defaults match no preset`、`1 entry did not activate`** | 0.2.0 起新增的 `permission` 行（`@deepseek-ai/dsh-permission-presets`）不激活：bash 仍能跑，但权限预设服务缺失 | 该行按「sandbox + approval 组合」反查预设，而预设 `danger-full-access` = 这两者的组合；只改 sandbox 而 approval 还是基线的 `ask` 就匹配不到。现在权限层**两条成对**下发，重跑 `bash setup.sh` 会自动补上缺的那条 |
 | PTY 终端检测失败 | `unsupported on platform android` | subprocess 把 `android` 视同 `linux`（锚点可能在内容哈希 bundle 里，按通配扫描 `lib/`） |
 | 安卓输入法回车直接发送 | 打不出多行：回车即发送 | 修补 `dsh-client-ui-conversation`：普通回车=换行，`Ctrl/Cmd+Enter`=发送（失败即回滚并中断安装；会中断安装的还有 4-boot 平台包、ripgrep、3/9 的 npm 安装） |
 | sharp 无法加载 | `Could not load sharp module` | 安装 `@img/sharp-wasm32` wasm 回退（含 `@emnapi/runtime`） |
@@ -205,11 +207,11 @@ bash ~/dsh/restart_dsh_now.sh
 | `0/9` | 锚点预检：确认目标文件里补丁特征串还在（版本漂移早发现） |
 | `1/9` | 安装构建依赖：`cmake clang make binutils pkg-config python nodejs ripgrep` |
 | `2/9` | 准备 Node headers（慢则切 npmmirror） |
-| `3/9` | `npm install -g` 安装 dsh（android30 目标，`--allow-scripts` 放行原生包） |
+| `3/9` | `npm install -g` 安装 dsh（android30 目标；`--allow-scripts` 只放行**构建能在 Android 成功**的原生包，构建必然失败的在 `SKIP_SCRIPTS` 里让 npm 只警告并跳过——白名单内的脚本失败会让整次安装退 1）；装后校验 node-pty 产物、跑安装脚本白名单自检 |
 | `4/9` | 后端兼容补丁：`node-addon-require-builtin` android 平台包（≥0.1.7 启动前提，失败即中断）、link→rename 回退、flock 原生绑定、subprocess 平台检测（android≡linux）、作曲栏「回车=换行」、grep/glob ripgrep 修复 |
 | `5/9` | sharp wasm 回退（附件模块依赖），紧接硬链接补丁验证（临时目录真实运行，不碰会话数据；必须排在 wasm 回退之后，否则附件模块 `import sharp` 失败会误报） |
 | `6/9` | 重建 `dsh` 包装脚本（`--expose-internals`，原子 `mv` 替换，不碰符号链接目标） |
-| `7/9` | 写入 `~/dsh/` 下的启动/停止/重启脚本 + `danger-full-access` 配置层 |
+| `7/9` | 写入 `~/dsh/` 下的启动/停止/重启脚本；用 `patches/apply-profile-patch.js` 安全安装权限层（`sandbox-policy` + `approval` **两条**；空数组模板→替换、已有配置层→按条目只补缺失、残留 `[]`→定点修复；写前写后都用 dsh 自己的解析器校验，不可解析即中断，绝不留下起不来的 profile） |
 | `8/9` | JS 性能补丁（`01` 静态资源缓存头 / `02` 客户端 combo 按需构建 / `03` newlineCount 索引循环；锚点失配只告警不中断） |
 | `9/9` | 完成汇总 |
 
@@ -247,15 +249,17 @@ deepseek-harness-android/
 ├── stop_dsh.sh                  # 安全停止（pid 身份二次校验 + 端口释放确认）
 ├── restart_dsh_now.sh           # 重启（复用 stop + start --no-open）
 ├── config/
-│   └── cordis.patch.yml         # danger-full-access 配置层（安装到 ~/.dsh/profiles/web/）
+│   └── cordis.patch.yml         # danger-full-access 配置层（由 patches/apply-profile-patch.js 安全合并进 ~/.dsh/profiles/web/）
 ├── patches/
 │   ├── 01~03-*.patch            # JS 补丁源（缓存头 / 客户端 combo / newlineCount）
 │   ├── patch-dsh-android-link.js    # 禁硬链接修复（rename / O_EXCL+rename 回退）
 │   ├── patch-dsh-android-flock.js   # flock 原生绑定（编译 + 运行时自检）
 │   ├── patch-dsh-android-require-builtin.js # ≥0.1.7 启动前提：补 android 平台包
 │   ├── verify-android-link-fix.js   # 硬链接修复验证（临时目录真实运行，不碰会话）
+│   ├── apply-profile-patch.js       # 安全安装权限层（分类：替换/追加/定点修复 + dsh 解析器校验）
 │   ├── verify-client-modules-lazy.js # 客户端 combo 补丁自检（--port 0 临时实例）
-│   └── verify-require-builtin-fixture.js # 平台包补丁夹具自检（8 用例 / 29 断言，只写临时目录）
+│   ├── verify-require-builtin-fixture.js # 平台包补丁夹具自检（8 用例 / 29 断言，只写临时目录）
+│   └── verify-profile-patch-fixture.js # 权限层补丁夹具自检（8 用例 / 30 断言，只写临时目录）
 ├── docs/
 │   └── index.html               # 说明文档站
 ├── AGENTS.md                    # 维护者约定与踩坑记录（给 AI/协作者）
@@ -305,6 +309,7 @@ node patches/verify-client-modules-lazy.js
 - API Key 存于 `~/.dsh/.credentials.yaml`（0600），不进日志、不进进程环境。
 - Web 鉴权签名 secret 同样存于 `~/.dsh`，不要把它写进日志、环境变量或仓库。
 - **`danger-full-access` 等同于关闭进程沙箱**：Android 无 bwrap/landlock 可用，受限模式会让 bash 工具直接 `SANDBOX_UNAVAILABLE`。这意味着 agent 可执行任意命令——**仅建议个人设备使用**。
+- 权限层是**两条**：`sandbox-policy.mode = danger-full-access` **加** `approval.policy = never`。0.2.0 起上游新增 `permission` 行（`@deepseek-ai/dsh-permission-presets`），它按「组合后的 sandbox + approval」反查预设表，而预设 `danger-full-access` 的定义正是这两者的组合；只改 sandbox 会让它匹配不到任何预设（该行不激活并报警）。
 
 ## ❓ 常见问题
 
@@ -321,7 +326,7 @@ node patches/verify-client-modules-lazy.js
 
 ## 🧪 兼容性 / Compatibility
 
-- **作者实测**：Huawei Mate 60（ALN-AL80），HarmonyOS 4.2.0（build 4.2.0.186），**无 root**，Termux（Node v26，aarch64），deepseek-harness `0.1.7-rc.2`（实测时点）。
+- **作者实测**：Huawei Mate 60（ALN-AL80），HarmonyOS 4.2.0（build 4.2.0.186），**无 root**，Termux（Node v26，aarch64），deepseek-harness `0.2.0-rc.2`（实测时点；`0.1.7-rc.2` 线亦通过）。
 - 不同机型 / ROM 可能有差异：部分 ROM 通过 SELinux 禁用 `link()`、命名空间沙箱权限不同、bwrap/landlock 可用性不同等。
 - `setup.sh` 覆盖通用 Android 场景，个别机型可能仍需额外适配。
 
@@ -481,7 +486,7 @@ Caveats:
 
 - **Third-party plugin, not part of this project**: we neither bundle nor modify it; version compatibility and bug reports belong to its own repo.
 - **Its hashed class names were verified against dsh `0.1.7-rc.2`, and hashed names drift with each upstream release — failing *silently*** (the page works, the effects are simply gone). After upgrading dsh, upgrade/reinstall it too, or uninstall first to attribute the problem correctly; `bash setup.sh` will not do that for you, it only patches the backend.
-- **The two are independent**: `setup.sh` step 7 only *appends* the permission layer to `~/.dsh/profiles/web/cordis.patch.yml` and never overwrites other config layers in the profile, so re-running `setup.sh` after installing the plugin is fine.
+- **The two are independent**: `setup.sh` step 7 only *merges* the permission layer into `~/.dsh/profiles/web/cordis.patch.yml` — replacing dsh's empty-array template, or appending when you already have your own layers — and never overwrites other config layers in the profile, so re-running `setup.sh` after installing the plugin is fine.
 - **"Enter = newline" is not in that plugin**: that key mapping requires patching the product package and stays in this repo's `setup.sh` (see the table under "How it works" below); the plugin only provides `enterkeyhint=newline`.
 - **Only meaningful for the `web` profile**; `tui` / `headless` are unaffected.
 - **The auth chain is unchanged**: still open the tokenized URL via `bash ~/dsh/start_dsh.sh`; the bare URL still returns 401.
@@ -493,11 +498,13 @@ Upstream `@deepseek-ai/dsh` ships linux/darwin prebuilds only and assumes a full
 | Issue | Symptom | Fix |
 |---|---|---|
 | node-pty build fails | `Undefined variable android_ndk_path` | patch node-gyp cache `common.gypi` |
-| koffi build fails | `statx` `__u32` compile error | add `-target aarch64-linux-android30` |
-| npm blocks build scripts | no node-pty / koffi artifacts | allow the packages via `--allow-scripts` |
+| **koffi native module unavailable** | 0.2.0-rc.2 pins `koffi` to **exactly 3.1.1**; `@koromix/koffi-android-arm64` only exists from 3.2.1, and 3.1.1's install script self-heals into a local build that always dies on the bionic-vs-glibc `statx` prototype mismatch | **deliberately kept out of `--allow-scripts`** (`setup.sh`'s `SKIP_SCRIPTS`): under npm 12 a *failing allowlisted* script aborts the whole install, while a blocked one is only warned about and skipped; every koffi call site in dsh is lazy and gated on `platform === "win32"`, so Android never needs it at runtime |
+| npm blocks build scripts | node-pty and friends have no native artifacts | `--allow-scripts` for packages whose build **can** succeed on Android; packages whose build cannot (koffi) belong in `SKIP_SCRIPTS` instead — allowlisting them kills the whole install |
 | `link()` blocked by SELinux | `EACCES` saving sessions/attachments, migrating sessions, and when the `write` tool creates a file | session-log publish uses `rename()`; no-replace paths fall back to "O_EXCL reserve + rename"; attachment walks/cleanup tolerate `EACCES`/`ENOENT` |
 | `flock` unavailable | `flock is not supported on android-arm64` when sending a message | compile `node-addon-system`'s bundled `src/flock.c` with clang into a local `system.node` and load it from `lib/flock.js` on android (with a real lock self-test) |
 | **dsh ≥0.1.7 won't start at all** | `No usable native binding found for node-addon-require-builtin-android-arm64`, `host preparation failed` | upstream's new native-addon family ships darwin/linux/win32 prebuilds only, none for android. Add a `node-addon-require-builtin-android-arm64` platform package (pure-JS implementation, relying on the `--expose-internals` the wrapper already sets) with a built-in `internalModules()` self-test (the suffix follows the device arch, e.g. `-android-arm` on armv7) |
+| **`dsh web` won't start: `YAMLException: end of the stream or a document separator is expected`** | the error points at *our own* `- id: sandbox-policy` entry inside `~/.dsh/profiles/web/cordis.patch.yml` (e.g. `(13:1)`) | on its first boot — even a failed one — dsh writes its own profile template: three comment lines plus an **empty-array document** (`[]`). The old `setup.sh` only grepped for `danger-full-access` and then appended the permission layer, so a sequence item followed an already-closed YAML document and the whole profile became unparsable. `patches/apply-profile-patch.js` now classifies the file first: empty-array template → **replace**, real config layers → **append**, a stray `[]` → **strip that document line** (in-place repair); every write is validated before and after with dsh's own `loadOverlayPatches()`, and an unparsable file is left byte-for-byte untouched (fixture: 30 assertions) |
+| **log shows `permission: composed sandbox and approval defaults match no preset`, `1 entry did not activate`** | the 0.2.0-only `permission` row (`@deepseek-ai/dsh-permission-presets`) refuses to activate: bash still works, but the permission-preset service is missing | that row derives a preset from the composed sandbox + approval pair, and its `danger-full-access` preset *is* that pair; changing only the sandbox while approval stays at the baseline `ask` matches nothing. The layer now ships **both entries**; re-run `bash setup.sh` to append the missing one |
 | PTY terminal detection fails | `unsupported on platform android` | treat `android` as `linux` in subprocess (the anchor may live in a content-hashed bundle, so `lib/` is glob-scanned) |
 | Enter sends instead of a newline | cannot type multi-line input | patch `dsh-client-ui-conversation`: Enter = newline, `Ctrl/Cmd+Enter` = send (rolls back and aborts the install on failure; the 4-boot platform package, ripgrep and the 3/9 npm install also abort) |
 | sharp fails to load | `Could not load sharp module` | install the `@img/sharp-wasm32` wasm fallback (plus `@emnapi/runtime`) |
@@ -523,11 +530,11 @@ Upstream `@deepseek-ai/dsh` ships linux/darwin prebuilds only and assumes a full
 | `0/9` | Anchor pre-check: confirm patch markers still exist (catch version drift early) |
 | `1/9` | Install build deps: `cmake clang make binutils pkg-config python nodejs ripgrep` |
 | `2/9` | Prepare Node headers (switch to npmmirror when slow) |
-| `3/9` | `npm install -g` dsh (android30 target, `--allow-scripts` for native packages) |
+| `3/9` | `npm install -g` dsh (android30 target; `--allow-scripts` covers only native packages whose build **can** succeed on Android — cannot-build ones go to `SKIP_SCRIPTS` so npm merely warns, because a failing allowlisted script aborts the whole install); then verify the node-pty artifact and run the install-script allowlist self-check |
 | `4/9` | Backend patches: `node-addon-require-builtin` android platform package (>=0.1.7 boot prerequisite, aborts the install on failure), link→rename fallback, native flock binding, subprocess platform detection (android≡linux), composer Enter = newline, grep/glob ripgrep fix |
 | `5/9` | sharp wasm fallback (attachments depend on it), immediately followed by the hardlink verification (real run in a temp dir, never touches your sessions; it must come after the wasm fallback or the attachment module's `import sharp` fails and reports a false negative) |
 | `6/9` | Rebuild the `dsh` wrapper (`--expose-internals`, atomic `mv` replace that never follows the symlink target) |
-| `7/9` | Write start/stop/restart scripts into `~/dsh/` + the `danger-full-access` config layer |
+| `7/9` | Write start/stop/restart scripts into `~/dsh/`; install the permission layer through `patches/apply-profile-patch.js` (**two** entries: `sandbox-policy` + `approval`; empty-array template → replace, existing layers → append only what is missing, stray `[]` → in-place repair; validated before and after with dsh's own parser, and the install aborts rather than leaving a profile that cannot boot) |
 | `8/9` | JS performance patches (`01` static-asset cache headers / `02` lazy client combos / `03` index-loop newlineCount; an anchor mismatch only warns) |
 | `9/9` | Summary |
 
@@ -565,15 +572,17 @@ deepseek-harness-android/
 ├── stop_dsh.sh                  # safe stop (pid identity re-check + port release confirm)
 ├── restart_dsh_now.sh           # restart (reuses stop + start --no-open)
 ├── config/
-│   └── cordis.patch.yml         # danger-full-access layer (installed to ~/.dsh/profiles/web/)
+│   └── cordis.patch.yml         # danger-full-access layer (merged into ~/.dsh/profiles/web/ by patches/apply-profile-patch.js)
 ├── patches/
 │   ├── 01~03-*.patch            # JS patch sources (cache headers / lazy client combos / newlineCount)
 │   ├── patch-dsh-android-link.js    # no-hardlink fix (rename / O_EXCL+rename fallback)
 │   ├── patch-dsh-android-flock.js   # native flock binding (compile + runtime self-test)
 │   ├── patch-dsh-android-require-builtin.js # dsh >=0.1.7 boot prerequisite: android platform pkg
 │   ├── verify-android-link-fix.js   # hardlink fix verification (real run in temp dir)
+│   ├── apply-profile-patch.js       # safe permission-layer install (classify: replace/append/repair + dsh parser check)
 │   ├── verify-client-modules-lazy.js # client-combo patch self-test (--port 0 temp instance)
-│   └── verify-require-builtin-fixture.js # platform-package fixture self-test (8 cases / 29 assertions, temp dir only)
+│   ├── verify-require-builtin-fixture.js # platform-package fixture self-test (8 cases / 29 assertions, temp dir only)
+│   └── verify-profile-patch-fixture.js # permission-layer fixture self-test (8 cases / 30 assertions, temp dir only)
 ├── docs/
 │   └── index.html               # documentation site
 ├── AGENTS.md                    # maintainer conventions & pitfalls (for AI/collaborators)
@@ -621,6 +630,7 @@ All patch scripts are **idempotent**: run them twice and the second run reports 
 - The API key lives in `~/.dsh/.credentials.yaml` (0600) and never enters logs or the process environment.
 - The Web auth signing secret also lives in `~/.dsh`; never write it to logs, env vars, or the repo.
 - **`danger-full-access` effectively disables the process sandbox**: Android has no bwrap/landlock, and a restricted mode makes the bash tool fail with `SANDBOX_UNAVAILABLE`. This means the agent can run arbitrary commands — **personal devices only**.
+- The permission layer is **two entries**: `sandbox-policy.mode = danger-full-access` **plus** `approval.policy = never`. From 0.2.0 on, upstream's new `permission` row (`@deepseek-ai/dsh-permission-presets`) derives a preset from the *composed* sandbox + approval pair, and its `danger-full-access` preset is exactly that pair; changing only the sandbox leaves the pair matching no preset (the row refuses to activate and logs a warning).
 
 ## ❓ FAQ
 
@@ -637,7 +647,7 @@ All patch scripts are **idempotent**: run them twice and the second run reports 
 
 ## 🧪 Compatibility
 
-- **Author's setup**: Huawei Mate 60 (ALN-AL80), HarmonyOS 4.2.0 (build 4.2.0.186), **no root**, Termux (Node v26, aarch64), deepseek-harness `0.1.7-rc.2` (at the time of testing).
+- **Author's setup**: Huawei Mate 60 (ALN-AL80), HarmonyOS 4.2.0 (build 4.2.0.186), **no root**, Termux (Node v26, aarch64), deepseek-harness `0.2.0-rc.2` (at the time of testing; the `0.1.7-rc.2` line also passes).
 - Phones/ROMs differ: some block the `link()` syscall via SELinux, namespace-sandbox permissions vary, and bwrap/landlock availability differs.
 - `setup.sh` covers the common Android cases; specific devices may still need extra tweaks.
 

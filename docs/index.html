@@ -67,11 +67,14 @@ bash ~/dsh/stop_dsh.sh    # 停止</pre>
       <tr><th>问题</th><th>现象</th><th>修复</th></tr>
       <tr><td>node-pty 无法编译</td><td><code>Undefined variable android_ndk_path</code></td><td>修补 node-gyp 缓存 <code>common.gypi</code></td></tr>
       <tr><td>koffi 无法编译</td><td><code>statx</code> 相关 <code>__u32</code> 编译错误</td><td><code>-target aarch64-linux-android30</code></td></tr>
-      <tr><td>npm 拦截构建脚本</td><td>node-pty/koffi 无产物</td><td><code>--allow-scripts</code> 放行</td></tr>
+      <tr><td><b>koffi 原生模块不可用</b></td><td>0.2.0-rc.2 把 koffi 精确钉在 <code>3.1.1</code>，而 <code>@koromix/koffi-android-arm64</code> 从 3.2.1 才有；3.1.1 的 install 脚本在 bionic 上编译必失败</td><td>故意不进 <code>--allow-scripts</code>（<code>SKIP_SCRIPTS</code>）：npm 12 里白名单脚本失败会让整次安装退 1，白名单外只警告并跳过；koffi 调用点全是懒加载 + win32</td></tr>
+      <tr><td>npm 拦截构建脚本</td><td>node-pty 等包无原生产物</td><td><code>--allow-scripts</code> 放行能在 Android 构建成功的包；必然失败的包改放 <code>SKIP_SCRIPTS</code></td></tr>
       <tr><td><code>link()</code> 被禁（SELinux）</td><td>会话/附件保存、历史会话迁移、write 工具新建文件报 <code>EACCES</code></td><td>会话日志直接发布改 <code>rename()</code>；no-replace 路径回退「O_EXCL 占位 + rename」</td></tr>
       <tr><td><code>flock</code> 在 Android 不可用</td><td>发消息报 <code>flock is not supported on android-arm64</code></td><td>编译 <code>node-addon-system</code> 自带 <code>src/flock.c</code> 为本机 <code>system.node</code>，<code>flock.js</code> 在 android 下加载本地绑定</td></tr>
       <tr><td><b>dsh ≥0.1.7 完全起不来</b></td><td><code>No usable native binding found for node-addon-require-builtin-android-arm64</code>，<code>host preparation failed</code></td><td>上游新增原生 addon 家族无 android 预编译包，补 <code>node-addon-require-builtin-android-arm64</code> 平台包（纯 JS，依赖包装脚本已带的 <code>--expose-internals</code>），含 <code>internalModules()</code> 自检（包名后缀随设备架构变化，如 armv7 上是 <code>-android-arm</code>）</td></tr>
+      <tr><td><b><code>dsh web</code> 起不来：<code>YAMLException: end of the stream or a document separator is expected</code></b></td><td>报错指向 <code>~/.dsh/profiles/web/cordis.patch.yml</code> 里我们自己写的 <code>- id: sandbox-policy</code>（形如 <code>(13:1)</code>）</td><td>dsh 首次启动会自己写一份「空数组文档」模板（3 行注释 + <code>[]</code>）；旧版 <code>setup.sh</code> 只查有没有 <code>danger-full-access</code> 就追加权限层，在已结束的 YAML 文档后再挂序列项 → 整个 profile 解析失败。改为 <code>patches/apply-profile-patch.js</code>：空数组模板→替换、真实配置层→追加、残留裸 <code>[]</code>→定点摘除，写前写后都用 dsh 自己的 <code>loadOverlayPatches()</code> 真解析校验，坏文件一个字节都不动</td></tr>
       <tr><td>安卓输入法回车直接发送</td><td>回车即发送，打不出多行</td><td>修补 <code>dsh-client-ui-conversation</code>：普通回车=换行，<code>Ctrl/Cmd+Enter</code>=发送</td></tr>
+      <tr><td><b>日志出现 <code>permission: composed sandbox and approval defaults match no preset</code> / <code>1 entry did not activate</code></b></td><td>0.2.0 起新增的 <code>permission</code> 行不激活（bash 仍可用，权限预设服务缺失）</td><td>该行按「sandbox + approval 组合」反查预设，而预设 <code>danger-full-access</code> 正是这两者的组合；只改 sandbox 就匹配不到。权限层现在两条成对下发（<code>sandbox-policy.mode</code> + <code>approval.policy: never</code>），重跑 <code>setup.sh</code> 自动补缺失那条</td></tr>
       <tr><td>PTY 终端检测失败</td><td><code>unsupported on platform android</code></td><td>subprocess 把 android 视同 linux</td></tr>
       <tr><td>grep/glob 报 <code>ripgrep launch failed</code></td><td><code>@vscode/ripgrep</code> 无 Android 平台预编译包</td><td>符号链接到系统 <code>rg</code> + <code>resolveRgPath()</code> 回退</td></tr>
       <tr><td>sharp 无法加载</td><td><code>Could not load sharp module</code></td><td>安装 <code>@img/sharp-wasm32</code> wasm 回退</td></tr>
@@ -84,6 +87,7 @@ bash ~/dsh/stop_dsh.sh    # 停止</pre>
       <li>服务只监听 <code>127.0.0.1</code>（本机），不走局域网。</li>
       <li>API Key 存 <code>~/.dsh/.credentials.yaml</code>（0600），不进日志、不进进程环境。</li>
       <li><code>danger-full-access</code> 关闭了进程沙箱（Android 无 bwrap/landlock 替代），agent 可执行任意命令——仅建议个人设备使用。</li>
+      <li>权限层是<b>两条</b>：<code>sandbox-policy.mode = danger-full-access</code> 加 <code>approval.policy = never</code>。0.2.0 起新增的 <code>permission</code> 行按「组合后的 sandbox + approval」反查预设表，少一条就会匹配不到预设（该行不激活并报警）。</li>
       <li>升级 dsh 或 Node 后需重跑 <code>setup.sh</code>。</li>
     </ul>
 
@@ -98,7 +102,7 @@ bash ~/dsh/stop_dsh.sh    # 停止</pre>
     <h2>七、作者测试环境与兼容性</h2>
     <ul>
       <li><b>测试设备</b>：华为 Mate 60（ALN-AL80），HarmonyOS 4.2.0（build 4.2.0.186），<b>无 root</b>，Termux（Node v26，aarch64）。</li>
-      <li><b>实测版本</b>：deepseek-harness <code>0.1.7-rc.2</code>（<b>撰写时</b>的 npm <code>latest</code>；当前版本用 <code>npm view @deepseek-ai/dsh version</code> 查）。</li>
+      <li><b>实测版本</b>：deepseek-harness <code>0.2.0-rc.2</code>（<b>撰写时</b>的 npm <code>latest</code> = <code>next</code>；当前版本用 <code>npm view @deepseek-ai/dsh version</code> 查）。实测：完整安装、全部补丁、<code>dsh web</code> 冷启动到 token 7~13s、鉴权 303→cookie→200、日志零 warn/error；<code>0.1.7-rc.2</code> 线同样通过。</li>
       <li>不同手机/ROM 差异可能导致额外问题（如部分 ROM 经 SELinux 禁用 <code>link()</code>、命名空间沙箱权限不同）。</li>
       <li><code>setup.sh</code> 覆盖通用 Android 场景，个别机型可能需额外适配。</li>
     </ul>
@@ -111,7 +115,7 @@ dsh --profile web --dump-config | grep -A2 dsh-android-ui   # 应出现 "# == ds
 bash ~/dsh/restart_dsh_now.sh                              # Node 半在启动时读进内存，必须重启</pre>
     <p>卸载：<code>dsh plugin --profile web remove dsh-android-ui</code>，然后同样重启。</p>
     <p>它做的事：viewport 改为 <code>viewport-fit=cover</code> + <code>interactive-widget=resizes-content</code>（刘海避让，软键盘收缩内容区）、侧栏变抽屉、safe-area 与作曲栏重排、启动前 polyfill（<code>AbortSignal.any</code> / <code>crypto.randomUUID</code>）、运行期软键盘跟随与触摸兜底。</p>
-    <div class="warn">⚠️ <b>注意事项</b>：这是<b>第三方插件，不属于本项目</b>；它按 dsh <code>0.1.7-rc.2</code> 核对了上游哈希类名，<b>上游改版会静默失效</b>（页面正常、效果全无），升级 dsh 后请同步升级/重装，或先卸载以确认问题归属；「普通回车=换行」不在该插件内，仍由本仓库 <code>setup.sh</code> 修补；重跑 <code>setup.sh</code> 不会破坏它（只追加权限层）；鉴权链路不变，仍用 <code>start_dsh.sh</code> 打开带 token 的 URL。</div>
+    <div class="warn">⚠️ <b>注意事项</b>：这是<b>第三方插件，不属于本项目</b>；它按 dsh <code>0.1.7-rc.2</code> 核对了上游哈希类名，<b>上游改版会静默失效</b>（页面正常、效果全无），升级 dsh 后请同步升级/重装，或先卸载以确认问题归属；「普通回车=换行」不在该插件内，仍由本仓库 <code>setup.sh</code> 修补；重跑 <code>setup.sh</code> 不会破坏它（权限层按内容分类合并：dsh 的空数组模板会整体替换、已有配置层才追加）；鉴权链路不变，仍用 <code>start_dsh.sh</code> 打开带 token 的 URL。</div>
 
     <h2>参考</h2>
     <ul>
@@ -153,11 +157,14 @@ bash ~/dsh/stop_dsh.sh    # stop</pre>
       <tr><th>Issue</th><th>Symptom</th><th>Fix</th></tr>
       <tr><td>node-pty fails to build</td><td><code>Undefined variable android_ndk_path</code></td><td>patch node-gyp cache <code>common.gypi</code></td></tr>
       <tr><td>koffi fails to build</td><td><code>statx</code> <code>__u32</code> compile error</td><td><code>-target aarch64-linux-android30</code></td></tr>
-      <tr><td>npm blocks build scripts</td><td>no node-pty/koffi output</td><td>allow via <code>--allow-scripts</code></td></tr>
+      <tr><td><b>koffi native module unavailable</b></td><td>0.2.0-rc.2 pins koffi to exactly <code>3.1.1</code> while <code>@koromix/koffi-android-arm64</code> starts at 3.2.1; 3.1.1's install script cannot build on bionic</td><td>kept out of <code>--allow-scripts</code> on purpose (<code>SKIP_SCRIPTS</code>): under npm 12 a failing allowlisted script aborts the install, a blocked one only warns; koffi call sites are lazy + win32-gated</td></tr>
+      <tr><td>npm blocks build scripts</td><td>node-pty and friends have no native artifacts</td><td>allow packages whose build succeeds on Android; put cannot-build ones in <code>SKIP_SCRIPTS</code> instead</td></tr>
       <tr><td><code>link()</code> blocked (SELinux)</td><td><code>EACCES</code> saving sessions/attachments, migrating sessions, creating files via the <code>write</code> tool</td><td>direct session-log publish uses <code>rename()</code>; no-replace paths fall back to "O_EXCL reserve + rename"</td></tr>
       <tr><td><code>flock</code> unavailable on Android</td><td><code>flock is not supported on android-arm64</code> when sending a message</td><td>compile <code>node-addon-system</code>'s bundled <code>src/flock.c</code> into a local <code>system.node</code>; <code>flock.js</code> loads it on android</td></tr>
       <tr><td><b>dsh ≥0.1.7 won't start at all</b></td><td><code>No usable native binding found for node-addon-require-builtin-android-arm64</code>, <code>host preparation failed</code></td><td>upstream's new native-addon family ships no android prebuild; add a <code>node-addon-require-builtin-android-arm64</code> platform package (pure JS, relying on the wrapper's <code>--expose-internals</code>) with an <code>internalModules()</code> self-test (the suffix follows the device arch, e.g. <code>-android-arm</code> on armv7)</td></tr>
+      <tr><td><b><code>dsh web</code> won't start: <code>YAMLException: end of the stream or a document separator is expected</code></b></td><td>the error points at our own <code>- id: sandbox-policy</code> inside <code>~/.dsh/profiles/web/cordis.patch.yml</code> (e.g. <code>(13:1)</code>)</td><td>on first boot dsh writes its own "empty-array document" template (3 comment lines + <code>[]</code>); the old <code>setup.sh</code> appended the permission layer after it, so a sequence item followed an already-closed YAML document and the whole profile stopped parsing. Now <code>patches/apply-profile-patch.js</code> classifies first: empty template → replace, real layers → append, stray bare <code>[]</code> → strip that document line; every write is validated with dsh's own <code>loadOverlayPatches()</code> before and after, and an unparsable file is left untouched</td></tr>
       <tr><td>Enter sends instead of a newline</td><td>Enter sends the message, multi-line input is impossible</td><td>patch <code>dsh-client-ui-conversation</code>: Enter = newline, <code>Ctrl/Cmd+Enter</code> = send</td></tr>
+      <tr><td><b>log shows <code>permission: composed sandbox and approval defaults match no preset</code> / <code>1 entry did not activate</code></b></td><td>the 0.2.0-only <code>permission</code> row refuses to activate (bash still works; the permission-preset service is missing)</td><td>that row derives a preset from the composed sandbox + approval pair, and its <code>danger-full-access</code> preset <em>is</em> that pair — changing only the sandbox matches nothing. The layer now ships both entries (<code>sandbox-policy.mode</code> + <code>approval.policy: never</code>); re-run <code>setup.sh</code> to append the missing one</td></tr>
       <tr><td>PTY terminal detection fails</td><td><code>unsupported on platform android</code></td><td>treat android as linux in subprocess</td></tr>
       <tr><td>grep/glob report <code>ripgrep launch failed</code></td><td>no Android prebuilt binary from <code>@vscode/ripgrep</code></td><td>symlink to system <code>rg</code> + <code>resolveRgPath()</code> fallback</td></tr>
       <tr><td>sharp fails to load</td><td><code>Could not load sharp module</code></td><td>install <code>@img/sharp-wasm32</code> wasm fallback</td></tr>
@@ -170,6 +177,7 @@ bash ~/dsh/stop_dsh.sh    # stop</pre>
       <li>The service listens only on <code>127.0.0.1</code> (local, not LAN).</li>
       <li>API Key is stored at <code>~/.dsh/.credentials.yaml</code> (0600), never in logs or process env.</li>
       <li><code>danger-full-access</code> disables the process sandbox (no bwrap/landlock on Android); the agent can run any command — personal devices only.</li>
+      <li>The permission layer is <b>two entries</b>: <code>sandbox-policy.mode = danger-full-access</code> plus <code>approval.policy = never</code>. The 0.2.0-only <code>permission</code> row derives a preset from that composed pair, so a missing half matches no preset (the row refuses to activate and warns).</li>
       <li>Re-run <code>setup.sh</code> after upgrading dsh or Node.</li>
     </ul>
 
@@ -184,7 +192,7 @@ bash ~/dsh/stop_dsh.sh    # stop</pre>
     <h2>7. Author's test environment &amp; compatibility</h2>
     <ul>
       <li><b>Tested device</b>: Huawei Mate 60 (ALN-AL80), HarmonyOS 4.2.0 (build 4.2.0.186), <b>no root</b>, Termux (Node v26, aarch64).</li>
-      <li><b>Tested version</b>: deepseek-harness <code>0.1.7-rc.2</code> (the npm <code>latest</code> <b>at the time of writing</b>; check the current one with <code>npm view @deepseek-ai/dsh version</code>).</li>
+      <li><b>Tested version</b>: deepseek-harness <code>0.2.0-rc.2</code> (the npm <code>latest</code> = <code>next</code> <b>at the time of writing</b>; check the current one with <code>npm view @deepseek-ai/dsh version</code>). Verified: full install, every patch, <code>dsh web</code> cold start to token in 7–13s, auth 303→cookie→200, zero warn/error lines; the <code>0.1.7-rc.2</code> line passes too.</li>
       <li>Different phones/ROMs may behave differently (e.g. some ROMs block <code>link()</code> via SELinux, namespace-sandbox permissions vary).</li>
       <li><code>setup.sh</code> covers common Android cases; specific devices may need extra tweaks.</li>
     </ul>
@@ -197,7 +205,7 @@ dsh --profile web --dump-config | grep -A2 dsh-android-ui   # expect "# == dsh-a
 bash ~/dsh/restart_dsh_now.sh                              # the Node half is read at boot: restart required</pre>
     <p>Uninstall: <code>dsh plugin --profile web remove dsh-android-ui</code>, then restart the same way.</p>
     <p>What it does: rewrites viewport to <code>viewport-fit=cover</code> + <code>interactive-widget=resizes-content</code> (notch avoidance, IME shrinks the content area), turns the sidebar into a drawer, safe-area padding and composer recomposition, boot-time polyfills (<code>AbortSignal.any</code> / <code>crypto.randomUUID</code>), plus runtime keyboard following and touch fallbacks.</p>
-    <div class="warn">⚠️ <b>Notes</b>: this is a <b>third-party plugin, not part of this project</b>; its hashed class names were verified against dsh <code>0.1.7-rc.2</code> and <b>fail silently when upstream changes them</b> (page fine, effects gone), so upgrade/reinstall it after a dsh upgrade — or uninstall it first to attribute the problem. "Enter = newline" is not in that plugin; this repo's <code>setup.sh</code> still patches it. Re-running <code>setup.sh</code> will not break it (the permission layer is only appended). The auth chain is unchanged: keep opening the tokenized URL via <code>start_dsh.sh</code>.</div>
+    <div class="warn">⚠️ <b>Notes</b>: this is a <b>third-party plugin, not part of this project</b>; its hashed class names were verified against dsh <code>0.1.7-rc.2</code> and <b>fail silently when upstream changes them</b> (page fine, effects gone), so upgrade/reinstall it after a dsh upgrade — or uninstall it first to attribute the problem. "Enter = newline" is not in that plugin; this repo's <code>setup.sh</code> still patches it. Re-running <code>setup.sh</code> will not break it (the permission layer is merged by content: dsh's empty-array template is replaced, existing layers are appended to). The auth chain is unchanged: keep opening the tokenized URL via <code>start_dsh.sh</code>.</div>
 
     <h2>References</h2>
     <ul>
