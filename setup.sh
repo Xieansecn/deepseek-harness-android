@@ -316,7 +316,15 @@ PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
 EXTRA_FLAGS="-target aarch64-linux-android30 -I$PREFIX/include"
 # npm 12 只对 --allow-scripts 列出的包执行 install/postinstall（其余静默跳过）。
 # 上游新增带构建脚本的包时必须同步补进来，否则原生产物静默缺失——下方的自检负责发现。
-ALLOW_SCRIPTS="@deepseek-ai/dsh-subprocess-local,koffi,node-pty,@google/genai,protobufjs"
+# ⚠️ npm 12 实测语义：白名单内的包脚本【失败】会让整次 npm install 退 1（setup.sh 随即中断）；
+#    白名单外的包脚本只会被【警告 + 跳过】。所以 ALLOW_SCRIPTS 是「可用性风险面」，不只是完整性清单。
+ALLOW_SCRIPTS="@deepseek-ai/dsh-subprocess-local,node-pty,@google/genai,protobufjs"
+# 按设计不进白名单的包（脚本必然失败或纯属多余，宁可让它退化成「npm 警告 + 跳过」）：
+#   koffi —— 0.2.0-rc.2 起上游把它【精确钉在 3.1.1】，而 @koromix/koffi-android-arm64 从 3.2.1 才有；
+#   3.1.1 的 install 脚本 `cnoke --prebuild` 自愈式回退到本地编译，必死在 bionic 与 glibc 的
+#   statx 原型差异上（lib/native/base/base.cc）。实测 `npm install -g --allow-scripts=koffi koffi@3.1.1`
+#   退出码 1 —— 白名单里留着它 = 安装必然中断。运行期它只在 win32 分支懒加载，Android 用不到。
+SKIP_SCRIPTS="koffi"
 info "  安装目标：${DSH_NPM}（装脚本白名单：${ALLOW_SCRIPTS}）"
 run_hidden_spinner "  正在安装 dsh 和编译原生模块（5~15 分钟）..." \
   env CFLAGS="$EXTRA_FLAGS" CXXFLAGS="$EXTRA_FLAGS" \
@@ -334,21 +342,30 @@ if (cd "$DSH_DIR" && node -e "require('node-pty');" >/dev/null 2>&1); then
 else
   warn "  [!!] node-pty 产物无法加载（可能 ABI 不匹配），PTY 功能将不可用"
 fi
+# koffi 是否「按设计跳过」：bash 原生模式匹配，不起子进程。
+case ",$SKIP_SCRIPTS," in *,koffi,*) KOFFI_SKIPPED=1 ;; *) KOFFI_SKIPPED=0 ;; esac
 if (cd "$DSH_DIR/node_modules/koffi" && node -e "try{require('koffi');}catch(e){process.exit(1)}" >/dev/null 2>&1); then
   ok "  koffi 预编译包可加载"
+elif [ "$KOFFI_SKIPPED" -eq 1 ]; then
+  # 预期内：不进白名单 → 装脚本被 npm 跳过 → 没有原生模块。只报一行，不当告警喊。
+  info "  koffi 原生模块不可用（按设计跳过，不阻断）：上游 0.2.0-rc.2 钉的 3.1.1 无 android 预编译包、"
+  info "  且其 install 脚本在 bionic 上编译必失败；dsh 里 koffi 只在 win32 分支懒加载，Android 用不到。"
 else
-  warn "  koffi 预编译包无法加载（koffi 3.x 走 @koromix/koffi-*，无需本地编译）"
-  warn "  若 dsh 在 win32 场景用到 koffi，对应功能会异常；请检查是否装了 @koromix/koffi-android-arm64。"
+  warn "  koffi 原生模块不可用（不阻断）：上游 0.2.0-rc.2 把 koffi 精确钉在 3.1.1，而 @koromix/koffi-android-arm64"
+  warn "  从 3.2.1 才有预编译包，3.1.1 的 install 脚本在 bionic 上编译必然失败——所以本脚本故意把它放进 SKIP_SCRIPTS，"
+  warn "  让 npm 只警告并跳过（放进白名单会让整次安装退 1）。dsh 里所有 koffi 调用点都是懒加载且 "
+  warn "  platform === \"win32\" 才走，Android 运行期用不到；win32 场景才需要它。"
 fi
 
 # 安装脚本白名单自检：npm 12 只对 --allow-scripts 内的包跑 install/postinstall，其余静默跳过。
 # 上游依赖重组后（0.1.7 新增/改名了一批包）若冒出新的带脚本包，必须在这里被点出来，否则原生产物静默缺失。
-if node - "$DSH_DIR/node_modules" "$ALLOW_SCRIPTS" <<'JS'
+if node - "$DSH_DIR/node_modules" "$ALLOW_SCRIPTS" "$SKIP_SCRIPTS" <<'JS'
 import fs from "node:fs";
 import path from "node:path";
-const [root, allowStr] = process.argv.slice(2);
+const [root, allowStr, skipStr] = process.argv.slice(2);
 const CLR = process.env.SP_CLEAR ?? "";
 const allow = new Set(allowStr.split(",").map((s) => s.trim()).filter(Boolean));
+const skip = new Set((skipStr ?? "").split(",").map((s) => s.trim()).filter(Boolean));
 const found = new Map();
 const consider = (dir) => {
   let pkg;
@@ -369,14 +386,16 @@ const walk = (dir) => {
 };
 walk(root);
 const lines = [];
-for (const [n, h] of found) lines.push(`    ${allow.has(n) ? "[allowed]  " : "[UNCOVERED]"} ${n} (${h})`);
-const uncovered = [...found.keys()].filter((n) => !allow.has(n));
+for (const [n, h] of found) lines.push(`    ${allow.has(n) ? "[allowed]  " : skip.has(n) ? "[skipped]  " : "[UNCOVERED]"} ${n} (${h})`);
+const uncovered = [...found.keys()].filter((n) => !allow.has(n) && !skip.has(n));
+const skipped = [...found.keys()].filter((n) => skip.has(n));
+if (skipped.length > 0) lines.push(`    [note] ${skipped.length} 个带脚本的包按设计不进白名单（${skipped.join(", ")}）：让 npm 只警告并跳过，见 setup.sh 的 SKIP_SCRIPTS`);
 if (uncovered.length > 0) {
   lines.push(`    [warn] ${uncovered.length} 个带安装脚本的包不在白名单内，其构建步骤已被 npm 跳过`);
   console.log(CLR + lines.join("\n"));
   process.exit(3);
 }
-lines.push(`    [ok] ${found.size} 个带安装脚本的包都在白名单内`);
+lines.push(`    [ok] ${found.size - skipped.length} 个带安装脚本的包都在白名单内${skipped.length ? `（另有 ${skipped.length} 个按设计跳过）` : ""}`);
 console.log(CLR + lines.join("\n"));
 JS
 then
@@ -385,7 +404,8 @@ else
   rc=$?
   if [ "$rc" -eq 3 ]; then
     warn "  [!!] 有带安装脚本的包不在 --allow-scripts 白名单（见上表）：其构建步骤被跳过，原生产物可能缺失。"
-    warn "       请把包名加入本脚本的 ALLOW_SCRIPTS 后重跑。"
+    warn "       请把包名加入本脚本的 ALLOW_SCRIPTS 后重跑；若确认它的构建在 Android 上必然失败（或在运行期用不到），"
+    warn "       应改加到 SKIP_SCRIPTS（那样 npm 只警告不中断），别放进 ALLOW_SCRIPTS——白名单里的脚本失败会让整次安装退 1。"
   else
     warn "  [!!] 安装脚本白名单自检执行异常（退出码 $rc）"
   fi
