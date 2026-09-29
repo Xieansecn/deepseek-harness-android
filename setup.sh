@@ -633,26 +633,35 @@ cp "$SCRIPT_DIR/restart_dsh_now.sh"   "$INSTALL_DIR/restart_dsh_now.sh"
 chmod +x "$INSTALL_DIR/start_dsh.sh" "$INSTALL_DIR/stop_dsh.sh" "$INSTALL_DIR/restart_dsh_now.sh"
 
 # 权限模式：Android 无 bwrap/landlock，必须 danger-full-access（文本取自 config/cordis.patch.yml）。
-# ⚠️ 目标文件可能已有用户其它配置层：缺权限层时【追加】，绝不用 cat > 整体重写。
+# ⚠️ 不能盲目 `>>` 追加：dsh 首次启动时会自己写一份「空数组文档」模板（3 行注释 + `[]`），
+#    在已结束的 YAML 文档后面再追加序列项，整个 profile 就解析不了——
+#    `dsh web` 报 YAMLException: end of the stream or a document separator is expected，
+#    服务完全起不来（而且报错位置指向我们自己写的那一行）。分类与校验交给
+#    patches/apply-profile-patch.js：空数组模板→替换、真实配置层→追加、残留 `[]`→定点修复，
+#    落盘前后都用 dsh 自己的 loadOverlayPatches() 真解析校验；坏文件一个字节都不动。
 PROFILE_PATCH="$HOME/.dsh/profiles/web/cordis.patch.yml"
 SANDBOX_LAYER_FILE="$SCRIPT_DIR/config/cordis.patch.yml"
-if [ -f "$SANDBOX_LAYER_FILE" ]; then
-  SANDBOX_LAYER="$(cat "$SANDBOX_LAYER_FILE")"
-else
-  warn "  缺少 $SANDBOX_LAYER_FILE，使用内联兜底权限层"
-  SANDBOX_LAYER='- id: sandbox-policy
-  config:
-    mode: danger-full-access'
-fi
-mkdir -p "$(dirname "$PROFILE_PATCH")"
-if ! grep -q "danger-full-access" "$PROFILE_PATCH" 2>/dev/null; then
-  if [ -s "$PROFILE_PATCH" ]; then
-    printf '\n%s\n' "$SANDBOX_LAYER" >> "$PROFILE_PATCH"
-    ok "  权限模式已追加到 $PROFILE_PATCH（保留原有配置层）"
-  else
-    printf '%s\n' "$SANDBOX_LAYER" > "$PROFILE_PATCH"
-    ok "  权限模式已写入 $PROFILE_PATCH"
+PROFILE_PATCH_TOOL="$SCRIPT_DIR/patches/apply-profile-patch.js"
+if [ -f "$PROFILE_PATCH_TOOL" ]; then
+  PATCH_ROOT_ARGS=()
+  if [ -f "$DSH_DIR/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js" ]; then
+    PATCH_ROOT_ARGS=(--root "$DSH_DIR")   # 只借 dsh 自己的解析器校验；定位不到时脚本自行降级为结构检查
   fi
+  if PATCH_OUT="$(node "$PROFILE_PATCH_TOOL" --target "$PROFILE_PATCH" --layer "$SANDBOX_LAYER_FILE" "${PATCH_ROOT_ARGS[@]}" 2>&1)"; then
+    printf '%s\n' "$PATCH_OUT" >>"$SETUP_LOG"
+    ok "  权限模式已就位：$(printf '%s' "$PATCH_OUT" | grep -oE '^\[[A-Z]+' | tail -1 | tr -d '[') $PROFILE_PATCH"
+  else
+    status_clear 2>/dev/null || true
+    printf '%s\n' "$PATCH_OUT" >&2
+    printf '%s\n' "$PATCH_OUT" >>"$SETUP_LOG"
+    error "  [!!] 权限层写入失败：$PROFILE_PATCH 不是可解析的顶层数组，原文件未被改动。"
+    error "       dsh 的 profile 装载会在 boot 前失败（起不来），所以这里中断而不是继续。"
+    error "       按上面提示修好该文件（或删掉它让 dsh 重建），再重跑本脚本。"
+    exit 1
+  fi
+else
+  error "  缺少 patches/apply-profile-patch.js，无法安全安装权限层（dsh 会起不来）"
+  exit 1
 fi
 
 # -------------------------------------------------- 8/9 JS 性能补丁(可选)

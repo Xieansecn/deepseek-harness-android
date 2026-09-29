@@ -1,10 +1,22 @@
 # DeepSeek Harness profile 配置覆盖层（Android/Termux）
-# 安装到 ~/.dsh/profiles/web/cordis.patch.yml
+# 由 patches/apply-profile-patch.js 合并进 ~/.dsh/profiles/web/cordis.patch.yml（按内容分类，不整文件覆盖）
 #
 # 为什么：Android 上 bwrap/landlock 命名空间沙箱不可用（无 root 无法 unshare
 #  mount/pid 命名空间），任何受限权限模式都会让 bash 工具抛 SANDBOX_UNAVAILABLE。
 # 因此必须用 danger-full-access 放开进程沙箱，bash 工具才能真实执行。
 # 仅建议个人设备使用（等同于关闭沙箱，agent 可执行任意命令）。
+#
+# ⚠️ 两条必须成对出现：0.2.0 起上游新增 `permission`（@deepseek-ai/dsh-permission-presets），
+# 它按「组合后的 sandbox + approval」反查预设表——preset `danger-full-access` 就是
+# {sandbox: danger-full-access, approval: never}。只把 sandbox 改成 danger-full-access 而
+# approval 还是基线的 ask（基线默认值是 `DSH_PERMISSION_MODE` 未设时的 'ask'），组合就匹配不到
+# 任何预设：该行不激活，日志报 "permission: composed sandbox and approval defaults match no preset"。
+# 0.1.7 及更早没有这个校验，approval=never 只是把审批策略设为不询问，行为一致。
+# >>> dsh-android-layer-entry
 - id: sandbox-policy
   config:
     mode: danger-full-access
+# >>> dsh-android-layer-entry
+- id: approval
+  config:
+    policy: never
