@@ -14,8 +14,8 @@
 </div>
 
 > [!IMPORTANT]
-> 已在 **deepseek-harness `0.1.7-rc.2`**（**撰写时**的 npm `latest`；当前 latest 用 `npm view @deepseek-ai/dsh version` 查）上实测通过；`0.1.7` 起上游原生实现了客户端 combo 惰性化，故性能补丁 `02` 会自动跳过（见下方「JS 性能补丁」对 `03` 的说明）。
-> Tested on **deepseek-harness `0.1.7-rc.2`** (the npm `latest` **at the time of writing**; check the current one with `npm view @deepseek-ai/dsh version`); since `0.1.7` upstream implements client-combo laziness natively, perf patch `02` is skipped automatically (see the note on patch `03` under JS perf patches).
+> 已在 **deepseek-harness `0.1.7-rc.2`**（**撰写时**的 npm `latest`；当前 latest 用 `npm view @deepseek-ai/dsh version` 查）上实测通过；`0.1.7` 起上游原生实现了客户端 combo 惰性化，故性能补丁 `02` 在这条线上锚点失效、报 `[deprecated]`（不计失败），由 `03` 继续保住热点（见下方「JS 性能补丁」的说明）。
+> Tested on **deepseek-harness `0.1.7-rc.2`** (the npm `latest` **at the time of writing**; check the current one with `npm view @deepseek-ai/dsh version`); since `0.1.7` upstream implements client-combo laziness natively, perf patch `02` finds no anchor on that line and reports `[deprecated]` (not a failure), while `03` keeps the hotspot fast (see the notes under JS perf patches).
 
 ---
 
@@ -39,11 +39,12 @@
 | | 特性 |
 |---|---|
 | 🚀 | 一条命令完成安装 + 全部 Android 修补（幂等，可反复重跑） |
-| 🧩 | 原生插件适配：node-pty / koffi / sharp / ripgrep / flock |
+| 🧩 | 原生插件适配：node-pty / koffi / sharp / ripgrep / flock / node-addon-require-builtin |
 | 🔗 | 无硬链接（SELinux 禁 `link()`）修复：会话、附件、工具写文件全部照常 |
 | 🔐 | 新版 Web 鉴权适配：自动提取带 token 的启动 URL 并校验后再交给浏览器 |
 | 🌐 | 默认用 **Via 浏览器**（按包名）打开，找不到再回退系统默认浏览器 |
-| ⚡ | 启动脚本零轮询等待（流式读日志），复用已在运行的服务约 0.4s |
+| 📱 | 可选：社区插件 **dsh-android-ui** 做手机界面适配（刘海避让、软键盘跟随、侧栏抽屉），一行装进 `web` profile（见「📱 手机界面适配（可选）」） |
+| ⚡ | 启动脚本零轮询等待（流式读日志），复用已在运行的服务约 0.2s |
 | 🎨 | 安装全程状态行 + 彩色输出，原始日志落盘便于排查 |
 
 ## 📋 环境要求
@@ -132,6 +133,41 @@ DSH_ORIGIN=localhost bash ~/dsh/start_dsh.sh              # 绕开 PWA 劫持
 DSH_NO_OPEN=1 bash ~/dsh/start_dsh.sh                     # 只打印 URL 自己粘
 ```
 
+## 📱 手机界面适配（可选）
+
+dsh 的 Web UI 是给桌面浏览器排的版：刘海压住顶部内容、软键盘盖住作曲栏、侧栏把正文挤窄、个别按钮只接了 hover 路径（手指点不动）。这些**不属于本仓库的修补范围**——本仓库只保证启动/鉴权链路与后端兼容性，**不注入任何前端 CSS/JS**（历史上做过 `apply-frontend.sh`，因为依赖上游哈希类名、每次升级必漂移，已删除；见「原理」末尾）。
+
+想要手机友好的界面，可以装社区组合包插件 **[Xieansecn/dsh-android-ui](https://github.com/Xieansecn/dsh-android-ui)**（官方插件形态，不改 dsh 产品文件）：
+
+```bash
+# 1) 装进 web profile（dsh 内部走 pnpm；需要 git 与网络）
+dsh plugin --profile web add github:Xieansecn/dsh-android-ui
+
+# 2) 确认组合层已挂上，输出里应出现 "# == dsh-android-ui"
+dsh --profile web --dump-config | grep -A2 dsh-android-ui
+
+# 3) Node 半在启动时读进内存：刷新页面不够，必须重启
+bash ~/dsh/restart_dsh_now.sh
+```
+
+卸载（同样是 pnpm，改完同样要重启）：
+
+```bash
+dsh plugin --profile web remove dsh-android-ui
+bash ~/dsh/restart_dsh_now.sh
+```
+
+它做什么（详见它自己的 README）：`viewport` 就地改写为 `viewport-fit=cover` + `interactive-widget=resizes-content`（刘海避让，软键盘收缩内容区而不是盖住页面）、移动端 CSS（侧栏变抽屉、safe-area、作曲栏重排、设置面板全屏）、启动前 polyfill（`AbortSignal.any` / `crypto.randomUUID`，老 WebView 缺了会直接白屏），以及运行期的软键盘跟随、悬浮侧栏开关与触摸兜底。它另带一个**可选的一次性脚本**把 PWA manifest 的 `display: fullscreen` 改成 `standalone`（manifest 是浏览器自己 GET 的静态 JSON，运行期插件改不到；只用浏览器打开、不装 PWA 可以跳过）。
+
+注意事项：
+
+- **第三方插件，不是本项目的一部分**：不打包、不修改，版本兼容与问题反馈都归它自己的仓库。
+- **它按 dsh `0.1.7-rc.2` 逐个核对了上游哈希类名，而哈希类名随版本漂移且是静默失效**（页面正常、效果全无）。升级 dsh 后请同步升级/重装它，或先卸载以确认问题归属——`bash setup.sh` 不会替你处理这一步，它只做后端修补。
+- **与本仓库互不干扰**：`setup.sh` 第 7 步只**追加**权限层到 `~/.dsh/profiles/web/cordis.patch.yml`，不覆盖 profile 里的其它配置层，所以装好插件后照常重跑 `setup.sh` 即可。
+- **「普通回车=换行」不在这个插件里**：那处按键映射要改产品包，仍由本仓库的 `setup.sh` 修补（见下文「原理」表）；插件只负责 `enterkeyhint=newline`。
+- **只对 `web` profile 有意义**，`tui` / `headless` 无关。
+- **鉴权链路不变**：仍用 `bash ~/dsh/start_dsh.sh` 打开带 token 的 URL，直接开裸地址依旧 401。
+
 ## 🔧 原理：setup.sh 自动修复了什么
 
 上游 `@deepseek-ai/dsh` 只发布 linux/darwin 预编译产物，且假设了完整的 Linux 命名空间沙箱与硬链接能力。Android/bionic 环境下需要下面这些适配——**全部由 `setup.sh` 自动完成，且幂等**：
@@ -151,11 +187,14 @@ DSH_NO_OPEN=1 bash ~/dsh/start_dsh.sh                     # 只打印 URL 自己
 | HMR 启动崩溃 | `--expose-internals is required` | 重建 `dsh` 包装脚本，加 `--expose-internals --no-warnings` |
 | bash 工具不可用 | `SANDBOX_UNAVAILABLE` | 写入 `danger-full-access` 配置层（见下方安全说明） |
 | 整页重载重复下载 JS | 每次刷新重下 `/assets/` 全部构建产物（本机实测 ~4.5MB） | 给 `/assets/` 静态资源加 immutable 缓存头 |
-| 冷启动十几秒才出 token | `dsh web` 起来后端口先回 401，十几秒后才打印鉴权 URL | 补丁 `02`：客户端插件组合（`dsh-client-modules`）启动时会全量重组约 10 次，每次都把所有 client bundle 预建一遍单条 artifact；改为**按需构建** + 索引式行数统计（实测冷启动 22.6s → 12.5s，产物与未打补丁时逐字节一致） |
+| 冷启动十几秒才出 token | `dsh web` 起来后端口先回 401，十几秒后才打印鉴权 URL | 客户端插件组合（`dsh-client-modules`）启动时会全量重组约 10 次，每次都把所有 client bundle 预建一遍单条 artifact：`0.1.7` 起上游已用原生 `lazyBody` 按需构建，补丁 `02` 在 `0.1.5` 线上做同一件事（实测冷启动 22.6s → 12.5s，产物与未打补丁时逐字节一致），`03` 再把这处行数统计改成索引循环 |
 
 > [!NOTE]
 > 现在保留三个上游 JS 性能补丁：`01-frontend-static-cache`（静态资源 immutable 缓存头）、`02-client-modules-lazy-compose`（客户端 combo 按需构建）与 `03-client-modules-newline-count`（`newlineCount` 改索引循环，10.8MB 实测 302ms→60ms）。
 > `01`/`02` 面向 0.1.5 线；`0.1.7` 起上游已原生实现 combo 惰性化（`lazyBody`），`02` 已弃用（上游原生 `lazyBody` 取代了它），报 `[deprecated]` 而不是失败（第 8/9 步不再告警），此时由**与版本无关**的 `03` 继续保住这处热点。历史上做长会话历史瘦身的补丁（apiproxy history slim、增量重连、连接 schema、插件 bundle 缓存）宿主模块已被上游移除或原生实现，相关文件与"过时跳过"逻辑已删除。三个补丁的锚点均已对照 npm 对应版本源码逐字节核对。
+
+> [!IMPORTANT]
+> **本仓库不注入任何前端界面代码**：不注入 CSS/JS、不改 `dsh-web-frontend` 的 viewport 与 PWA manifest。历史上做过（`apply-frontend.sh` + `patches/mobile.css`/`mobile.js`），但它依赖上游构建产物里的哈希类名与 DOM 结构，**每次 dsh 升级都会漂移**，与「只做最小侵入式文本替换」的约定冲突，已删除。前端体验问题请提给上游；需要手机界面适配请装可选插件（见「📱 手机界面适配（可选）」）。唯一例外是作曲栏的按键映射（`dsh-client-ui-conversation`：普通回车=换行、`Ctrl/Cmd+Enter`=发送），它改的是按键处理逻辑而非样式，且同样按锚点修补、失配即回滚。
 
 ## 🗂 工作原理与安装步骤
 
@@ -167,11 +206,11 @@ DSH_NO_OPEN=1 bash ~/dsh/start_dsh.sh                     # 只打印 URL 自己
 | `1/9` | 安装构建依赖：`cmake clang make binutils pkg-config python nodejs ripgrep` |
 | `2/9` | 准备 Node headers（慢则切 npmmirror） |
 | `3/9` | `npm install -g` 安装 dsh（android30 目标，`--allow-scripts` 放行原生包） |
-| `4/9` | 后端兼容补丁：link→rename 回退、flock 原生绑定、subprocess 平台检测（android≡linux）、作曲栏「回车=换行」、grep/glob ripgrep 修复 |
+| `4/9` | 后端兼容补丁：`node-addon-require-builtin` android 平台包（≥0.1.7 启动前提，失败即中断）、link→rename 回退、flock 原生绑定、subprocess 平台检测（android≡linux）、作曲栏「回车=换行」、grep/glob ripgrep 修复 |
 | `5/9` | sharp wasm 回退（附件模块依赖），紧接硬链接补丁验证（临时目录真实运行，不碰会话数据；必须排在 wasm 回退之后，否则附件模块 `import sharp` 失败会误报） |
 | `6/9` | 重建 `dsh` 包装脚本（`--expose-internals`，原子 `mv` 替换，不碰符号链接目标） |
 | `7/9` | 写入 `~/dsh/` 下的启动/停止/重启脚本 + `danger-full-access` 配置层 |
-| `8/9` | JS 性能补丁（`01` 静态资源缓存头 / `02` 客户端 combo 按需构建；锚点失配只告警不中断） |
+| `8/9` | JS 性能补丁（`01` 静态资源缓存头 / `02` 客户端 combo 按需构建 / `03` newlineCount 索引循环；锚点失配只告警不中断） |
 | `9/9` | 完成汇总 |
 
 ### 鉴权与启动链路
@@ -195,7 +234,7 @@ setup.sh                安装 + 打补丁 + 生成脚本
 - **等 token 用流式读日志**（`tail -f`），token 一出现立即返回，不再每秒 `grep`+`curl` 轮询；
 - token 用 `curl` 校验必须返回 **303/302** 才交给浏览器，避免日志残留旧进程 token 导致 401；
 - 拿不到有效 token 时降级打开裸 URL，并打印**具体原因**（`no-token` 或实际 HTTP 码）；
-- 复用已在运行的服务约 **0.4s**，冷启动脚本侧开销约 **9.1s**（其中约 9s 是 dsh 自身 plugin loader settle，非脚本可消除）。
+- 复用已在运行的服务约 **0.2s**，冷启动脚本侧开销约 **9.1s**（其中约 9s 是 dsh 自身 plugin loader settle，非脚本可消除）。
 
 ## 📁 仓库结构
 
@@ -210,11 +249,13 @@ deepseek-harness-android/
 ├── config/
 │   └── cordis.patch.yml         # danger-full-access 配置层（安装到 ~/.dsh/profiles/web/）
 ├── patches/
-│   ├── 01~02-*.patch            # JS 补丁源（缓存头 / 客户端 combo）
+│   ├── 01~03-*.patch            # JS 补丁源（缓存头 / 客户端 combo / newlineCount）
 │   ├── patch-dsh-android-link.js    # 禁硬链接修复（rename / O_EXCL+rename 回退）
 │   ├── patch-dsh-android-flock.js   # flock 原生绑定（编译 + 运行时自检）
 │   ├── patch-dsh-android-require-builtin.js # ≥0.1.7 启动前提：补 android 平台包
-│   └── verify-android-link-fix.js   # 硬链接修复验证（临时目录真实运行，不碰会话）
+│   ├── verify-android-link-fix.js   # 硬链接修复验证（临时目录真实运行，不碰会话）
+│   ├── verify-client-modules-lazy.js # 客户端 combo 补丁自检（--port 0 临时实例）
+│   └── verify-require-builtin-fixture.js # 平台包补丁夹具自检（8 用例 / 29 断言，只写临时目录）
 ├── docs/
 │   └── index.html               # 说明文档站
 ├── AGENTS.md                    # 维护者约定与踩坑记录（给 AI/协作者）
@@ -272,6 +313,7 @@ node patches/verify-client-modules-lazy.js
 - **浏览器落在了裸地址**：多半是 PWA 劫持，试 `DSH_ORIGIN=localhost`；`DSH_HINTS=1 bash ~/dsh/start_dsh.sh` 会打印三条排查办法。
 - **没有用 Via 打开**：确认 Via 包名为 `mark.via`（不同渠道包名可能不同），可用 `DSH_VIA_APP=<包名>` 指定。
 - **模型没反应**：检查 Models 页的 API Key 与 `~/.dsh/.credentials.yaml`。
+- **手机上排版难受 / 软键盘挡住输入框 / 某些按钮点不动**：这是上游 Web UI 按桌面排版的固有行为，本仓库不再注入前端 CSS/JS。可安装社区插件 `dsh-android-ui`，见「📱 手机界面适配（可选）」。
 - **升级 dsh 后 dsh 起不来，日志报 `No usable native binding found`**：0.1.7 起上游新增原生 addon 家族但没发 android 预编译包。重跑 `bash setup.sh`（会补 `node-addon-require-builtin-android-arm64` 平台包）即可。
 - **`bad interpreter: /usr/bin/env` / `npm: not found`**：Termux 的 `/usr/bin` 不可解析，而 npm 的 shebang 是 `#!/usr/bin/env node`。`setup.sh` 已自动改用 `node npm-cli.js` 调用；若你自己敲 `npm` 报这个错，用 `node "$(readlink -f "$(command -v npm)")" …` 代替。
 - **升级 dsh / Node 后异常**：重跑 `bash setup.sh`。
@@ -288,6 +330,7 @@ node patches/verify-client-modules-lazy.js
 ## 📚 参考
 
 - [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)
+- [Xieansecn/dsh-android-ui — 手机界面适配组合包插件（可选的第三方插件，见「📱 手机界面适配」）](https://github.com/Xieansecn/dsh-android-ui)
 - [Discussion #136 — Android/Termux 部署](https://github.com/deepseek-ai/deepseek-harness/discussions/136)
 - [Discussion #248 — Android 禁 hardlink（link→rename 提案）](https://github.com/deepseek-ai/deepseek-harness/discussions/248)
 - [Termux Wiki](https://wiki.termux.com/)
@@ -314,11 +357,12 @@ This repository is **not dsh's source code** — it is an **installer + Android 
 | | Feature |
 |---|---|
 | 🚀 | One command for install + all Android patches (idempotent, safe to re-run) |
-| 🧩 | Native addon adaptation: node-pty / koffi / sharp / ripgrep / flock |
+| 🧩 | Native addon adaptation: node-pty / koffi / sharp / ripgrep / flock / node-addon-require-builtin |
 | 🔗 | No-hardlink (SELinux blocks `link()`) fix: sessions, attachments, tool file writes all work |
 | 🔐 | New Web auth support: extracts the tokenized launch URL and verifies it before handing it to the browser |
 | 🌐 | Opens **Via** browser by package name by default, falls back to the system default browser |
-| ⚡ | Zero-poll startup wait (streams the log); reusing a running service takes ~0.4s |
+| 📱 | Optional: the community plugin **dsh-android-ui** adapts the UI for phones (notch, soft keyboard, drawer sidebar) — one command into the `web` profile (see "📱 Mobile UI (optional)") |
+| ⚡ | Zero-poll startup wait (streams the log); reusing a running service takes ~0.2s |
 | 🎨 | Live status line + colored output during install; raw logs kept on disk for debugging |
 
 ## 📋 Requirements
@@ -407,6 +451,41 @@ DSH_ORIGIN=localhost bash ~/dsh/start_dsh.sh              # dodge PWA hijacking
 DSH_NO_OPEN=1 bash ~/dsh/start_dsh.sh                     # print the URL only
 ```
 
+## 📱 Mobile UI (optional)
+
+dsh's Web UI is laid out for desktop browsers: the notch covers the top, the soft keyboard hides the composer, the sidebar squeezes the text, and a few buttons are wired to hover paths only (so taps do nothing). **None of that is in this repo's scope** — this project only guarantees the startup/auth chain and backend compatibility and **injects no front-end CSS/JS** (it used to via `apply-frontend.sh`; that was deleted because it keyed off upstream hashed class names and drifted on every upgrade — see the note at the end of "How it works").
+
+For a phone-friendly UI, install the community composition-package plugin **[Xieansecn/dsh-android-ui](https://github.com/Xieansecn/dsh-android-ui)** (an official plugin, it touches no dsh product file):
+
+```bash
+# 1) install into the web profile (dsh uses pnpm under the hood; needs git + network)
+dsh plugin --profile web add github:Xieansecn/dsh-android-ui
+
+# 2) verify the composition layer is mounted — you should see "# == dsh-android-ui"
+dsh --profile web --dump-config | grep -A2 dsh-android-ui
+
+# 3) the Node half is read into memory at boot: a page refresh is not enough, restart
+bash ~/dsh/restart_dsh_now.sh
+```
+
+Uninstall (pnpm again; restart afterwards too):
+
+```bash
+dsh plugin --profile web remove dsh-android-ui
+bash ~/dsh/restart_dsh_now.sh
+```
+
+What it does (see its own README): rewrites `viewport` in place to `viewport-fit=cover` + `interactive-widget=resizes-content` (keeps content out of the notch, lets the IME shrink the content area instead of covering it), mobile CSS (sidebar becomes a drawer, safe-area padding, recomposed composer, fullscreen settings), boot-time polyfills (`AbortSignal.any` / `crypto.randomUUID` — old WebViews fail to boot without them), and runtime effects (keyboard following, floating sidebar toggle, touch fallbacks). It also ships an **optional one-shot script** that flips the PWA manifest from `display: fullscreen` to `standalone` (a manifest is a static JSON the browser fetches itself, so a runtime plugin cannot rewrite it; skip this if you only use a browser, without installing the PWA).
+
+Caveats:
+
+- **Third-party plugin, not part of this project**: we neither bundle nor modify it; version compatibility and bug reports belong to its own repo.
+- **Its hashed class names were verified against dsh `0.1.7-rc.2`, and hashed names drift with each upstream release — failing *silently*** (the page works, the effects are simply gone). After upgrading dsh, upgrade/reinstall it too, or uninstall first to attribute the problem correctly; `bash setup.sh` will not do that for you, it only patches the backend.
+- **The two are independent**: `setup.sh` step 7 only *appends* the permission layer to `~/.dsh/profiles/web/cordis.patch.yml` and never overwrites other config layers in the profile, so re-running `setup.sh` after installing the plugin is fine.
+- **"Enter = newline" is not in that plugin**: that key mapping requires patching the product package and stays in this repo's `setup.sh` (see the table under "How it works" below); the plugin only provides `enterkeyhint=newline`.
+- **Only meaningful for the `web` profile**; `tui` / `headless` are unaffected.
+- **The auth chain is unchanged**: still open the tokenized URL via `bash ~/dsh/start_dsh.sh`; the bare URL still returns 401.
+
 ## 🔧 How it works: what setup.sh fixes
 
 Upstream `@deepseek-ai/dsh` ships linux/darwin prebuilds only and assumes a full Linux namespace sandbox plus hardlink support. On Android/bionic, the following adaptations are needed — **all applied automatically and idempotently by `setup.sh`**:
@@ -426,11 +505,14 @@ Upstream `@deepseek-ai/dsh` ships linux/darwin prebuilds only and assumes a full
 | HMR crashes on start | `--expose-internals is required` | rebuild the `dsh` wrapper with `--expose-internals --no-warnings` |
 | bash tool unavailable | `SANDBOX_UNAVAILABLE` | write the `danger-full-access` config layer (see Security) |
 | Full reload re-downloads JS | every refresh re-fetched all of `/assets/` (~4.5MB measured here) | immutable cache headers for `/assets/` |
-| Cold start takes tens of seconds | the port answers 401 long before the tokenized URL is printed | patch `02`: `dsh-client-modules` recomposes the whole client-plugin graph ~10x during boot and eagerly prebuilds a per-record artifact for every client bundle; made lazy plus an indexed line count (measured cold start 22.6s → 12.5s, byte-identical artifacts) |
+| Cold start takes tens of seconds | the port answers 401 long before the tokenized URL is printed | `dsh-client-modules` recomposes the whole client-plugin graph ~10x during boot and eagerly prebuilds a per-record artifact for every client bundle: upstream made combos lazy natively (`lazyBody`) in 0.1.7, patch `02` did the same for the 0.1.5 line (measured cold start 22.6s → 12.5s, byte-identical artifacts), and `03` turns that line count into an index loop |
 
 > [!NOTE]
 > Three upstream JS patches remain: `01-frontend-static-cache` (immutable static-asset cache headers), `02-client-modules-lazy-compose` (lazy client combos) and `03-client-modules-newline-count` (`newlineCount` switched to an index loop; measured 302ms→60ms on 10.8MB).
 > `01`/`02` target the 0.1.5 line; upstream implemented combo laziness natively (`lazyBody`) in 0.1.7, so `02` is deprecated (upstream's native `lazyBody` replaces it) and reported as `[deprecated]` rather than a failure (step 8/9 no longer warns), while the version-agnostic `03` keeps that hotspot fast. The old history-slimming patches (apiproxy history slim, incremental resync, connection schema, plugin-bundle cache) targeted host modules that were removed upstream or are now native, so those files and the "superseded" machinery were deleted. All three patches were diffed byte-for-byte against the corresponding npm sources.
+
+> [!IMPORTANT]
+> **This repo injects no front-end UI code**: no CSS/JS injection, no edits to `dsh-web-frontend`'s viewport or PWA manifest. It used to (`apply-frontend.sh` + `patches/mobile.css`/`mobile.js`), but that keyed off hashed class names and the DOM structure of upstream build output, so it **drifted on every dsh upgrade** and conflicted with the "minimal text replacement only" rule — it was deleted. Report front-end issues upstream; for a phone-friendly UI install the optional plugin (see "📱 Mobile UI (optional)"). The single exception is the composer key mapping (`dsh-client-ui-conversation`: Enter = newline, `Ctrl/Cmd+Enter` = send), which changes key handling rather than styling and is still applied by anchor with a rollback on mismatch.
 
 ## 🗂 Architecture & install steps
 
@@ -442,11 +524,11 @@ Upstream `@deepseek-ai/dsh` ships linux/darwin prebuilds only and assumes a full
 | `1/9` | Install build deps: `cmake clang make binutils pkg-config python nodejs ripgrep` |
 | `2/9` | Prepare Node headers (switch to npmmirror when slow) |
 | `3/9` | `npm install -g` dsh (android30 target, `--allow-scripts` for native packages) |
-| `4/9` | Backend patches: link→rename fallback, native flock binding, subprocess platform detection (android≡linux), composer Enter = newline, grep/glob ripgrep fix |
+| `4/9` | Backend patches: `node-addon-require-builtin` android platform package (>=0.1.7 boot prerequisite, aborts the install on failure), link→rename fallback, native flock binding, subprocess platform detection (android≡linux), composer Enter = newline, grep/glob ripgrep fix |
 | `5/9` | sharp wasm fallback (attachments depend on it), immediately followed by the hardlink verification (real run in a temp dir, never touches your sessions; it must come after the wasm fallback or the attachment module's `import sharp` fails and reports a false negative) |
 | `6/9` | Rebuild the `dsh` wrapper (`--expose-internals`, atomic `mv` replace that never follows the symlink target) |
 | `7/9` | Write start/stop/restart scripts into `~/dsh/` + the `danger-full-access` config layer |
-| `8/9` | JS performance patches (`01` static-asset cache headers / `02` lazy client combos; an anchor mismatch only warns) |
+| `8/9` | JS performance patches (`01` static-asset cache headers / `02` lazy client combos / `03` index-loop newlineCount; an anchor mismatch only warns) |
 | `9/9` | Summary |
 
 ### Auth & startup flow
@@ -470,7 +552,7 @@ Key behaviours of `start_dsh.sh`:
 - **Waits by streaming the log** (`tail -f`): returns the moment the token appears, with no per-second `grep`+`curl` polling;
 - the token must return **303/302** from `curl` before it is handed to the browser, so a stale token from a previous process can never cause a 401;
 - if no valid token arrives, it falls back to the bare URL and prints the **specific reason** (`no-token` or the actual HTTP code);
-- reusing a running service takes ~**0.4s**; a cold start costs ~**9.1s** script-side, of which ~9s is dsh's own plugin-loader settle (not removable from the script).
+- reusing a running service takes ~**0.2s**; a cold start costs ~**9.1s** script-side, of which ~9s is dsh's own plugin-loader settle (not removable from the script).
 
 ## 📁 Repository layout
 
@@ -485,11 +567,13 @@ deepseek-harness-android/
 ├── config/
 │   └── cordis.patch.yml         # danger-full-access layer (installed to ~/.dsh/profiles/web/)
 ├── patches/
-│   ├── 01~02-*.patch            # JS patch sources (cache headers / lazy client combos)
+│   ├── 01~03-*.patch            # JS patch sources (cache headers / lazy client combos / newlineCount)
 │   ├── patch-dsh-android-link.js    # no-hardlink fix (rename / O_EXCL+rename fallback)
 │   ├── patch-dsh-android-flock.js   # native flock binding (compile + runtime self-test)
 │   ├── patch-dsh-android-require-builtin.js # dsh >=0.1.7 boot prerequisite: android platform pkg
-│   └── verify-android-link-fix.js   # hardlink fix verification (real run in temp dir)
+│   ├── verify-android-link-fix.js   # hardlink fix verification (real run in temp dir)
+│   ├── verify-client-modules-lazy.js # client-combo patch self-test (--port 0 temp instance)
+│   └── verify-require-builtin-fixture.js # platform-package fixture self-test (8 cases / 29 assertions, temp dir only)
 ├── docs/
 │   └── index.html               # documentation site
 ├── AGENTS.md                    # maintainer conventions & pitfalls (for AI/collaborators)
@@ -545,6 +629,7 @@ All patch scripts are **idempotent**: run them twice and the second run reports 
 - **The browser lands on the bare URL**: most likely PWA hijacking; try `DSH_ORIGIN=localhost`, or `DSH_HINTS=1 bash ~/dsh/start_dsh.sh` to print the three workarounds.
 - **It did not open in Via**: verify Via's package is `mark.via` (it can differ per distribution channel) and set `DSH_VIA_APP=<pkg>` if needed.
 - **Model not responding**: check the API key on the Models page and `~/.dsh/.credentials.yaml`.
+- **Awkward layout on a phone / the soft keyboard hides the input / some buttons do not respond to taps**: that is upstream's desktop-oriented Web UI and this repo no longer injects any front-end CSS/JS. Install the community `dsh-android-ui` plugin — see "📱 Mobile UI (optional)".
 - **dsh won't start after an upgrade, log says `No usable native binding found`**: since 0.1.7 upstream added a native-addon family but ships no android prebuild. Re-run `bash setup.sh` (it adds the `node-addon-require-builtin-android-arm64` platform package).
 - **`bad interpreter: /usr/bin/env` / `npm: not found`**: on Termux `/usr/bin` is not resolvable while npm's shebang is `#!/usr/bin/env node`. `setup.sh` already calls npm as `node npm-cli.js`; if you hit this typing `npm` yourself, use `node "$(readlink -f "$(command -v npm)")" …` instead.
 - **Broken after upgrading dsh / Node**: re-run `bash setup.sh`.
@@ -561,6 +646,7 @@ All patch scripts are **idempotent**: run them twice and the second run reports 
 ## 📚 References
 
 - [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)
+- [Xieansecn/dsh-android-ui — mobile UI composition-package plugin (optional third-party plugin, see "📱 Mobile UI")](https://github.com/Xieansecn/dsh-android-ui)
 - [Discussion #136 — Android/Termux deployment](https://github.com/deepseek-ai/deepseek-harness/discussions/136)
 - [Discussion #248 — hardlinks blocked on Android (link→rename proposal)](https://github.com/deepseek-ai/deepseek-harness/discussions/248)
 - [Termux Wiki](https://wiki.termux.com/)

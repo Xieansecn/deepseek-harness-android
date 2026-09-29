@@ -91,6 +91,7 @@ bash ~/dsh/stop_dsh.sh    # 停止</pre>
     <ul>
       <li><b>页面白屏/打不开</b>：确认在 Termux 环境；看日志 <code>~/dsh/storage/dsh.log</code>。</li>
       <li><b>模型没反应</b>：检查 Models 页 API Key 与 <code>~/.dsh/.credentials.yaml</code>。</li>
+      <li><b>手机上排版难受 / 软键盘挡住输入框 / 某些按钮点不动</b>：上游 Web UI 按桌面排版所致，本方案不再注入前端代码；见「八、手机界面适配（可选）」。</li>
       <li><b>换机/重装</b>：重跑 <code>bash setup.sh</code>。</li>
     </ul>
 
@@ -103,9 +104,19 @@ bash ~/dsh/stop_dsh.sh    # 停止</pre>
     </ul>
     <p><b>欢迎提 issue / PR 适配更多环境</b>：<a href="https://github.com/FunnelCakes/deepseek-harness-android/issues">Issues</a> 或 Pull Request 均可。</p>
 
+    <h2>八、手机界面适配（可选）</h2>
+    <p>dsh 的 Web UI 是按桌面浏览器排的版：刘海压住顶部、软键盘盖住作曲栏、侧栏挤窄正文、个别按钮只接了 hover 路径（手指点不动）。本仓库<b>不注入任何前端 CSS/JS</b>（旧的注入方案依赖上游哈希类名、每次升级必漂移，已删除）。需要手机友好的界面时，可以装社区组合包插件 <a href="https://github.com/Xieansecn/dsh-android-ui">Xieansecn/dsh-android-ui</a>（官方插件形态，不改 dsh 产品文件）：</p>
+    <pre>dsh plugin --profile web add github:Xieansecn/dsh-android-ui
+dsh --profile web --dump-config | grep -A2 dsh-android-ui   # 应出现 "# == dsh-android-ui"
+bash ~/dsh/restart_dsh_now.sh                              # Node 半在启动时读进内存，必须重启</pre>
+    <p>卸载：<code>dsh plugin --profile web remove dsh-android-ui</code>，然后同样重启。</p>
+    <p>它做的事：viewport 改为 <code>viewport-fit=cover</code> + <code>interactive-widget=resizes-content</code>（刘海避让，软键盘收缩内容区）、侧栏变抽屉、safe-area 与作曲栏重排、启动前 polyfill（<code>AbortSignal.any</code> / <code>crypto.randomUUID</code>）、运行期软键盘跟随与触摸兜底。</p>
+    <div class="warn">⚠️ <b>注意事项</b>：这是<b>第三方插件，不属于本项目</b>；它按 dsh <code>0.1.7-rc.2</code> 核对了上游哈希类名，<b>上游改版会静默失效</b>（页面正常、效果全无），升级 dsh 后请同步升级/重装，或先卸载以确认问题归属；「普通回车=换行」不在该插件内，仍由本仓库 <code>setup.sh</code> 修补；重跑 <code>setup.sh</code> 不会破坏它（只追加权限层）；鉴权链路不变，仍用 <code>start_dsh.sh</code> 打开带 token 的 URL。</div>
+
     <h2>参考</h2>
     <ul>
       <li><a href="https://github.com/deepseek-ai/deepseek-harness">deepseek-ai/deepseek-harness</a></li>
+      <li><a href="https://github.com/Xieansecn/dsh-android-ui">Xieansecn/dsh-android-ui — 手机界面适配组合包插件（可选第三方插件）</a></li>
       <li><a href="https://github.com/deepseek-ai/deepseek-harness/discussions/136">deepseek-harness Discussion #136 — Android/Termux 部署</a></li>
       <li><a href="https://wiki.termux.com/">Termux Wiki</a></li>
     </ul>
@@ -166,6 +177,7 @@ bash ~/dsh/stop_dsh.sh    # stop</pre>
     <ul>
       <li><b>Blank screen / cannot open</b>: make sure it's Termux; check <code>~/dsh/storage/dsh.log</code>.</li>
       <li><b>Model not responding</b>: check the API Key in Models page and <code>~/.dsh/.credentials.yaml</code>.</li>
+      <li><b>Awkward phone layout / the soft keyboard hides the input / some buttons ignore taps</b>: that is upstream's desktop-oriented Web UI and this project no longer injects front-end code; see "8. Mobile UI (optional)".</li>
       <li><b>Reinstall / new device</b>: re-run <code>bash setup.sh</code>.</li>
     </ul>
 
@@ -178,9 +190,19 @@ bash ~/dsh/stop_dsh.sh    # stop</pre>
     </ul>
     <p><b>Issues &amp; PRs welcome</b>: <a href="https://github.com/FunnelCakes/deepseek-harness-android/issues">Issues</a> or pull requests for your environment.</p>
 
+    <h2>8. Mobile UI (optional)</h2>
+    <p>dsh's Web UI is laid out for desktop browsers: the notch covers the top, the soft keyboard hides the composer, the sidebar squeezes the text, and a few buttons are wired to hover only. This repo <b>injects no front-end CSS/JS</b> (the old injection scheme keyed off upstream hashed class names and drifted on every upgrade, so it was deleted). For a phone-friendly UI, install the community composition-package plugin <a href="https://github.com/Xieansecn/dsh-android-ui">Xieansecn/dsh-android-ui</a> (an official plugin; it touches no dsh product file):</p>
+    <pre>dsh plugin --profile web add github:Xieansecn/dsh-android-ui
+dsh --profile web --dump-config | grep -A2 dsh-android-ui   # expect "# == dsh-android-ui"
+bash ~/dsh/restart_dsh_now.sh                              # the Node half is read at boot: restart required</pre>
+    <p>Uninstall: <code>dsh plugin --profile web remove dsh-android-ui</code>, then restart the same way.</p>
+    <p>What it does: rewrites viewport to <code>viewport-fit=cover</code> + <code>interactive-widget=resizes-content</code> (notch avoidance, IME shrinks the content area), turns the sidebar into a drawer, safe-area padding and composer recomposition, boot-time polyfills (<code>AbortSignal.any</code> / <code>crypto.randomUUID</code>), plus runtime keyboard following and touch fallbacks.</p>
+    <div class="warn">⚠️ <b>Notes</b>: this is a <b>third-party plugin, not part of this project</b>; its hashed class names were verified against dsh <code>0.1.7-rc.2</code> and <b>fail silently when upstream changes them</b> (page fine, effects gone), so upgrade/reinstall it after a dsh upgrade — or uninstall it first to attribute the problem. "Enter = newline" is not in that plugin; this repo's <code>setup.sh</code> still patches it. Re-running <code>setup.sh</code> will not break it (the permission layer is only appended). The auth chain is unchanged: keep opening the tokenized URL via <code>start_dsh.sh</code>.</div>
+
     <h2>References</h2>
     <ul>
       <li><a href="https://github.com/deepseek-ai/deepseek-harness">deepseek-ai/deepseek-harness</a></li>
+      <li><a href="https://github.com/Xieansecn/dsh-android-ui">Xieansecn/dsh-android-ui — mobile UI composition-package plugin (optional third-party plugin)</a></li>
       <li><a href="https://github.com/deepseek-ai/deepseek-harness/discussions/136">deepseek-harness Discussion #136 — Android/Termux deployment</a></li>
       <li><a href="https://wiki.termux.com/">Termux Wiki</a></li>
     </ul>
