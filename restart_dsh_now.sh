@@ -28,8 +28,9 @@ fi
 # start_dsh.sh --no-open 只有在真的拿到可用 token URL 时才成功返回，这里再确认一次端口
 _code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 "$URL" 2>/dev/null || true)"
 echo "$(date '+%F %T') restarted pid=$(cat "$PID_FILE" 2>/dev/null || echo '?') http=${_code:-no-response}" >> "$RESTART_LOG"
-if [ -z "$_code" ]; then
-  echo "[dsh] 重启后 $PORT 无响应，详见 $RESTART_LOG"
+if [ -z "$_code" ] || [ "$_code" = "000" ]; then
+  # curl 连不上时会给 000（不是空串），旧写法只看空串会让这条失败路径永不触发
+  echo "[dsh] 重启后 $PORT 无响应（curl=${_code:-no-response}），详见 $RESTART_LOG"
   exit 1
 fi
 echo "[dsh] 重启完成，网页: $URL"
