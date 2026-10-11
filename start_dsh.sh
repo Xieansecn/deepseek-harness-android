@@ -147,7 +147,12 @@ open_gui() {
     return 0
   fi
   _target="http://${OPEN_HOST}:${PORT}/"
-  if [ "$AUTH_CODE" = "no-token" ]; then _why="日志里还没有带 token 的 URL"; else _why="日志中的 token URL 返回 ${AUTH_CODE}"; fi
+  # 降级必须打印**具体原因**，且机器可 grep：没有 token 行 → no-token；有 token 行但校验不过 → HTTP <码>。
+  if [ -z "$AUTH_CODE" ] || [ "$AUTH_CODE" = "no-token" ]; then
+    _why="no-token（日志里还没有带 token 的 URL）"
+  else
+    _why="HTTP ${AUTH_CODE}（日志里的 token URL 未返回 303/302）"
+  fi
   echo "[dsh] 打开裸 URL $_target —— 未能使用带 token 的地址：${_why}（浏览器已有登录 cookie 时仍可用；否则请重启服务：bash ~/dsh/restart_dsh_now.sh；日志：$LOG_FILE）"
   open_url "$_target"
 }
@@ -235,8 +240,10 @@ wait_and_open() {
 }
 
 # 拉起新进程（--no-open：不让 dsh 自己 open —— 本脚本才能拿带 token URL 按包名递给浏览器）
+# ⚠️ 必须把端口显式传给 dsh：dsh 不读 DSH_PORT / PORT 环境变量，只认 `--port`。
+#    不传的话「脚本盯 DSH_PORT、服务却绑 3080」，会打印/打开一个没人监听的 URL（夹具用例 1 守着）。
 launch() {
-  nohup dsh web --no-open >>"$LOG_FILE" 2>&1 &
+  nohup dsh web --no-open --port "$PORT" >>"$LOG_FILE" 2>&1 &
   NEW_PID=$!
   echo "$NEW_PID" > "$PID_FILE"
   echo "[dsh] 启动中 (pid $NEW_PID)... 日志: $LOG_FILE"
