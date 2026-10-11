@@ -105,7 +105,8 @@ fi
 rm -f "$PID_FILE"
 # 端口只在最后确认一次（restart 紧接着要 bind）；进程都没了还占着端口才需要提示。
 if any_alive || curl -s -o /dev/null --max-time 1 "$URL" 2>/dev/null; then
-  echo "[dsh] 已发送停止信号，但进程/端口仍在：$(list_pids | tr '\n' ' ')"
+  echo "[dsh] 已发送停止信号，但进程/端口仍在：$(list_pids | tr '\n' ' ')" >&2
+  exit 1
 else
   echo "[dsh] 已停止"
 fi
