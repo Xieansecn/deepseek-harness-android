@@ -97,6 +97,8 @@ bash ~/dsh/stop_dsh.sh    # 停止</pre>
       <li><b>模型没反应</b>：检查 Models 页 API Key 与 <code>~/.dsh/.credentials.yaml</code>。</li>
       <li><b>手机上排版难受 / 软键盘挡住输入框 / 某些按钮点不动</b>：上游 Web UI 按桌面排版所致，本方案不再注入前端代码；见「八、手机界面适配（可选）」。</li>
       <li><b>换机/重装</b>：重跑 <code>bash setup.sh</code>。</li>
+      <li><b>想验证「脚本本身」是否正确（不是看设备能不能用）</b>：<code>bash patches/verify-all-checks.sh</code> —— 语法 + setup 静态契约 + 5 个夹具（js-patches 21 / runtime 21 / guards 39 / require-builtin 29 / profile 41 断言），<b>只读或只写临时目录</b>，不跑 setup.sh、不碰 3080、不改安装树。想改端口就设 <code>DSH_PORT</code>——<code>start_dsh.sh</code> 会把它作为 <code>--port</code> 传给 dsh。</li>
+      <li><b>单独重跑补丁脚本报 <code>--root</code> 相关错误</b>：<code>--root</code> 是硬契约——显式给出却定位不到就退 1，不会回落到别的安装树（避免误写生产树）；不传它才自动定位。链接类补丁要 <code>--root "$DSH_DIR/node_modules/@deepseek-ai"</code>，平台包补丁要 <code>--root "$DSH_DIR"</code>。</li>
     </ul>
 
     <h2>七、作者测试环境与兼容性</h2>
@@ -187,6 +189,8 @@ bash ~/dsh/stop_dsh.sh    # stop</pre>
       <li><b>Model not responding</b>: check the API Key in Models page and <code>~/.dsh/.credentials.yaml</code>.</li>
       <li><b>Awkward phone layout / the soft keyboard hides the input / some buttons ignore taps</b>: that is upstream's desktop-oriented Web UI and this project no longer injects front-end code; see "8. Mobile UI (optional)".</li>
       <li><b>Reinstall / new device</b>: re-run <code>bash setup.sh</code>.</li>
+      <li><b>Want to verify the scripts themselves (not just that the device works)</b>: <code>bash patches/verify-all-checks.sh</code> — syntax + setup static contracts + 5 fixtures (js-patches 21 / runtime 21 / guards 39 / require-builtin 29 / profile 41 assertions), <b>read-only or temp-dir only</b>: never runs setup.sh, never touches port 3080, never modifies the install tree. To change the port set <code>DSH_PORT</code> — <code>start_dsh.sh</code> passes it to dsh as <code>--port</code>.</li>
+      <li><b>Re-running one patch script fails with a <code>--root</code> error</b>: <code>--root</code> is a hard contract — if given explicitly and it does not resolve, the script exits 1 and never falls back to another install tree (so a temp-copy test can't write the production tree); auto-location only happens without <code>--root</code>. Link patches want <code>--root "$DSH_DIR/node_modules/@deepseek-ai"</code>, the platform-package patch wants <code>--root "$DSH_DIR"</code>.</li>
     </ul>
 
     <h2>7. Author's test environment &amp; compatibility</h2>

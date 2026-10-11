@@ -115,7 +115,7 @@ bash setup.sh                 # 升级 dsh 或 Node 后必须重跑
 | `DSH_OPEN_APP` | 空 | 强制指定浏览器包名/组件，优先级最高，如 `com.android.chrome` |
 | `DSH_OPEN_CHOOSER` | `0` | 设为 `1` 时弹系统应用选择器 |
 | `DSH_ORIGIN` | `127.0.0.1` | 打开给浏览器的 origin；`localhost` 可绕开 PWA 对 `?token=` 的劫持 |
-| `DSH_PORT` | `3080` | 服务端口 |
+| `DSH_PORT` | `3080` | 服务端口（`start_dsh.sh` 会把它作为 `--port` 显式传给 dsh——dsh 本身不读这个变量） |
 | `NO_COLOR` | 空 | 非空则关闭彩色输出 |
 | `DSH_VERSION` | 空（跟随 npm `latest`） | **仅**灰度/回退时钉版本：`DSH_VERSION=<ver> bash setup.sh`，`<ver>` 从 `npm view @deepseek-ai/dsh versions` 取。默认留空——写死版本号会让升级永远跟不上 |
 
@@ -259,7 +259,13 @@ deepseek-harness-android/
 │   ├── apply-profile-patch.js       # 安全安装权限层（分类：替换/追加/定点修复 + dsh 解析器校验）
 │   ├── verify-client-modules-lazy.js # 客户端 combo 补丁自检（--port 0 临时实例）
 │   ├── verify-require-builtin-fixture.js # 平台包补丁夹具自检（8 用例 / 29 断言，只写临时目录）
-│   └── verify-profile-patch-fixture.js # 权限层补丁夹具自检（8 用例 / 30 断言，只写临时目录）
+│   ├── verify-patch-guards-fixture.js # link/flock 守护条件夹具自检（11 用例 / 39 断言，只写临时目录）
+│   ├── verify-profile-patch-fixture.js # 权限层补丁夹具自检（11 用例 / 41 断言，只写临时目录）
+│   ├── verify-js-patches-fixture.js # apply-js-patches.sh 夹具（21 断言：反向上游→正向打→幂等→破坏退 1）
+│   ├── verify-runtime-scripts-fixture.js # start/stop/restart 夹具（21 断言：假 dsh + 隔离 HOME，不碰 3080）
+│   ├── verify-setup-static-check.sh # setup.sh / 运行期脚本静态契约（25 条，只读）
+│   ├── verify-test-effectiveness.js # 变异测试：往副本注入 9 个已知回归，对应套件必须变红
+│   └── verify-all-checks.sh         # 一条命令跑完全部脚本级检查（--full 追加变异测试）
 ├── docs/
 │   └── index.html               # 说明文档站
 ├── AGENTS.md                    # 维护者约定与踩坑记录（给 AI/协作者）
@@ -298,10 +304,23 @@ node patches/patch-dsh-android-flock.js --root "$DSH_DIR/node_modules/@deepseek-
 node --expose-internals patches/patch-dsh-android-require-builtin.js --root "$DSH_DIR"
 # 补丁 02 自检（临时实例，不动运行中的服务）
 node patches/verify-client-modules-lazy.js
+# 夹具自检（只写临时目录，不碰安装树）
+node patches/verify-require-builtin-fixture.js
+node patches/verify-patch-guards-fixture.js
+node patches/verify-profile-patch-fixture.js
+node patches/verify-js-patches-fixture.js
+node patches/verify-runtime-scripts-fixture.js
+
+# 一条命令跑完全部脚本级检查（语法 + setup 静态契约 + 5 个夹具）
+bash patches/verify-all-checks.sh            # 摘要
+bash patches/verify-all-checks.sh --verbose  # 全量输出
+bash patches/verify-all-checks.sh --full     # 再跑变异测试（约 5 分钟，证明套件抓得住回归）
 ```
 
 其中 `DSH_DIR=/data/data/com.termux/files/usr/lib/node_modules/@deepseek-ai/dsh`。
+这套检查**只读或只写临时目录**：不跑 `setup.sh`、不碰 3080、不写 `~/.dsh`、不改安装树。
 所有修补脚本**幂等**：连跑两次，第二次应全部 `[OK]` / `[skip]`。
+⚠️ `--root` 是**硬契约**：显式给出却定位不到就报错退 1，**不会**回落到其它安装树（所以拿它指临时副本时，绝不会误写生产树）；不传 `--root` 才自动定位。
 
 ## 🔐 安全说明
 
@@ -438,7 +457,7 @@ bash setup.sh                 # must re-run after upgrading dsh or Node
 | `DSH_OPEN_APP` | empty | Force a browser package/component (highest priority), e.g. `com.android.chrome` |
 | `DSH_OPEN_CHOOSER` | `0` | Set to `1` to show the system app chooser |
 | `DSH_ORIGIN` | `127.0.0.1` | Origin handed to the browser; `localhost` avoids PWA hijacking of `?token=` |
-| `DSH_PORT` | `3080` | Service port |
+| `DSH_PORT` | `3080` | Service port (`start_dsh.sh` passes it to dsh as `--port`; dsh itself does not read this env var) |
 | `NO_COLOR` | empty | Non-empty disables colored output |
 | `DSH_VERSION` | empty (npm `latest`) | Pin **only** for canary/rollback: `DSH_VERSION=<ver> bash setup.sh`, with `<ver>` from `npm view @deepseek-ai/dsh versions`. Leave it empty by default — hardcoding a version blocks upgrades |
 
@@ -582,7 +601,13 @@ deepseek-harness-android/
 │   ├── apply-profile-patch.js       # safe permission-layer install (classify: replace/append/repair + dsh parser check)
 │   ├── verify-client-modules-lazy.js # client-combo patch self-test (--port 0 temp instance)
 │   ├── verify-require-builtin-fixture.js # platform-package fixture self-test (8 cases / 29 assertions, temp dir only)
-│   └── verify-profile-patch-fixture.js # permission-layer fixture self-test (8 cases / 30 assertions, temp dir only)
+│   ├── verify-patch-guards-fixture.js # link/flock guard fixture self-test (11 cases / 39 assertions, temp dir only)
+│   ├── verify-profile-patch-fixture.js # permission-layer fixture self-test (11 cases / 41 assertions, temp dir only)
+│   ├── verify-js-patches-fixture.js # apply-js-patches.sh fixture (21 assertions: rebuild upstream → forward → idempotent → corrupt ⇒ rc 1)
+│   ├── verify-runtime-scripts-fixture.js # start/stop/restart fixture (21 assertions: fake dsh + isolated HOME, never touches 3080)
+│   ├── verify-setup-static-check.sh # static contracts of setup.sh / runtime scripts (25 checks, read-only)
+│   ├── verify-test-effectiveness.js # mutation testing: inject 9 known regressions into copies, suites must turn red
+│   └── verify-all-checks.sh         # one command for every script-level check (--full adds mutation testing)
 ├── docs/
 │   └── index.html               # documentation site
 ├── AGENTS.md                    # maintainer conventions & pitfalls (for AI/collaborators)
@@ -619,10 +644,23 @@ node patches/patch-dsh-android-link.js  --root "$DSH_DIR/node_modules/@deepseek-
 node patches/verify-android-link-fix.js --root "$DSH_DIR/node_modules/@deepseek-ai"
 node patches/patch-dsh-android-flock.js --root "$DSH_DIR/node_modules/@deepseek-ai"
 node --expose-internals patches/patch-dsh-android-require-builtin.js --root "$DSH_DIR"
+# fixture self-tests (temp dir only, never touch the install tree)
+node patches/verify-require-builtin-fixture.js
+node patches/verify-patch-guards-fixture.js
+node patches/verify-profile-patch-fixture.js
+node patches/verify-js-patches-fixture.js
+node patches/verify-runtime-scripts-fixture.js
+
+# one command for every script-level check (syntax + setup static contracts + 5 fixtures)
+bash patches/verify-all-checks.sh            # summary
+bash patches/verify-all-checks.sh --verbose  # full output
+bash patches/verify-all-checks.sh --full     # also run mutation testing (~5 min, proves the suites bite)
 ```
 
 where `DSH_DIR=/data/data/com.termux/files/usr/lib/node_modules/@deepseek-ai/dsh`.
+These checks are **read-only or temp-dir only**: they never run `setup.sh`, never touch port 3080, never write `~/.dsh`, never modify the install tree.
 All patch scripts are **idempotent**: run them twice and the second run reports `[OK]` / `[skip]` only.
+⚠️ `--root` is a **hard contract**: if given explicitly and it does not resolve, the script exits 1 and **never** falls back to another install tree (so pointing it at a temp copy can never touch the production tree); auto-location only happens when `--root` is omitted.
 
 ## 🔐 Security notes
 

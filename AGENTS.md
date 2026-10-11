@@ -10,42 +10,41 @@
 
 ## 2. 版本基准与已验证状态
 
-- 当前基准：`@deepseek-ai/dsh` **0.2.0-rc.2**（= npm `latest` = `next`；`alpha` 仍是 0.1.7-alpha.2）。其 `node_modules/@deepseek-ai/*` 同为 **0.2.0-rc.2**（`@deepseek-ai/node-addon-system` 0.1.2、`node-addon-require-builtin` 0.1.6 仍用独立版本号）。**0.1.7-rc.2 线同样实测通过**（同一套补丁与权限层）。
+- 当前基准：`@deepseek-ai/dsh` **0.2.0-rc.2**（= npm `latest` = `next`；`alpha` 是 `0.2.1-alpha.2`）。其 `node_modules/@deepseek-ai/*` 同为 **0.2.0-rc.2**（`@deepseek-ai/node-addon-system` 0.1.2；`node-addon-require-builtin` 与 `node-addon-native-custom-loader` 均为 **0.1.9**，且两者是**非 scoped** 包，装在 `<dsh>/node_modules/` 而**不在** `@deepseek-ai/` 下——脚本按运行时推导包名，本行只是实测时点记录）。**0.1.7-rc.2 线同样实测通过**（同一套补丁与权限层）。
 - **0.2.0 相对 0.1.7 的三处关键变化**：
-  1. **`koffi` 被精确钉在 `3.1.1`，而它的 install 脚本在 Android 上必然失败**：`@koromix/koffi-android-arm64` 从 3.2.1 才有预编译包；3.1.1 的 `cnoke --prebuild` 会自愈式回退到本地编译，死在 bionic 与 glibc 的 `statx` 原型差异（`lib/native/base/base.cc`）。**npm 12 实测语义：白名单内脚本失败 → 整次 `npm install` 退 1（`setup.sh` 3/9 随即中断）；白名单外 → 只警告并跳过。** 所以 koffi 移出 `ALLOW_SCRIPTS`、进 `SKIP_SCRIPTS`（实测 `npm install -g --allow-scripts=koffi koffi@3.1.1` 退 1；移出后隔离安装 rc=0）。dsh 里所有 koffi 调用点都是懒加载且 `platform === "win32"` 才走 → Android 运行期不受影响。
+  1. **`koffi` 被精确钉在 `3.1.1`，而它的 install 脚本在 Android 上必然失败**：`@koromix/koffi-android-arm64` 从 3.2.1 才有预编译包；3.1.1 的 `cnoke --prebuild` 会自愈式回退到本地编译，死在 bionic 与 glibc 的 `statx` 原型差异（`lib/native/base/base.cc`）。**npm 12 实测语义：白名单内脚本失败 → 整次 `npm install` 退 1（`setup.sh` 3/9 随即中断）；白名单外 → 只警告并跳过。** 所以 koffi 移出 `ALLOW_SCRIPTS`、进 `SKIP_SCRIPTS`（实测：白名单含 koffi → `npm install` 退 1；移出后隔离安装 rc=0）。dsh 里所有 koffi 调用点都是懒加载且 `platform === "win32"` 才走 → Android 运行期不受影响。
   2. **新增 `permission` 行（`@deepseek-ai/dsh-permission-presets`），它按「组合后的 sandbox + approval」反查预设表**：预设 `danger-full-access` 的定义就是 `{sandbox: danger-full-access, approval: never}`。因此权限层必须是**两条**（`sandbox-policy.mode` + `approval.policy`）——只改 sandbox、approval 还是基线的 `ask`，组合即 `custom`：该行不激活并在启动日志里报 `permission: composed sandbox and approval defaults match no preset`（实测 0.2.0-rc.2 复现；补上 approval 后日志零告警）。0.1.7 没有这个校验，两条层在旧线只是「设置审批策略」，行为一致。
   3. **补丁 `01` 重锚**：MIME 表尾的 `.gz`（`application/gzip`）从 0.1.5-rc.3 起就存在，旧 hunk 是靠 GNU patch 默认 fuzz=2 才命中（`-F0`/`git apply` 已失配，上游再插一行就硬 `[FAIL]`）。现在把 `.gz` 写进上下文，**`-F0` 在 0.1.5-rc.3 / 0.1.7-rc.2 / 0.2.0-rc.2 三版都命中**（实测），产物与旧 fuzz 结果逐字节一致。
-  4. **其余全部不变**（逐项核对过）：`require-builtin` 的 `internalModules()` 与 loader 契约 byte-identical（平台包仍必需且仍有效）、link/flock/4c/4d/rg 锚点全在（4c 内容哈希改名为 `runner-launch-B2zsQ1Dz.js`，通配已覆盖）、`profile-boot-BZ2ZjNWi.js` 同名且 `forceExitOnce`/`interrupt(code)` 仍在、`PROFILE_PATCH_TEMPLATE` 仍是「3 行注释 + `[]`」、sharp 0.35.5 + `@img/sharp-wasm32@0.35.5` 可用、全闭包只有 5 个带安装脚本的包（koffi 现按设计跳过）。**潜伏风险**：`sherpa-onnx-node`（语音输入）同样没有 android 预编译包，但它只经 `dsh-experimental-voice-input-bundle` 到达、该 bundle 在 `OPTIONAL_BUNDLES` 里且默认不选 → 用户手动开语音输入才会炸。
+  4. **其余全部不变**（逐项核对过）：`internalModules()` 与 loader 契约 byte-identical、link/flock/4c/4d/rg 锚点全在（4c 改名 `runner-launch-B2zsQ1Dz.js`，通配已覆盖）、`profile-boot-*.js` 的 `forceExitOnce`/`interrupt(code)` 仍在、`PROFILE_PATCH_TEMPLATE` 仍是「3 行注释 + `[]`」、sharp 0.35.5 + wasm32 0.35.5 可用、全闭包只有 5 个带安装脚本的包。**潜伏风险**：`sherpa-onnx-node`（语音输入）同样没有 android 预编译包，但它只经默认不选的 `dsh-experimental-voice-input-bundle`（`OPTIONAL_BUNDLES`）到达 → 手动开语音输入才会炸。
 - **⚠️ 版本号只表示「撰写/实测时点」，绝不能当逻辑依赖**：脚本与补丁一律**不得按版本号分支**（`setup.sh` 默认跟随 npm `latest`，`DSH_VERSION` 只由调用方按需传；补丁靠锚点/形状匹配，不靠版本串）。升级前后都用 `node -p "require('$DSH_DIR/package.json').version"` 与 `npm view @deepseek-ai/dsh dist-tags` 核对**实际**版本，再回来更新本行——在此之前，本行的版本号对代码没有任何约束力。
 - **0.1.7 相对 0.1.5 的两处关键变化**：
-  1. **新增原生 addon 家族，缺平台包就完全起不来**：`node-addon-require-builtin` 经 loader 解析平台可选包 `<name>-<platform>-<arch>`，上游只发 darwin/linux/win32 预编译包、**没有 android**（`runtimeSuffix()` 对未知平台回退成 `${platform}-${arch}`，Termux = `android-arm64`），published 安装又不含 `binding.gyp`/`src`（上游明说 fail closed，不做本地编译），于是 `dsh-app-boot` 的 `internalModules()`（无条件 require，无 JS 回退）抛 `No usable native binding found` → dsh 起不来。由 `patches/patch-dsh-android-require-builtin.js` 补平台包解决（细节见 §7、§11）。
+  1. **新增原生 addon 家族，缺平台包就完全起不来**：`node-addon-require-builtin` 只发 darwin/linux/win32 预编译包、**没有 android**，于是 `dsh-app-boot` 的 `internalModules()`（无条件 require、无 JS 回退）抛 `No usable native binding found` → dsh 起不来。由 `patches/patch-dsh-android-require-builtin.js` 补 android 平台包解决（机制见 §7「平台可选包」与 §11）。
   2. 客户端 combo 惰性化已由上游原生 `lazyBody` 实现，补丁 02 的锚点必然失配（预期；02 已**移入 §12 弃用围栏**，只报 `[deprecated]` 而非失败，不影响运行）；补丁 01/03 仍命中。`resolveRgPath()` 也多了 electron `.asar` 归一化分支。
 - **带安装脚本的包（全闭包只有 5 个）**：`@deepseek-ai/dsh-subprocess-local`、`node-pty`、`@google/genai`、`protobufjs` 进 `ALLOW_SCRIPTS`；**`koffi` 进 `SKIP_SCRIPTS`**（理由见上：Android 上构建必然失败，放白名单会拖死整次安装）。3/9 末尾的自检表把 koffi 标 `[skipped]`、其余不在白名单的标 `[UNCOVERED]` 并退 3。`sharp` 仍走项目自己的 wasm32 回退（0.35.5 → `@img/sharp-wasm32@0.35.5` + `@emnapi/runtime`）。
-- **JS 补丁锚点核对（可复现，正向更省事）**：`npm pack @deepseek-ai/dsh-client-modules@<ver> @deepseek-ai/dsh-host-frontend-static@<ver>` → 解包 → 对上游源码**正向**打 `patches/01`、`02`、`03` → 与安装树 `diff` **逐字节一致**。本机已对 `0.1.5-rc.3` 验过：`client-modules/lib/index.js` 与 `host-frontend-static/lib/index.js` 均 IDENTICAL（安装树 = 上游 + 01/02/03，无额外漂移；其它差异来自第 4 节那几张 Android 补丁表与应用侧改动）。
-- **本机最近一次实测通过的检查（0.2.0-rc.2，隔离 prefix `~/dsh-0.2-verify` + 临时 `DSH_HOME` + `--port 3099`，全程不碰全局安装与 3080）**：`npm install -g --prefix … --allow-scripts="@deepseek-ai/dsh-subprocess-local,node-pty,@google/genai,protobufjs" @deepseek-ai/dsh@0.2.0-rc.2` → **rc=0**（日志里 koffi 只被 warn）；`require-builtin` → `[CREATED]` + `backend=napi/abi=napi-v9/source=optional-package` + `internalModules()` 自检通过；link 补丁 + `verify-android-link-fix.js` 全绿；flock 编译 + 真实加锁自检 + `[PATCHED]`；4c 命中 `runner-launch-B2zsQ1Dz.js`、4d 锚点唯一；`DSH_ROOT=<prefix>` 跑 `apply-rg-fix.sh` → 解析出系统 rg 15.2.0（rc=0）；`apply-js-patches.sh` → `01[ok] 02[deprecated] 03[ok]`（退 0，二次跑 `[skip]`）；权限层 `[REPLACED]`；`dsh web` 冷启动到 token **7~13s**、带 token URL 303、换 cookie 后 `/` 200、**日志零 warn/error**。同一套权限层在 **0.1.7-rc.2**（临时 `DSH_HOME`、端口 3097）冷启动 12s、零告警。夹具：require-builtin 29 断言、权限层 41 断言（11 用例）全绿。
+- **JS 补丁锚点核对（可复现，正向更省事）**：`npm pack` 两个目标包 → 解包 → 对上游源码**正向**打 `patches/01`、`02`、`03` → 与安装树 `diff`。本机对 `0.1.5-rc.3` 与 `0.2.0-rc.2` 都验过：安装树 = 上游 + 能命中的补丁，逐字节 IDENTICAL、无额外漂移（其它差异来自第 4 节的 Android 补丁表与应用侧改动）。
+- **本机最近一次全量实测（0.2.0-rc.2，隔离 prefix + 临时 `DSH_HOME` + `--port 3099`）**：隔离安装 rc=0（koffi 只 warn）；require-builtin/link/flock/rg/4c/4d 全绿；`apply-js-patches.sh` → `01[ok] 02[deprecated] 03[ok]`（二次 `[skip]`）；权限层就位；`dsh web` 冷启动到 token **7~13s**、303→cookie→`/` 200、**零 warn/error**（0.1.7-rc.2 同样）。流水看 `git log`。
 
 ## 3. 目录结构
 
 | 路径 | 作用 |
 |---|---|
 | `setup.sh` | **主入口**。0~9 步：锚点预检 → 依赖 → Node headers → 安装 dsh → 后端兼容补丁 → sharp WASM 回退 + 硬链接验证 → 重建 `dsh` 包装脚本 → 安装启动/停止/重启脚本与权限层 → JS 性能补丁 → 汇总。默认简洁输出，原始命令写入 `~/dsh/setup.log`；`--verbose` / `SETUP_VERBOSE=1` 透传原始输出。安装/升级后必须重跑。 |
-| `apply-js-patches.sh` | 应用 `patches/01`、`02`、`03` 三个 JS 性能补丁（静态资源 immutable 缓存头；客户端 combo 按需构建，冷启动 22s→12s；`newlineCount` 索引循环）。**分层设计**：`01/02` 面向 0.1.5 线，`03` 与版本无关。**两个区**：活跃清单 `PATCHES`（已应用 `[skip]`、应用成功 `[ok]`、失配/写失败 `[FAIL]` 且退非 0）与**已弃用围栏** `DEPRECATED_PATCHES`（锚点已失效但为旧线保留：能命中就照打并标 `[ok]（弃用围栏：在目标版本上仍然有效）`，命中不了只报 `[deprecated]`、**不计失败**；见 §12）。⚠️ `PATCHES` 的**顺序即语义**（02 必须先于 03），围栏只改报告与退出码、不得改执行顺序。 |
-| `apply-rg-fix.sh` | 修复 grep/glob 报 `ripgrep launch failed`（软链系统 `rg` 到 `@vscode/ripgrep-android-arm64/bin/rg` + 给 `resolveRgPath()` 加回退，已识别 4 种上游形态）。**锚点漂移不再判死**：软链本身就能让 `@vscode/ripgrep` 解析成功，故未识别形态时只 `warn`，成败交给第 3 步 fresh node 的实际解析结果。 |
+| `apply-js-patches.sh` | 应用 `patches/01`、`02`、`03` 三个 JS 性能补丁（静态资源 immutable 缓存头；客户端 combo 按需构建，冷启动 22s→12s；`newlineCount` 索引循环）。**分层设计**：`01/02` 面向 0.1.5 线，`03` 与版本无关。**两个区**：活跃清单 `PATCHES`（`[skip]` 已应用 / `[ok]` 成功 / `[FAIL]` 失配或写失败并退非 0）与**已弃用围栏** `DEPRECATED_PATCHES`（锚点已失效但为旧线保留：能命中就照打并标 `[ok]（弃用围栏：在目标版本上仍然有效）`，命中不了只报 `[deprecated]`、**不计失败**；见 §12）。⚠️ `PATCHES` 的**顺序即语义**（02 必须先于 03），围栏只改报告与退出码、不得改执行顺序。 |
+| `apply-rg-fix.sh` | 修复 grep/glob 报 `ripgrep launch failed`（软链系统 `rg` 到 `@vscode/ripgrep-android-arm64/bin/rg` + 给 `resolveRgPath()` 加回退，已识别 4 种上游形态）。**锚点漂移不再判死**：软链本身就能让 `@vscode/ripgrep` 解析成功，故未识别形态只 `warn`，成败交给第 3 步 fresh node 的实际解析结果。 |
 | `start_dsh.sh` | 启动/复用 `dsh web`：流式读日志取带 token 的鉴权 URL、`curl` 校验 303/302，然后按包名优先用 **Via**（`am start`）打开浏览器，找不到再回退系统默认浏览器。默认静默（提示/剪贴板只在 `DSH_HINTS=1`）。 |
 | `stop_dsh.sh` | 安全停止：pid 文件 + 身份二次确认；梯子是「优雅窗口 `DSH_STOP_GRACE` → 补发一次 `SIGTERM` → `SIGKILL` 兜底」。 |
 | `restart_dsh_now.sh` | 重启：复用 `stop_dsh.sh` + `start_dsh.sh --no-open`，写 `storage/dsh_restart.log`，最后 `curl` 确认端口。 |
 | `config/cordis.patch.yml` | 权限层（**两条**：`sandbox-policy.mode = danger-full-access` + `approval.policy = never`，0.2.0 的 `permission` 行按这两者的组合反查预设），由 `patches/apply-profile-patch.js` **安全合并**进 `~/.dsh/profiles/web/cordis.patch.yml`。每个条目前有一行哨兵 `# >>> dsh-android-layer-entry`：它是层的切块标记，让脚本能按条目粒度补齐缺失项（见 §7 的 `[]` 陷阱）。 |
-| `patches/apply-profile-patch.js` | 权限层安装器（`setup.sh` 7/9 调它）。定位 dsh 安装根 → 借它自己的 `loadOverlayPatches()` 解析目标文件 → **按条目 id 算「还缺哪几条」**：缺文件→`[CREATED]`、空数组模板→`[REPLACED]`、已有配置层→只把缺的条目追加（升级时通常只缺新增那条）、残留裸 `[]`→`[REPAIRED]` 定点摘除、条目齐备→`[OK]` 不动。用户自己配过 `sandbox-policy`（模式不是我们的值）时**不塞 `approval`**（否则会把他的组合推成匹配不到预设）。写盘前先落同目录临时文件并校验、再备份 + `rename` + 复验，校验失败一个字节都不动并退 1。`--root` 是硬契约（显式给出却定位不到 → 退 1，不回落）。沿用目标权限位（`~/.dsh` 下是 0600）。 |
+| `patches/apply-profile-patch.js` | 权限层安装器（`setup.sh` 7/9 调它）。借 dsh 自己的 `loadOverlayPatches()` 解析目标 → **按条目 id 补缺失**：缺文件 `[CREATED]`、空数组模板 `[REPLACED]`、已有层只追加缺的条目、残留裸 `[]` 定点摘除 `[REPAIRED]`、齐备 `[OK]` 不动；用户自配过 `sandbox-policy` 时不塞 `approval`。写盘 = 临时文件 + 校验 + 备份 + `rename` + 复验，坏文件一字节不动并退 1；`[ERROR]/[WARN]` 走 stderr。`--root` 是硬契约。 |
 | `patches/01-frontend-static-cache.patch` | 给 `dsh-host-frontend-static` 的 `/assets/` 加 immutable 缓存头、其余 `no-cache`。 |
 | `patches/02-client-modules-lazy-compose.patch` | 客户端 combo 按需构建（`dsh-client-modules`），冷启动 22s→12s。**已弃用（在 §12 围栏里）**：0.1.7 起上游原生 `lazyBody` 取代了它，锚点随之消失；0.1.5 线上仍能命中（实测 0.1.5-rc.3 全命中），故保留而不删。 |
 | `patches/03-client-modules-newline-count.patch` | 只把 `newlineCount()` 的 for-of 换成 `charCodeAt` 索引循环（10.8MB 实测 302ms→60ms）。锚点跨 0.1.5/0.1.7 稳定，是版本无关的兜底性能补丁；02 已应用时它自动 `[skip]`。 |
-| `patches/patch-dsh-android-link.js` | Android 禁 hardlink 修复（会话直接发布改 `rename()`；no-replace 路径用「O_EXCL 占位 + rename」回退）。 |
-| `patches/patch-dsh-android-flock.js` | Android flock 原生绑定：clang 编译 `src/flock.c` 为 `bin/android-<arch>/system.node`，改 `lib/flock.js` 在 android 下加载它；自带真实加锁自检。 |
+| `patches/patch-dsh-android-link.js` | Android 禁 hardlink 修复（会话直接发布改 `rename()`；no-replace 路径用「O_EXCL 占位 + rename」回退）。`--root` 是硬契约（定位不到 → 退 1 不回落）；幂等判定看 helper 的**函数定义**而非子串标记。 |
+| `patches/patch-dsh-android-flock.js` | Android flock 原生绑定：clang 编译 `src/flock.c` 为 `bin/android-<arch>/system.node`，改 `lib/flock.js` 在 android 下加载它；自带真实加锁自检。`--root` 同样是硬契约（需含 `node-addon-system/lib/flock.js`，否则退 1 不回落）；幂等判定看**剥离注释后**的真 android 分支（不看 marker）。 |
 | `patches/patch-dsh-android-require-builtin.js` | **dsh ≥0.1.7 启动前提**：在 `<dsh>/node_modules/` 生成 `node-addon-require-builtin-android-arm64` 平台包（纯 JS `requireBuiltin` 实现，`backend=napi`/`abi=napi-v9`），补上上游缺失的 android 预编译槽位；自带 `internalModules()` 自检。**失败必须中断安装**（缺它 dsh 起不来）。dsh <0.1.7（没有该 addon 家族）→ `[SKIP]` 退 0，前提是「定位到 dsh 安装根」与「entry 包存在」**解耦**。幂等按**内容**判定：三个文件与脚本模板逐字节一致才 `[OK]`，否则 `[REFRESHED]` 原地刷新（manifest 修正、模板更新、entry 包版本变化都能下发）。归属判定读 manifest 的 `dshAndroidPatch` **字段**、存在性看**目录**；非本补丁生成的包一律让路不覆盖（`[SKIP]`），可用性由同一次 `verify()` 断言——通过退 0、加载不了才退 1。`--root` 是硬契约：显式给出但定位不到 dsh 安装根即报错退 1，**不回落**其它候选。`name`/`os`/`cpu` 由包名与 `process.platform`/`process.arch` 推导，不写死。 |
 | `patches/verify-android-link-fix.js` | 硬链接补丁验证（静态检查 + 临时目录真实运行：附件保存/去重、fs-local 新建文件在 `link()`=EACCES 下必须成功）。 |
 | `patches/verify-client-modules-lazy.js` | 补丁 02 自检：`--port 0` 起临时实例，逐字节核对单条/批量 bundle 与 sourcemap、未知 URL 404、HEAD 200，并打印启动到 token 的秒数。 |
-| `patches/verify-require-builtin-fixture.js` | `patch-dsh-android-require-builtin.js` 的**夹具自检**（8 用例 / 29 断言）：`mktemp` 假安装根 + `cp -a` entry/loader 两个小包，覆盖 `[CREATED]`/`[REFRESHED]`/让路/`dsh <0.1.7` 的 `[SKIP]`/`--root` 硬契约/外来包不被改写；只写临时目录，唯一读真实树之处是断言它**未被触碰**。 |
-| `patches/verify-profile-patch-fixture.js` | `patches/apply-profile-patch.js` 的**夹具自检**（**11 用例 / 41 断言**）：`mktemp` 目录里造各种 `cordis.patch.yml` 形态，断言退出码 / 标签 / 文件字节 / 解析结果——含**用例 3 的崩溃现场复现**（先断言「模板 + 旧版追加」确实解析失败，再断言修好并补齐 approval）、**用例 9 的升级路径**（旧版单条层 → 只补 `approval`、不重复 `sandbox-policy`）、**用例 11 尊重用户自配的沙箱模式**、不可解析文件必须退 1 且**一个字节都不动**、`--root` 硬契约；只写临时目录，唯一读真实安装树之处是断言真实 `~/.dsh/profiles/web/cordis.patch.yml` **未被触碰**。 |
+| `patches/verify-*fixture.js` / `verify-setup-static-check.sh` / `verify-all-checks.sh` | **脚本级测试**（151 条夹具断言 + 静态契约 25 条 + 变异 13/13）：require-builtin 平台包、权限层、link/flock 守护条件、js 补丁正向/幂等、start/stop/restart 行为契约，以及「往仓库副本注入已知回归必须变红」。一行跑完：`bash patches/verify-all-checks.sh [--verbose] [--full]`；只读或只写临时目录。各夹具用例见 §9。 |
 | `docs/index.html` | 说明文档站。 |
 | `README.md` | 中英文用户文档（安装、修复项、FAQ、仓库结构）。 |
 
@@ -69,8 +68,8 @@
 | 落点 | 方式 | 失败语义 |
 |---|---|---|
 | `node-addon-require-builtin-android-arm64`（新建平台包，放在 `<dsh>/node_modules/`，**不在** `@deepseek-ai/` 下） | `node --expose-internals patches/patch-dsh-android-require-builtin.js --root "$DSH_DIR"` | **`error` + `exit 1`**（4-boot，会让安装硬中断）：缺它 dsh 在 host preparation 阶段就抛 `No usable native binding found`，**完全起不来**。dsh <0.1.7（没有该 addon 家族）时脚本自身 `[SKIP]` 退 0（该分支由夹具用例 5 守着） |
-| `dsh-session-persistence-jsonl` / `dsh-attachment-local` / `dsh-fs-local` | `node patches/patch-dsh-android-link.js --root …` | 只 `warn`，继续 |
-| `node-addon-system`（flock） | `node patches/patch-dsh-android-flock.js --root …` | 只 `warn`，继续（但发消息会失败） |
+| `dsh-session-persistence-jsonl` / `dsh-attachment-local` / `dsh-fs-local` | `node patches/patch-dsh-android-link.js --root …` | 只 `warn`，继续（`--root` 显式给错则脚本自身退 1 且不写任何文件） |
+| `node-addon-system`（flock） | `node patches/patch-dsh-android-flock.js --root …` | 只 `warn`，继续（但发消息会失败；`--root` 契约同 link） |
 | `dsh-subprocess-local/lib/*.js`（android≡linux 终端检测） | `python3` 通配扫描整个 `lib/`，命中才写 | 未命中锚点 → 退出码 3 → `warn`，继续 |
 | `dsh-client-ui-conversation/lib/client.js`（作曲栏「回车=换行」） | `python3` 单点插入 + `.dsh-android.bak` 备份 | **会中断安装**：锚点不唯一/失败 → 回滚备份 → `exit 1` |
 | `dsh-tool-fs-search/lib/index.js`（ripgrep） | `bash apply-rg-fix.sh` | 脚本内部：锚点漂移只 `warn`；仅当 fresh node 实际解析 `resolveRgPath()` 失败才非 0 退出 → `setup.sh` 显式 `error`+`exit 1`（rg 不可用会让 grep/glob 全废） |
@@ -141,7 +140,7 @@ dsh Web UI 用 **进程 launch token + 持久化签名 cookie** 鉴权：
 
 | 变量 | 默认 | 位置 | 作用 |
 |---|---|---|---|
-| `DSH_PORT` | `3080` | start/stop/restart | 服务端口 |
+| `DSH_PORT` | `3080` | start/stop/restart | 服务端口。⚠️ dsh 不读它，`start_dsh.sh` 必须转成 `--port` 传给 dsh（否则会打出没人监听的 URL） |
 | `DSH_ORIGIN` | `127.0.0.1` | start | 交给浏览器的 origin；`localhost` 可绕开 PWA 对 `?token=` 的劫持 |
 | `DSH_NO_OPEN` / `--no-open` | 空 | start | 只拉起服务并打印 URL，不打开浏览器 |
 | `DSH_HINTS` | `0` | start | `1` 才打印 PWA 排查提示并尝试复制 URL 到剪贴板 |
@@ -176,18 +175,19 @@ Shell 语义：
 
 补丁正确性：
 
-- **⚠️ 报「bad interpreter: /usr/bin/env」不是脚本 bug，是 Termux 的 shebang 陷阱**：任何 shebang 写 `#!/usr/bin/env …` 的可执行文件在 Termux 上都可能直接执行失败（`/usr/bin` 不可解析）。表现因调用方而异：zsh/bash 说 `bad interpreter`，`sh` 说 `not found`，**都很容易被误判成「包没装」或「命令不存在」**。判断方法：`node "$(command -v <cmd>)" --version` 能跑通就说明是 shebang 问题而非缺包。修法二选一：`node <real>.js <args>`，或 `readlink -f` 后按 `*.js` 分支包装。
+- **⚠️ 报「bad interpreter: /usr/bin/env」不是脚本 bug，是 Termux 的 shebang 陷阱**：任何 shebang 写 `#!/usr/bin/env …` 的可执行文件在 Termux 上都可能直接执行失败（`/usr/bin` 不可解析）。表现因调用方而异（zsh/bash 说 `bad interpreter`、`sh` 说 `not found`），**极易误判成「包没装」**。判断方法：`node "$(command -v <cmd>)" --version` 能跑通就说明是 shebang 问题而非缺包。修法二选一：`node <real>.js <args>`，或 `readlink -f` 后按 `*.js` 分支包装。
 - **⚠️ 升级 dsh 后第一件事是「跑起来」，不是「看补丁还在不在」**：0.1.7 引入 `node-addon-require-builtin` 后，**所有 Android 补丁都还在、全部自检通过，但 dsh 依然完全起不来**——因为新原生 addon 家族的 android 平台包缺失，`dsh-app-boot` 的 host preparation 直接失败。所以版本漂移的检查清单必须包含「`dsh web` 真的能起来 + 鉴权 303→cookie→200」，静态锚点检查只能证明「已知问题没复发」，不能证明「能跑」。
 - **⚠️ 上游新增 `<name>-<platform>-<arch>` 平台包时，`process.platform === "android"` 会静默落到 `${platform}-${arch}` 回退分支**：`node-addon-native-custom-loader` 的 `runtimeSuffix()` 只特判 `darwin`、`linux`（再拼 libc 后缀）、`win32`，其余一律 `${process.platform}-${process.arch}`。于是解析 `node-addon-require-builtin-android-arm64` 必然失败。**排查这类问题的通用手法**：扫全树 `optionalDependencies` 里形如 `-(darwin|linux|win32|android|freebsd|openbsd)-` 的依赖，逐个 `require.resolve` 探测，列出「声明了但装不上」的清单，比逐个读源码快得多。
-- **⚠️ `npm ls` 报 `UNMET DEPENDENCY` 不一定是问题——先看它在哪个依赖段**：`npm install -g` **从不安装** `devDependencies`，所以根包的 devDep（含 `@types/*`）在 `npm ls` 里必然 UNMET，属良性。实测 0.1.7-rc.2 的 8 条全是根包 devDep（含 `@types/*`），且全树 ripgrep 对 JS/TS **零引用** → 运行期零影响，**不要**照 require-builtin 的模式去补平台包。判定顺序：① 看依赖段（`devDependencies`/`optionalDependencies` → 良性）；② 全树搜是否真有 import；③ 只有 `dependencies` 里「声明了但装不上」才是真问题。**别把两类混为一谈**：*缺失的*平台包不会以 UNMET 出现（entry 的 `optionalDependencies` 从未声明 android），但**本补丁生成的那个**会显示为 `extraneous`（与 `@img/sharp-wasm32`、`@vscode/ripgrep-android-arm64` 并列）——「在 `node_modules` 里但不在依赖树里」正是本仓库自己补的包的正常形态，不是错误。
+- **⚠️ `npm ls` 报 `UNMET DEPENDENCY` 不一定是问题——先看它在哪个依赖段**：`npm install -g` 从不装 `devDependencies`，根包 devDep（含 `@types/*`）必然 UNMET，属良性（实测 0.1.7-rc.2 的 8 条全是它）。判定顺序：① 依赖段（dev/optional → 良性）；② 全树搜是否真有 import；③ 只有 `dependencies` 里「声明了但装不上」才是真问题。别混淆：*缺失的*平台包不会以 UNMET 出现，而**本补丁生成的那个**显示 `extraneous`（与 `@img/sharp-wasm32`、`@vscode/ripgrep-android-arm64` 并列）——这是自补包的正常形态。
 - **⚠️ loader 的「平台可选包」通道不要求 `.node` 文件**：`node-addon-native-custom-loader` 的 `tryRequirePackage()` 只按 `validateLoadedBinding()` 校验导出形状（`requireBuiltin`/`isAllowedInternalId` 是函数、`getNativeBindingInfo()` 返回 `{mode,product,backend,abi}` 且 `backend∈{napi,nodeabi}`、`abi` 与 backend 自洽），**不检查文件是不是 ELF**。所以缺预编译包时可以自己写平台包顶上，不必交叉编译。上游之所以用原生 addon，是为了在**没有** `--expose-internals` 时也能 `require("internal/*")`；而本项目 `dsh` 包装脚本必定带 `--expose-internals`（第 6 步重建，缺了 HMR 会崩），该前提下纯 JS 实现完全够用。⚠️ 但纯 JS **没有**可靠的绕过 `--expose-internals` 的办法（`process.binding("natives")` 只给源码，esm/cjs loader 必须是真实例），所以这条路径与「包装脚本必须带 `--expose-internals`」是**强绑定**的，别拆开。
 - **⚠️ 硬阻断补丁要和「只 warn」的补丁区分开**：`node-addon-require-builtin` 平台包缺失 = dsh 起不来，必须 `error` + `exit 1`；link/flock 这类「功能受损但能跑」才是 `warn` + 继续。把两者混成一种语义，会出现「setup 全绿但 dsh 根本起不来」或反过来「一个可选功能缺失就中断安装」。
-- **⚠️ 「往 dsh 自己写的 YAML 里追加」不是追加那么简单：`[]` 是个已结束的文档**：dsh 首次启动（哪怕跑失败的那次）由 `initProfile()` 写出 `~/.dsh/profiles/web/cordis.patch.yml` = 3 行注释 + `[]`（`PROFILE_PATCH_TEMPLATE`）。旧版 `setup.sh` 只 `grep danger-full-access` 就 `printf … >>`，于是在**已结束的 YAML 文档后面再挂一条序列项**，`dsh web` 直接报 `YAMLException: end of the stream or a document separator is expected (13:1)`（行号正好落在我们自己写的那一行）——**所有补丁都还在、全部自检通过，dsh 依然完全起不来**（与 require-builtin 同属「跑不起来」级）。修法不是「少追加」而是「按内容分类」：`patches/apply-profile-patch.js` 空数组模板→替换、真实配置层→追加、残留裸 `[]`→定点摘除，写前写后都用 dsh 自己的 `loadOverlayPatches()` 校验（`!!js` 标签只有它的 schema 认，普通 `yaml.load` 会误判成非法），坏文件一个字节都不动（夹具 41 断言）。通用教训：**往上游/用户维护的文件里写内容前，先解析一遍再决定怎么合并**；用 `grep` 判「已就位」可以，用它判「怎么合并」不行。
+- **⚠️ 「往 dsh 自己写的 YAML 里追加」不是追加那么简单：`[]` 是个已结束的文档**：dsh 首次启动（哪怕跑失败的那次）由 `initProfile()` 写出 `~/.dsh/profiles/web/cordis.patch.yml` = 3 行注释 + `[]`（`PROFILE_PATCH_TEMPLATE`）。旧版 `setup.sh` 只 `grep danger-full-access` 就 `printf … >>` → `dsh web` 报 `YAMLException: end of the stream or a document separator is expected (13:1)`（行号正好落在我们自己写的那一行）——**补丁全在、自检全绿，dsh 依然起不来**（与 require-builtin 同属「跑不起来」级）。修法是「按内容分类」：`apply-profile-patch.js` 空数组模板→替换、真实层→追加、残留裸 `[]`→定点摘除，写前写后都用 dsh 自己的 `loadOverlayPatches()` 校验（`!!js` 标签只有它的 schema 认），坏文件一字节不动（夹具 41 断言）。通用教训：**往上游/用户维护的文件里写内容前先解析一遍再决定怎么合并**；`grep` 能判「已就位」，判不了「怎么合并」。
 - **⚠️ `ALLOW_SCRIPTS` 是「可用性风险面」：npm 12 里白名单内的脚本失败会让整次安装退 1**：blocked（不在白名单）只 `warn` 并跳过，allowed 但**执行失败**则 `npm install` 退 1（实测 `npm install -g --allow-scripts=koffi koffi@3.1.1` → 退 1；`setup.sh` 3/9 在 `set -euo pipefail` 下随即中断）。所以「把带脚本的包都塞进白名单」是错的：必须区分「构建能在 Android 成功」与「必然失败/运行期用不到」。判据：查平台可选包是否存在（`npm view @koromix/koffi-android-arm64@<ver>` 404 即无）、看失败是否发生在编译期、再确认运行期是否真有调用点（koffi 全是懒加载 + `win32` 门控）。⚠️ 配套改自检表语义：koffi 这种「按设计跳过」的包若照旧算 `[UNCOVERED]`，每次安装都喊一次狼——所以引入 `SKIP_SCRIPTS` 并让它标 `[skipped]`。
 - **⚠️ 0.2.0 的权限预设按「sandbox + approval 组合」反查，权限层少一条就整行不激活**：`@deepseek-ai/dsh-permission-presets`（行 id `permission`）在构造时用 `derive(EMPTY_KNOBS)` 反查预设表——`danger-full-access` 预设 = `{sandbox: danger-full-access, approval: never}`，而 approval 的基线默认是 `(process.env.DSH_PERMISSION_MODE ?? 'workspace-write') === 'danger-full-access' ? 'never' : 'ask'`。只把 sandbox 设成 danger-full-access（旧版层的做法）→ 组合是 `{danger-full-access, ask}` → 匹配不到任何预设 → 抛 `permission: composed sandbox and approval defaults match no preset`，该行不激活（启动日志 `warning: 1 entry did not activate`），bash 仍能跑但权限预设服务缺失。**这类「上游新增校验把看起来无关的两行配置耦合起来」的变化，静态锚点检查发现不了**——只有真起一次、扫日志才会暴露（与 require-builtin 同类教训）。判据：新版本里出现「按组合状态反查预设/枚举」的插件时，把该组合在补丁层里**成对**写全。
-- **⚠️ 生成物的 manifest 要填包名、「幂等」要比内容**：`patch-dsh-android-require-builtin.js` 早期把 `manifest.name` 写成了平台包目录的**绝对路径**（`name: pkgDir`）——运行期无害（loader 走 `tryRequirePackage()` 只校导出形状，`createEntryApi` 读的是 **entry 包** 的 name），但那是非法 npm 元数据；同时旧的 `reuse` 只查 `[dsh-android-require-builtin]` 标记、**不比内容**，导致「改了脚本模板但已装设备永远不更新」。现在改为：写 `platformPackageFiles()` 算出目标内容 → 逐字节比对一致才 `[OK]`、不一致 `[REFRESHED]` 原地刷新；**归属判定读 manifest 的 `dshAndroidPatch` 字段、存在性看目录**（旧实现按 `index.js` 是否存在判断，会把 `main` 指向 `prebuilt/` 的外来包当成「不存在」并改写；按子串扫标记又会把描述里恰好提到它的外来包认成自己的）；非本补丁生成的包一律**让路不覆盖**，可用性交给同一次 `verify()`——能加载就 `[SKIP]` 退 0，加载不了才报错退 1。⚠️ 这里**最初写成直接 throw**，而 4-boot 把非 0 当硬阻断，等于把「上游发了合法包」判成安装失败：「不覆盖他人的东西」的正确表现是**让路**。同源问题还有 manifest 的 `os`/`cpu` 必须由 `process.platform`/`process.arch` 推导（写死 `arm64` 在 armv7 上就是假元数据）。通用教训：生成型补丁 ① 幂等判定要比内容、不看标记；② 「不是我的东西」要么让路要么报错，但**报错前先确认它真的不可用**。
-- **⚠️ 定位契约别依赖「正要判断存在性的那个东西」；`--root` 必须是硬契约**：`patch-dsh-android-require-builtin.js` 早期要求「找到 `node_modules/node-addon-require-builtin/package.json` 才算 dsh 安装根」，于是紧接着那句「entry 包不存在 → `[SKIP]` 退 0」（dsh <0.1.7 的场景）**恒不可达**——健康的 0.1.5 回退安装会被 4-boot 硬中断，而文档四处承诺会 SKIP（本机用夹具复现：伪造 `execPath` 指向空前缀 → `无法定位 dsh 安装根` + 退 1）。现在安装根按「`package.json` 的 `name` 为 `@deepseek-ai/dsh`，或该目录下就有 entry 包」判定，与 entry 包解耦。同时 `--root` 改成硬契约：显式给出但定位不到就**报错退 1**，不回落其它候选——旧行为会静默回落到生产树，让「夹具测试不碰安装树」变成假话（本机也复现过）。
-- **⚠️ 客户端资源 URL 的形态在 0.1.7 变了两处**（`verify-client-modules-lazy.js` 先后踩了两次）：① 清单 URL **不再带前导 `/`**（`plugins/??…`），直接拼 origin 会得到 `http://127.0.0.1:43655plugins/??…` → `ERR_INVALID_URL`，必须统一补斜杠；② 响应体尾部 `sourceMappingURL` 从「完整路径」变成「combo 内相对形态」（`??….map&rev=`，不含 `plugins/` 前缀），而**实际可取的 URL 仍须带 `plugins/` 前缀**。所以要从 `??` 处切开，分别推出「可取 URL = 前缀+ids」与「响应体里的 ref = ids」，两种形态都接受——别写死单一字符串。
+- **⚠️ 生成物的 manifest 要填包名、「幂等」要比内容**：`patch-dsh-android-require-builtin.js` 早期把 `manifest.name` 写成平台包目录的**绝对路径**（非法 npm 元数据），且 `reuse` 只查标记不比内容 → 改了模板但已装设备永远不更新。现在：`platformPackageFiles()` 算内容 → 逐字节一致才 `[OK]`、否则 `[REFRESHED]`；**归属读 manifest 的 `dshAndroidPatch` 字段、存在性看目录**（按 `index.js` 存在性判断会改写 `main` 指向 `prebuilt/` 的外来包；按子串扫会认错描述里恰好提到它的包）；外来包一律**让路不覆盖**（曾写成直接 throw，而 4-boot 把非 0 当硬阻断 → 把上游合法包判成安装失败），可用性交给同一次 `verify()`：能加载就 `[SKIP]` 退 0。`os`/`cpu` 由 `process.platform`/`process.arch` 推导。通用教训：生成型补丁 ① 幂等比内容不比标记；② 「不是我的东西」要么让路要么报错，报错前先确认它真的不可用。
+- **⚠️ `--root` 必须是硬契约（覆盖每个「能改生产树」的脚本）；幂等判定要比语义、不能比子串**：link/flock/verify-link/require-builtin 早期把 `--root` 当「候选链第一项」，给了假 root 就**静默回落生产树**并在那里作业——「拿夹具在临时目录里验证」于是变成假话（实测 `--root <tmp>/badroot` 打印的却是生产路径；生产恰好已打补丁才没写坏）。现在显式 `--root` 定位不到一律报错退 1、不回落。require-builtin 还额外要求**定位契约不依赖「正要判断存在性的那个东西」**：早期「找到 entry 包的 `package.json` 才算安装根」让紧随的「entry 包不存在 → `[SKIP]` 退 0」（dsh <0.1.7）**恒不可达**，健康的 0.1.5 回退安装被 4-boot 硬中断；现在按「根 `package.json` 的 `name` 为 `@deepseek-ai/dsh`，或该目录下就有 entry 包」判定，与 entry 包解耦。幂等判定同样：link 曾用 `includes("publishNoReplaceNoHardlink")`、flock 曾用 `includes("[dsh-android-flock]")` 判「已修」——注释/字符串里出现该标识就报 `[OK]`（实测「仅一句注释」的文件被假成功掩盖）；现在两者都先**逐字符状态机剥掉注释与字符串**再判定：link 要两个 helper 的**函数定义**，flock 要 `platform === 'android'` 真分支并加载 `system.node`（marker 只用于注入）。异常项（`[WARN]`/`[ERROR]`）统一走 **stderr**。回归由 `patches/verify-patch-guards-fixture.js`（39 断言，含断言总数下限）守着——拿修复前脚本跑同一夹具有 21 条 FAIL。
+- **⚠️ `DSH_PORT` 必须显式转成 `--port`：上游不读这个环境变量**（dsh 内部零处引用 `DSH_PORT`/`env.PORT`）。`start_dsh.sh` 早期只 `nohup dsh web --no-open` → 改 `DSH_PORT` 后脚本盯新端口、服务仍绑 3080，打印/打开一个没人监听的 URL（夹具用例 1 用「只认 `--port`」的假 dsh 钉住）。同通路上还有两处失败被当成功：降级裸 URL 的空 `AUTH_CODE` 曾打印「返回 (空)」，现固定为 `no-token`/`HTTP <码>`；回滚 dsh 包装脚本曾用 `rm -f` + `cp -P -f`（命令缺失窗口 + 可能 follow 符号链接），现一律 `mv -f` 原子替换。
+- **⚠️ 客户端资源 URL 的形态在 0.1.7 变了两处**（`verify-client-modules-lazy.js` 踩了两次）：① 清单 URL 不再带前导 `/`（`plugins/??…`），拼 origin 前必须补斜杠；② 响应体尾部 `sourceMappingURL` 变成 combo 内相对形态（`??….map&rev=`），但**实际可取的 URL 仍须带 `plugins/` 前缀**——从 `??` 处切开分别推导，别写死单一字符串。
 - **⚠️ 改 `node:fs/promises` 导入时只增不删**：`patch-dsh-android-link.js` 的 `ensureFsImport()` 只追加名字。曾有版本把 `link` 从导入里删掉，但同文件 `defaultFileSystem` / `publishCurrentExclusive` 仍在引用 `link`，导致 dsh 启动即 `ReferenceError: link is not defined`。删除导入前必须确认全文不再引用它。
 - **⚠️ 补丁必须报真话**：锚点未命中却 `str.replace()` 后写回文件、还打印 “patched”，就是假成功（4c 早期版本如此，终端功能静默失效）。同理 `anchor_precheck` 的 marker 必须是「打上补丁后才会出现」的特征串，否则预检永远 OK、掩盖问题。
 - **⚠️ 4c 锚点可能在内容哈希 bundle 里**：0.1.5-rc.1 起 `createProcessInspector()` 被内联进 `dsh-subprocess-local/lib/runner-launch-*.js`，`lib/index.js` 里已找不到 `new LinuxProcessInspector(...)`。所以要按通配扫描整个 `lib/`，命中才报成功——不要退回「只 grep 单个固定文件 + 无条件打印成功」。
@@ -199,7 +199,7 @@ Shell 语义：
 - **⚠️ 带 token 的日志行可能不止一个 URL**：上游在绑定 `0.0.0.0` 时会打印 `dsh web: <loopback url> (LAN: <lan url>)`。`grep -oE … | tail -1` 会取到 **LAN** 地址。必须「先取最后一条含 `token=` 的行，再取该行**第一个** URL」（`start_dsh.sh` 的 `last_auth_url()` 与 `wait_for_token()` 都已如此）。loopback 部署下这条后缀不会出现，属潜在坑。
 - **⚠️ `lib/profile-boot-*.js` 是内容哈希名**：`createProcessShutdown`（首个信号走 dispose、重复信号 `forceExitOnce` 立即 `process.exit`）就定义在这里，文件名随版本变化（0.1.5-rc.3 为 `profile-boot-Dk-7KqJc.js`）。停止梯子依赖这个语义，但**不能硬编码文件名**；`anchor_precheck()` 用通配探测，漂移只 `warn`（后果是停止退化为等满 `DSH_STOP_TIMEOUT`）。
 - **⚠️ sharp wasm 版本必须与 sharp 一致**：只看“目录在不在”会在 sharp 升级后残留旧 wasm 时报假成功；装错版本比不装更糟。拷贝前先 `rm -rf` 目标目录（`cp -r src dst/` 是**合并**，旧文件会留下造成版本混装），且别忘了 `@emnapi/runtime`。
-- **⚠️ `patch -p1` 的 cwd 是包目录的「父级」，不是包目录本身**：`patches/0x-*.patch` 里写的是 `a/dsh-client-modules/lib/index.js`，所以必须 `cd <...>/node_modules/@deepseek-ai`（= `apply-js-patches.sh` 的 `$DSH_PACKAGES_DIR`）再 `-p1`。`cd` 进包目录本身再 `-p1`，它会去找 `dsh-client-modules/lib/index.js` 而**永远失配**——本会话我因此把「已应用的 01/03」误判成「锚点失配」**两次**（审计脚本报红，真实状态却完好）。写这类核对脚本时：路径一律绝对路径、cwd 与 `apply-js-patches.sh` 完全一致，否则「红」不代表有问题。
+- **⚠️ `patch -p1` 的 cwd 是包目录的「父级」，不是包目录本身**：补丁里写的是 `a/dsh-client-modules/lib/index.js`，必须 `cd <...>/node_modules/@deepseek-ai`（= `apply-js-patches.sh` 的 `$DSH_PACKAGES_DIR`）再 `-p1`；cd 进包目录本身会永远失配。写核对脚本时路径与 cwd 必须和 `apply-js-patches.sh` 完全一致，否则「红」不代表真有问题（本会话因此误判过两次）。
 - **⚠️ 锚点失效的补丁必须「移入已弃用围栏」，不要留在活跃清单里刷失败；而围栏不得改变执行顺序**：失效补丁留在活跃清单 → 每次 `setup.sh` 8/9 都报警 → 报警成为常态 → 真失配被淹没（0.1.7 的补丁 02 就是这样把用户吓到一次）。移进围栏后只报 `[deprecated]`、不计失败（见 §12）。⚠️ 我按「活跃/弃用」重排执行顺序时踩了坑：**02 与 03 改同一段 `newlineCount`，02 必须先于 03**，把 02 挪到后面执行会让它在**老线上也失配**（实测 0.1.5-rc.3：顺序正确时 02 命中、03 自动 `[skip]`；顺序颠倒时 02 报失配）。围栏只改报告与退出码语义。
 
 ## 8. 常用命令
@@ -229,6 +229,8 @@ node patches/verify-require-builtin-fixture.js
 # 权限层安全安装（按内容分类合并 + dsh 解析器校验）与夹具自检（11 用例 / 41 断言）
 node patches/apply-profile-patch.js --target "$HOME/.dsh/profiles/web/cordis.patch.yml" --layer config/cordis.patch.yml --root "$DSH_DIR"
 node patches/verify-profile-patch-fixture.js
+# link/flock 守护条件夹具自检（11 用例 / 39 断言）
+node patches/verify-patch-guards-fixture.js
 # 补丁 02 自检（--port 0 临时实例，不打扰正在跑的服务）
 node patches/verify-client-modules-lazy.js [--timeout 120]
 ```
@@ -247,21 +249,23 @@ node "$(readlink -f "$(command -v npm)")" view @deepseek-ai/dsh dist-tags   # �
 
 ## 9. 测试与验证
 
-- 无单测框架。验证依赖真实 Termux+Android 环境实际运行（`dsh web` 起在 `127.0.0.1:3080`）。
+- **脚本级一键检查（每次都该跑）**：`bash patches/verify-all-checks.sh [--verbose] [--full]` = 语法 + 静态契约 25 条 + 5 个夹具（21/21/39/29/41 断言）；`--full` 再跑**变异测试**（9 个注入回归必须让对应套件变红 + 4 个对照组为绿，实测 13/13）。**只读或只写临时目录**：不跑 setup.sh、不碰 3080、不写 `~/.dsh`。
+- 无单测框架。此外仍需真实 Termux+Android 环境实跑一次（`dsh web` 起在 `127.0.0.1:3080`）。
 - **语法自检**：`bash -n setup.sh`、`bash -n apply-*.sh`；三个运行期脚本还要 `dash -n`。
 - **幂等自检**：连续跑两次修补，第二次应全部 `[OK]`/`[skip]`。
 - **ripgrep**：`apply-rg-fix.sh` 第 3 步用 fresh node 子进程实际解析 `resolveRgPath()` 并打印版本自证。
 - **硬链接**：`patches/verify-android-link-fix.js` 做静态检查 + 临时目录真实运行（附件保存/去重、fs-local 新建文件在 `link()`=EACCES 下必须成功），**不读取/修改 `~/.dsh/sessions`**；必须在 sharp 回退之后跑。
 - **flock**：`patches/patch-dsh-android-flock.js` 自带运行时自检（真实 open 两个 fd：首次加锁成功、第二次竞争返回 `EAGAIN`），失败非 0 退出。
-- **require-builtin（启动前提，优先级最高）**：`node --expose-internals patches/patch-dsh-android-require-builtin.js --root "$DSH_DIR"`——会生成/按内容刷新平台包（三个文件与模板逐字节一致才 `[OK]`；不一致 `[REFRESHED]`；已存在但**无本补丁标记**则 `[SKIP]` 让路，只有该包连 loader 自检都过不了才退 1），然后走**真实 entry 包**断言 `getBindingInfo()`（`backend=napi`/`abi=napi-v9`/`bindingSource=optional-package`）与 `internalModules()` 依赖的 5 个 internal 模块成员（`getOrInitializeCascadedLoader`、`Module._resolveFilename`、`getCjsConditions`、`getDefaultConditions`、`defaultResolve`）全部可用。**反例验证**：手工 `rm -rf` 平台包后 `dsh web` 必须复现 `No usable native binding found for node-addon-require-builtin-android-arm64`，再跑补丁必须恢复。
-- **require-builtin 夹具自检**：`node patches/verify-require-builtin-fixture.js`——**8 用例 / 29 断言**（本机全绿）。覆盖 `[CREATED]`、`[REFRESHED]`（含「内容一致不落盘」）、让路、`dsh <0.1.7` 的 `[SKIP]` 退 0、`--root` 硬契约、以及两个归属判定回归用例（外来包**无 `index.js`**、外来包描述里**恰好含标记串**，都不得被改写）。只写 `mktemp` 目录；唯一读真实安装树的地方是断言它**未被触碰**。
-- **权限层夹具自检**：`node patches/verify-profile-patch-fixture.js`——**11 用例 / 41 断言**（本机全绿）。覆盖：缺文件 `[CREATED]`、dsh 空数组模板 `[REPLACED]`、**模板 + 旧版追加的崩溃现场 `[REPAIRED]`**（用例 3 **先断言它确实解析不了**再断言修好）、真实用户层 `[APPENDED]` 且原条目逐字保留、**旧版单条层升级只补 `approval` 不重复 `sandbox-policy`**（用例 9）、两条齐备幂等（用例 10）、**用户自配 workspace-write 沙箱时不塞 approval**（用例 11）、不可解析的用户文件退 1 **且原文件一个字节都不动**、`--root` 硬契约退 1、真实 `~/.dsh/profiles/web/cordis.patch.yml` 哈希前后一致。
-- **⚠️ 版本升级的隔离验收（推荐做法，不碰 3080）**：`npm install -g --prefix ~/dsh-0.2-verify --allow-scripts="…" @deepseek-ai/dsh@<ver>` → 全套补丁脚本 `--root` 指向该 prefix（注意 `apply-rg-fix.sh` 的 `DSH_ROOT` 是 **dsh 安装根**，不是 `@deepseek-ai` 目录；`patch-dsh-android-link/flock.js` 与 `verify-android-link-fix.js` 才用 `--root <@deepseek-ai>`）→ 起一次 `DSH_HOME=<临时目录> node --expose-internals <prefix>/lib/bin.js web --no-open --port 3099` → 校验带 token URL 303、换 cookie 后 `/` 200、**日志零 warn/error**。sharp 回退要手动照 5/9 做一遍（否则 `dsh-attachment-local` 的 `import sharp` 失败）。
-- **⚠️ 版本漂移的端到端验收**：`bash setup.sh` 之后**必须**真的 `bash ~/dsh/start_dsh.sh` 起一次，并确认日志出现 `dsh web: …?token=`、带 token URL 返回 303、换 cookie 后 `/` 返回 200、日志里无 `warn/error/fatal`。静态锚点全绿 ≠ 能跑（0.1.7 的 require-builtin 就是反例：所有已知补丁都自检通过，dsh 仍起不来）。
-- **补丁 02**：`node patches/verify-client-modules-lazy.js`（`--port 0` 临时实例；核对单条/批量 bundle 与 sourcemap、未知 URL 404、HEAD 200，并打印启动到 token 的秒数）。手工等价验证：另起 `dsh web --no-open --port 3099`，从 `GET /` 的 `window["__DSH_BOOT__"]` 取资源 URL，与未打补丁实例逐字节比对（rev 含随机 nonce，比对前去掉 `//# sourceMappingURL=` 行；`.map` 把每个 `client.js` 换成 `client.js.map`），未知 URL 仍须 404。冷启动 A/B 测「启动到日志出现 token」秒数：本机未打补丁 22.6s / 打补丁 12.5s。
-- **补丁 01/02/03 锚点核对**：见第 2 节（`npm pack` + 正向打补丁 + `diff`）。分版本预期：0.1.5 线 `01[ok] 02[ok]（弃用围栏：在旧线上仍有效） 03[skip]`（退 0，实测 0.1.5-rc.3）；0.1.7 线全新安装 `01[ok] 02[deprecated] 03[ok]`、已打过的树 `01[skip] 02[deprecated] 03[skip]`（均退 0）。`[deprecated]` 是围栏里的旧补丁、不算问题；出现 `[FAIL]` 才是需要人看的真漂移。
-- **安装脚本白名单自检**：`setup.sh` 3/9 末尾扫描安装树，列出所有带安装脚本的包并标 `[allowed]`/`[UNCOVERED]`；出现 `[UNCOVERED]` 即说明 npm 跳过了构建步骤，需把包名补进 `ALLOW_SCRIPTS`。
-- **鉴权启动**：`start_dsh.sh` 的 `check_url()` 用 `curl` 校验日志里的 token URL 返回 303/302；返回 401 说明 token 过期/日志陈旧，应重启 dsh。
+- **require-builtin（启动前提，优先级最高）**：`node --expose-internals patches/patch-dsh-android-require-builtin.js --root "$DSH_DIR"`——生成/按内容刷新平台包（内容一致 `[OK]`、不一致 `[REFRESHED]`、外来包 `[SKIP]` 让路），再走真实 entry 包断言 `getBindingInfo()`（`backend=napi`/`abi=napi-v9`）与 5 个 internal 模块成员可用。**反例**：`rm -rf` 平台包后 `dsh web` 必须复现 `No usable native binding found`，重跑补丁必须恢复。
+- **require-builtin 夹具自检**：`node patches/verify-require-builtin-fixture.js`——**8 用例 / 29 断言**（本机全绿）。覆盖让路、`dsh <0.1.7` 的 `[SKIP]` 退 0、`--root` 硬契约、两个归属判定回归（外部包无 `index.js`、描述含标记串）。只写临时目录并断言真实树未被触碰。
+- **权限层夹具自检**：`node patches/verify-profile-patch-fixture.js`——**11 用例 / 41 断言**（本机全绿）：**崩溃现场 `[REPAIRED]`**（先断言确实解析不了再修）、用户层 `[APPENDED]` 原条目逐字保留、旧版单条层只补 `approval`、用户自配沙箱时不塞 `approval`、坏文件退 1 且一字节不动、真实 `~/.dsh` profile 哈希不变。
+- **link/flock 守护条件夹具自检**：`node patches/verify-patch-guards-fixture.js`——**11 用例 / 39 断言**（含断言总数下限；本机全绿）：假 `--root` 退 1 不回落、副本内真编译、注释/字符串/`label://` 骗不过幂等判定。修复前脚本跑同一夹具有 21 条 FAIL。
+- **⚠️ 版本升级的隔离验收（不碰 3080）**：`npm install -g --prefix ~/dsh-verify @deepseek-ai/dsh@<ver>` → 补丁脚本 `--root` 指向该 prefix（`apply-rg-fix.sh` 的 `DSH_ROOT` 是 dsh 安装根；link/flock/verify-link 才用 `--root <@deepseek-ai>`）→ `DSH_HOME=<临时目录> … web --no-open --port 3099` → 校验 token URL 303、cookie 后 `/` 200、日志零 warn/error。sharp 回退要手动照 5/9 做一遍。
+- **⚠️ 版本漂移要端到端验收**：跑完 `setup.sh` 后**必须**真的起一次，确认日志有 `?token=`、token URL 303、换 cookie 后 `/` 200、无 `warn/error/fatal`。静态全绿 ≠ 能跑（0.1.7 的 require-builtin 就是反例）。
+- **补丁 02**：`node patches/verify-client-modules-lazy.js`（`--port 0` 临时实例；核对单条/批量 bundle 与 sourcemap、未知 URL 404、HEAD 200，并打印启动到 token 秒数）。手工等价验证（需另起 `--port 3099`）：与未打补丁实例逐字节比对 `__DSH_BOOT__` 里的资源 URL（比对前去掉 `//# sourceMappingURL=` 行）。冷启动实测：未打补丁 22.6s / 打补丁 12.5s。
+- **补丁 01/02/03 锚点核对**：见第 2 节：0.1.5 线 `01[ok] 02[ok]（围栏） 03[skip]`；0.1.7+ `01[ok] 02[deprecated] 03[ok]`，已打过则全 `[skip]`（均退 0）。`[deprecated]` 不是问题，`[FAIL]` 才是。
+- **安装脚本白名单自检**：`setup.sh` 3/9 末尾标 `[allowed]`/`[skipped]`/`[UNCOVERED]`；出现 `[UNCOVERED]` 说明 npm 跳过了构建，需把包名补进 `ALLOW_SCRIPTS`。
+- **鉴权启动**：`start_dsh.sh` 的 `check_url()` 用 `curl` 校验 token URL 返回 303/302；401 说明 token 过期/日志陈旧，应重启 dsh。
 - **⚠️ 别拿本机的 3080 做破坏性实验**：这台设备上 3080 往往正跑着当前会话的 GUI，`stop_dsh.sh` / `restart_dsh_now.sh` 会把它一起停掉；验证补丁优先用 `--port 0` / `--port 3099` 的临时实例。
 
 ## 10. 安全注意（这个仓库有意为之）
@@ -277,11 +281,11 @@ node "$(readlink -f "$(command -v npm)")" view @deepseek-ai/dsh dist-tags   # �
 - 终端 / 平台检测：`process.platform === "android"` 需视同 `"linux"` 处理（见第 7 节 4c 的通配扫描要求）。
 - **`03-client-modules-newline-count`**：只改 `newlineCount()` 的循环写法（`for (const char of value)` → `charCodeAt` 索引循环），不改语义。它是**版本无关**的兜底性能补丁，锚点在 0.1.5/0.1.7 上都稳定。
 - **`02-client-modules-lazy-compose`（仅 0.1.5 线，已弃用）**：改 `dsh-client-modules/lib/index.js` 三处——`newlineCount` 改 `charCodeAt` 索引循环；`buildCombo` 行数只数一次；`compose()` 不再为每条记录急切构建 artifact（`singleRecords` + `singleResponses` 按需缓存，`bundleResource` 用 `?? this.singleResponse(url)` 兜底）。背景：启动期间 `ClientModuleRegistry` 会因 `internal/plugin` 事件**全量重组约 10 次**（实测 table 0→48→…→60），10.8MB 源码下一次 compose 约 2s、占冷启动一半以上（实测 22.6s→12.5s）；挂载的 client 插件越多越慢。
-- **本仓库不改动 dsh 前端界面文件**：不注入 CSS/JS、不改 `dsh-web-frontend/dist/index.html` 的 viewport、不改 manifest。历史上有 `apply-frontend.sh` + `patches/mobile.css`/`mobile.js` 做移动端适配，已删除——它依赖上游构建产物里的类名/DOM 结构，每次 dsh 升级都会漂移，且与「只做最小侵入式文本替换」的约定冲突。前端问题请提给上游；本仓库只保证启动/鉴权链路与后端兼容修补。
+- **本仓库不改动 dsh 前端界面文件**：不注入 CSS/JS、不改 `dsh-web-frontend/dist/index.html` 的 viewport、不改 manifest。历史上 `apply-frontend.sh` + `patches/mobile.css`/`mobile.js` 做过移动端适配，因依赖上游类名/DOM 结构、每次升级必漂移且违背「最小侵入」已删除；前端问题提给上游，本仓库只保证启动/鉴权链路与后端兼容修补。
 
 ## 12. 已弃用补丁围栏（deprecated fence）
 
-**策略：锚点一旦失效，就移出活跃清单、进这道围栏。** 留在清单里的失效补丁会让 `apply-js-patches.sh` 每次退非 0、`setup.sh` 8/9 每次报警；报警成为常态，真失配就被淹没（「狼来了」——0.1.7 的补丁 02 就这么吓到过用户一次）。
+**策略：锚点一旦失效，就移出活跃清单、进这道围栏**（理由见 §6.4：留在清单里会让每次 `setup.sh` 8/9 都报警，真失配反被淹没）。
 
 围栏规则（由 `apply-js-patches.sh` 的 `DEPRECATED_PATCHES` + `deprecated_reason()` 实现）：
 
@@ -290,9 +294,18 @@ node "$(readlink -f "$(command -v npm)")" view @deepseek-ai/dsh dist-tags   # �
   命中不了 → `[deprecated] <原因>`，**不计入 failed、不影响退出码**。
 - 每个围栏补丁必须在 `deprecated_reason()` 里写清**为什么失效**与**什么条件下复活**。
 - 围栏**只改报告与退出码，不得改执行顺序**（见上）。
-- 与「删除」的区别：删除是彻底不再支持（如已删的 apiproxy history slim 那批）；围栏是**保留但降级**，
-  旧版本线仍可能需要。该删该围，看是否还有目标版本能命中。
+- 与「删除」的区别：删除是彻底不再支持（如已删的 apiproxy history slim 那批）；围栏是**保留但降级**，旧版本线仍可能需要。
 
 | 补丁 | 失效版本 | 原因 | 复活条件 |
 |---|---|---|---|
 | `02-client-modules-lazy-compose` | 0.1.7 | 上游用原生 `lazyBody` 实现了 combo 按需构建（同一优化），补丁锚点随之消失 | 上游移除 `lazyBody`；或仍需支持 0.1.5 线——实测 0.1.5-rc.3 上 01/02/03 仍能全部命中，故保留在围栏里 |
+
+## 13. 重跑 `setup.sh` 之后怎么复验（本轮经验）
+
+- **npm 重装清掉自补包是预期**：`npm install -g` 会打印 `removed 4 packages, and changed 530 packages`（自补包目录也在其中）；故 4-boot/4-link/4-flock/5/9 重报 `[CREATED]/[PATCHED]/[BUILT]` **不是故障**。
+- **复验三步（都不改生产文件）**：① `bash patches/verify-all-checks.sh --full`；② 逐个重跑修补步骤，必须全 `[OK]`/`[skip]`（各修补全 `[OK]`/`[skip]`；js `[skip]×2 + [deprecated]×1`，rg `already patched`）；③ 核对产物：sharp 与 `@img/sharp-wasm32` 同版本、rg 软链在、`system.node` 可加载、权限层两条齐备且无裸 `[]`。
+- **⚠️ `~/dsh/` 三个副本会与仓库漂移**：只有 `setup.sh` 7/9 同步它们，单独改仓库脚本后**设备跑的还是旧脚本**（本轮实测：仓库已修 `--port`，副本没有）。同步用 `install -m 700 start_dsh.sh stop_dsh.sh restart_dsh_now.sh ~/dsh/` 并核对 `sha256sum`；脚本改动不必重启 dsh。
+- **判定「运行中的实例是否真吃到补丁」**：`setup` 只改磁盘，进程内存里可能是旧代码。用 `stat -c '%y' /proc/<pid>` 拿启动时刻（⚠️ Android 上 `ps -o lstart=` 给出荒谬时间、`/proc/uptime` 与 `/proc/net/tcp` 都是 Permission denied、也没有 `getconf`），与补丁产物 mtime 比较；决定性证据是 `/proc/<pid>/maps` 里出现 `…/node-addon-system/bin/android-arm64/system.node`。补丁晚于进程启动 → 必须重启。
+- **⚠️ 实例不是 `start_dsh.sh` 拉起时，「复用」会白等 90s**：判据是 `/proc/<pid>/fd` 的 0/1/2 指向 `/dev/pts/*`（该脚本的拉起路径必然把 stdout 重定向进 `dsh.log`）且 `~/dsh/storage/{dsh.log,dsh.pid}` 陈旧（本轮：日志停在 10 天前、pid 文件差 9000+）。此时 token 只打在它自己的终端，`tail -n 0 -f` 只读新行 → 等满 `DSH_READY_TIMEOUT` 才降级裸 URL（401，靠浏览器 cookie 才进）。`stop_dsh.sh` 有 `pgrep` 兜底不受影响。**一律用 `start_dsh.sh` / `restart_dsh_now.sh` 起服务**。
+- **⚠️ 别删认不出的 `$PREFIX/tmp/dsh-*`**：`dsh-spill-*`/`dsh-subprocess-*`/`dsh-workspace-changes-*` 是 **dsh 运行期自己的**（spill 是工具输出溢写，可能是孤儿，删了影响回看历史）；本项目夹具用可辨识前缀 `dsh-runtime-fixture-*`、`dsh-mutation-*`、`dsh-verify-all*`、`dsh-js-patches*`、`dsh-guards*`、`dsh-profile*`。
+- **⚠️ 夹具自身的坑**：① 夹具里**生成**假 dsh 时的模板字符串转义会让产物语法错（argv 恒空 → 全场景假红）；② **别用 `pkill -f <pattern>` 清理**，它会命中调用它的 shell 自身（本轮真把自己的命令行杀了）——只杀登记过的 pid 并用 `/proc/<pid>/cmdline` 复核；③ 中断留下的假 dsh 会匹配 `DSH_WEB_PATTERN`，让后续 `start_dsh.sh` 误判「已有进程在跑」→ 空等到超时、级联一片红（「上轮全绿这轮红」多半是它）→ 夹具要启动前自清 + 装 SIGINT/SIGTERM 钩子；④ 变异测试的注入串必须与真实文本逐字符一致（`PATCHES=(…)` 是单行），每个 case 包 try/catch。
