@@ -61,7 +61,10 @@ const ENTRY_SENTINEL = "# >>> dsh-android-layer-entry";
 const APP_BOOT_REL = path.join("node_modules", "@deepseek-ai", "dsh-app-boot", "lib", "index.js");
 
 function log(tag, message) {
-	console.log(`[${tag.padEnd(8)}] ${message}`);
+	// ERROR / WARN 走 stderr（失败或需人工介入时 stdout 保持干净，便于调用方分流与日志归档）。
+	const line = `[${tag.padEnd(8)}] ${message}`;
+	if (tag === "ERROR" || tag === "WARN") console.error(line);
+	else console.log(line);
 }
 
 /**

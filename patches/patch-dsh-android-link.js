@@ -29,9 +29,12 @@
  * 用法：
  *   node patch-dsh-android-link.js [--root <@deepseek-ai 包目录>]
  *
- * 默认自动定位：npm 全局安装（npm root -g）下的 dsh 依赖目录；也可用 --root 指向
- * 目标机器的 <...>/@deepseek-ai 目录（例如把本脚本拷到部署机上执行）。
- * 重复执行安全：已修补的文件会跳过。
+ * 定位契约：
+ *   - 不传 --root：自动定位（require.resolve("@deepseek-ai/dsh/package.json") 推出的依赖目录，
+ *     以及由 process.execPath 推出的全局 node_modules 下的 dsh 依赖目录）。
+ *   - ⚠️ 传了 --root：**硬契约**。该目录必须含三个目标包的 lib/index.js，否则报错退 1，
+ *     绝不回落到其它候选（避免「用夹具在临时目录里验证」的命令实际写生产树）。
+ * 重复执行安全：已修补的文件会跳过；判定按 helper 的函数定义而非子串标记（注释骗不过）。
  *
  * 修补后需要重启 dsh 进程才生效（代码在启动时加载）。
  */
@@ -236,6 +239,60 @@ const FALLBACK_BLOCK_OLD = [
 	"\t\t}",
 ].join("\n");
 
+/**
+ * 判定「无硬链接回退」是否真的已经打进源码：在**剥掉注释与字符串/模板字面量**的代码里，
+ * 必须同时找到两个 helper 的**函数定义**。
+ * ⚠️ 不能在原文上 `includes`/正则：注释、字符串、模板串里出现标识符或整段函数签名都会假阳性
+ * （实测：把签名写进 `const HELP = \`…\`` 就能骗过朴素正则），对「其实没修」的文件报 [OK]。
+ * 剥离后仍找不到只会退化成 [WARN]（安全侧），绝不假成功。
+ */
+const RE_HAS_IS_HARDLINK_UNAVAILABLE = /(?:^|\n)\s*(?:async\s+)?function\s+isHardLinkUnavailable\s*\(/;
+const RE_HAS_PUBLISH_NO_REPLACE = /(?:^|\n)\s*(?:async\s+)?function\s+publishNoReplaceNoHardlink\s*\(/;
+
+/** 把注释与字符串/模板字面量替换成空白（保留换行），得到「只含可执行代码」的文本。 */
+function stripCommentsAndStrings(src) {
+	let out = "";
+	let i = 0;
+	const n = src.length;
+	let state = "code"; // code | line | block | sq | dq | tpl
+	while (i < n) {
+		const c = src[i];
+		const c2 = src[i + 1];
+		if (state === "code") {
+			if (c === "/" && c2 === "/") { state = "line"; out += "  "; i += 2; continue; }
+			if (c === "/" && c2 === "*") { state = "block"; out += "  "; i += 2; continue; }
+			if (c === "'") { state = "sq"; out += " "; i++; continue; }
+			if (c === '"') { state = "dq"; out += " "; i++; continue; }
+			if (c === "`") { state = "tpl"; out += " "; i++; continue; }
+			out += c;
+			i++;
+			continue;
+		}
+		if (state === "line") {
+			if (c === "\n") { state = "code"; out += c; } else out += " ";
+			i++;
+			continue;
+		}
+		if (state === "block") {
+			if (c === "*" && c2 === "/") { state = "code"; out += "  "; i += 2; continue; }
+			out += c === "\n" ? "\n" : " ";
+			i++;
+			continue;
+		}
+		// 字符串/模板态：内容整体抹白（含转义序列），只在遇到对应引号时回到 code 态。
+		if (c === "\\") { out += "  "; i += 2; continue; }
+		if ((state === "sq" && c === "'") || (state === "dq" && c === '"') || (state === "tpl" && c === "`")) state = "code";
+		out += c === "\n" ? "\n" : " ";
+		i++;
+	}
+	return out;
+}
+
+function hasHardLinkFallback(src) {
+	const code = stripCommentsAndStrings(src);
+	return RE_HAS_IS_HARDLINK_UNAVAILABLE.test(code) && RE_HAS_PUBLISH_NO_REPLACE.test(code);
+}
+
 const PACKAGES = [
 	{
 		name: "dsh-session-persistence-jsonl",
@@ -243,18 +300,28 @@ const PACKAGES = [
 		fix(src) {
 			let out = src;
 			const details = [];
-			const directLink = /await link\(tmp,\s*finalPath\)/.test(out);
-			const hasExclusiveFallback = out.includes("publishNoReplaceNoHardlink(staged, currentPath)");
+			// 判定一律看「剥掉注释与字符串」的可执行代码；改写仍作用于原文（已先确认代码里存在）。
+			const code = stripCommentsAndStrings(out);
+			const directLink = /await link\(tmp,\s*finalPath\)/.test(code);
+			const hasExclusiveFallback = code.includes("publishNoReplaceNoHardlink(staged, currentPath)");
 			if (!directLink && hasExclusiveFallback) {
+				if (!hasHardLinkFallback(out)) {
+					return {
+						status: "pattern-mismatch",
+						detail: "会话发布虽出现无硬链接回退**调用**，但找不到 isHardLinkUnavailable / publishNoReplaceNoHardlink 的函数定义（疑似仅注释或半成品），跳过，请人工检查",
+					};
+				}
 				return { status: "already-fixed", detail: "会话发布已用 rename + 无硬链接回退" };
 			}
 			if (directLink) {
 				out = out.replace(/await link\(tmp,\s*finalPath\);/, "await rename(tmp, finalPath);");
 				details.push("会话日志发布 link(tmp, finalPath) -> rename(tmp, finalPath)");
-			} else if (!out.includes("await rename(tmp, finalPath)")) {
+			} else if (!code.includes("await rename(tmp, finalPath)")) {
 				return { status: "pattern-mismatch", detail: "未找到会话发布调用（link/rename(tmp, finalPath)），跳过，请人工检查" };
 			}
 			if (!hasExclusiveFallback) {
+				// ⚠️ 锚点是上游原文的**逐字节**多行块（含 `"EEXIST"` 等字符串与 v8 注释），
+				// 必须在**原文**上比对；只有「是否已修」的语义判定才用剥离后的代码。
 				if (!out.includes(SESSION_OLD_EXCLUSIVE)) {
 					return { status: "pattern-mismatch", detail: "未找到 publishCurrentExclusive 的 link 发布块，跳过，请人工检查" };
 				}
@@ -274,13 +341,16 @@ const PACKAGES = [
 		fix(src) {
 			let out = src;
 			const details = [];
-			if (out.includes("publishNoReplaceNoHardlink") && out.includes("isHardLinkUnavailable")) {
+			if (hasHardLinkFallback(out)) {
 				return { status: "already-fixed", detail: "附件发布已接入无硬链接回退" };
 			}
 			// 旧版上游已把 staged 发布改成 rename（无硬链接回退）：保持原样。
-			if (out.includes("rename(temporary, target)") && !out.includes("await link(staged.path, target)")) {
+			// 语义判定用剥离后的代码，避免注释/字符串里的假象。
+			const code = stripCommentsAndStrings(out);
+			if (code.includes("rename(temporary, target)") && !code.includes("await link(staged.path, target)")) {
 				return { status: "already-fixed", detail: "附件发布已用 rename（上游原生修复）" };
 			}
+			// ⚠️ 锚点是上游原文逐字节块，必须在原文上比对。
 			if (!out.includes(ATT_STAGED_OLD)) return { status: "pattern-mismatch", detail: "未找到 publishStagedObject 的 link 发布块，跳过，请人工检查" };
 			if (!out.includes(ATT_ALIAS_OLD)) return { status: "pattern-mismatch", detail: "未找到 publishImmutableAlias 的 link 发布块，跳过，请人工检查" };
 			out = out.replace(ATT_STAGED_OLD, ATT_STAGED_NEW).replace(ATT_ALIAS_OLD, ATT_ALIAS_NEW);
@@ -302,7 +372,7 @@ const PACKAGES = [
 		name: "dsh-fs-local",
 		file: "lib/index.js",
 		fix(src) {
-			if (src.includes("publishNoReplaceNoHardlink")) return { status: "already-fixed", detail: "已包含无硬链接发布回退（此前已修补）" };
+			if (hasHardLinkFallback(src)) return { status: "already-fixed", detail: "已包含无硬链接发布回退（此前已修补）" };
 			if (!src.includes(FALLBACK_BLOCK_OLD)) return { status: "pattern-mismatch", detail: "未找到 createIfAbsent 发布块，跳过，请人工检查该文件" };
 			let out = src.replace(FALLBACK_BLOCK_OLD, FALLBACK_BLOCK_NEW);
 			const anchor = "async function writeFileAtomic(";
@@ -313,9 +383,17 @@ const PACKAGES = [
 	},
 ];
 
+/** 判定一个目录是否是本脚本要的 <...>/@deepseek-ai 包目录（三个目标包都在）。 */
+function isPackagesDir(dir) {
+	return PACKAGES.every((p) => fs.existsSync(path.join(dir, p.name, p.file)));
+}
+
 function resolveRoot(optRoot) {
+	// ⚠️ --root 是硬契约：显式给出却定位不到就返回 null（调用方退 1），**绝不回落**其它候选。
+	// 旧实现把 optRoot 当作「候选链第一项」，定位失败便静默回落到生产安装树——
+	// 于是「拿夹具在临时目录里验证」的命令实际是在生产树上作业（AGENTS §7 的同类陷阱）。
+	if (optRoot) return isPackagesDir(optRoot) ? optRoot : null;
 	const candidates = [];
-	if (optRoot) candidates.push(optRoot);
 	try {
 		const dshPkg = require.resolve("@deepseek-ai/dsh/package.json");
 		candidates.push(path.join(path.dirname(dshPkg), "node_modules", "@deepseek-ai"));
@@ -326,9 +404,9 @@ function resolveRoot(optRoot) {
 	const globalRoot = path.join(path.dirname(path.dirname(process.execPath)), "lib", "node_modules");
 	candidates.push(path.join(globalRoot, "@deepseek-ai", "dsh", "node_modules", "@deepseek-ai"));
 	for (const c of candidates) {
-		if (PACKAGES.every((p) => fs.existsSync(path.join(c, p.name, p.file)))) return c;
+		if (isPackagesDir(c)) return c;
 	}
-	return candidates[0] || null;
+	return null;
 }
 
 function patchPackage(root, spec) {
@@ -359,7 +437,12 @@ function main() {
 	}
 	const root = resolveRoot(optRoot);
 	if (!root) {
-		console.error("无法定位 dsh 安装目录。请用 --root 指定 <...>/@deepseek-ai 包目录。");
+		if (optRoot) {
+			console.error(`--root 指向的 ${optRoot} 不是 dsh 包目录（需含 ${PACKAGES.map((p) => p.name).join(" / ")} 的 lib/index.js）。`);
+			console.error("本脚本是 --root 硬契约：显式给出却定位不到就退出，不会回落到其它安装树（避免夹具测试误写生产树）。");
+		} else {
+			console.error("无法自动定位 dsh 安装目录。请用 --root 指定 <...>/@deepseek-ai 包目录。");
+		}
 		process.exit(1);
 	}
 	console.log(`dsh 包目录: ${root}`);
@@ -370,16 +453,18 @@ function main() {
 		const mark = {
 			patched: "[PATCHED ]",
 			"already-fixed": "[OK      ]",
-			"not-found": "[SKIP    ]",
+			"not-found": "[MISSING ]",
 			"pattern-mismatch": "[WARN    ]",
 			error: "[ERROR   ]",
 		}[r.status] || "[?????   ]";
-		console.log(`${mark} ${r.name}: ${r.detail}`);
-		if (r.status === "pattern-mismatch" || r.status === "not-found" || r.status === "error") warn = true;
+		// 异常结果走 stderr（错误不该混进正常输出；与 flock / 其它脚本一致）。
+		const abnormal = r.status !== "patched" && r.status !== "already-fixed";
+		(abnormal ? console.error : console.log)(`${mark} ${r.name}: ${r.detail}`);
+		if (abnormal) warn = true;
 	}
 	console.log("");
 	if (warn) {
-		console.log("有文件未自动修补，请人工检查。");
+		console.error("有文件未自动修补，请人工检查。");
 		process.exit(2);
 	}
 	console.log("全部完成。请重启 dsh 进程使修补生效（例如：~/dsh/restart_dsh_now.sh 或重新运行 dsh web）。");

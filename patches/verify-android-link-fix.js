@@ -23,7 +23,12 @@ const os = require("node:os");
 const path = require("node:path");
 
 function resolveRoot(optRoot) {
-	if (optRoot) return optRoot;
+	// --root 硬契约：显式给出就必须是含三个目标包的 <...>/@deepseek-ai 目录，否则返回 null
+	// （调用方退 1），绝不回落到别的候选——避免「用夹具在临时目录里验证」实际跑生产树。
+	if (optRoot) {
+		return ["dsh-session-persistence-jsonl", "dsh-attachment-local", "dsh-fs-local"]
+			.every((name) => fs.existsSync(path.join(optRoot, name, "lib", "index.js"))) ? optRoot : null;
+	}
 	// 见 patch-dsh-android-link.js：不用 `npm root -g`（Termux 的 /usr/bin 不可解析，
 	// npm 的 `#!/usr/bin/env node` shebang 会报 bad interpreter），直接从 node 路径推导。
 	const globalRoot = path.join(path.dirname(path.dirname(process.execPath)), "lib", "node_modules");
@@ -202,13 +207,18 @@ async function main() {
 	}
 	const root = resolveRoot(optRoot);
 	if (!root) {
-		console.error("无法定位 dsh 安装目录。请用 --root 指定 <...>/@deepseek-ai 包目录。");
+		if (optRoot) {
+			console.error(`--root 指向的 ${optRoot} 不是 dsh 包目录（需含 dsh-session-persistence-jsonl / dsh-attachment-local / dsh-fs-local）。`);
+			console.error("本脚本是 --root 硬契约：显式给出却定位不到就退出，不会回落到其它安装树。");
+		} else {
+			console.error("无法定位 dsh 安装目录。请用 --root 指定 <...>/@deepseek-ai 包目录。");
+		}
 		process.exit(1);
 	}
 	if (!fs.existsSync(path.join(root, "dsh-session-persistence-jsonl")) ||
 		!fs.existsSync(path.join(root, "dsh-attachment-local")) ||
 		!fs.existsSync(path.join(root, "dsh-fs-local"))) {
-		console.error(`[FAIL] 目标目录不完整: ${root}`);
+		console.error(`[FAIL] ${root} 缺少三个目标包之一——这是安装树不完整，不是 --root 参数写错`);
 		process.exit(1);
 	}
 	console.log(`验证 dsh 包目录: ${root}`);

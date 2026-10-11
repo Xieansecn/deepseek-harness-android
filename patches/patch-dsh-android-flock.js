@@ -22,6 +22,9 @@
  *
  * 幂等：flock.js 已含标记且产物可加载时跳过编译。
  * 用法：node patch-dsh-android-flock.js [--root <@deepseek-ai 包目录>]
+ *
+ * ⚠️ --root 是硬契约：显式给出却定位不到（该目录不含 node-addon-system/lib/flock.js）
+ * 就报错退 1，绝不回落到其它安装树；不传才自动定位。
  */
 "use strict";
 
@@ -34,9 +37,66 @@ const { createRequire } = require("node:module");
 const PKG = "node-addon-system";
 const MARKER = "[dsh-android-flock]";
 
+/**
+ * android 分支是否**真的**存在：在**去注释**（字符串保留，因为 `'system.node'` 本身在字符串里）
+ * 的源码里必须出现 `if (platform === 'android') {` … 加载 `bin/android-<arch>/system.node`。
+ * ⚠️ 不用「`//` 前不能是冒号」这类正则小聪明（会被 `label://` 绕过），而是逐字符状态机：
+ * 只有 code 态的 `//`、`/*` 才是注释；字符串/模板里的 `//`（如 `http://`）不受影响。
+ */
+const RE_ANDROID_BRANCH = /if\s*\(\s*platform\s*===\s*['"]android['"]\s*\)\s*\{[\s\S]{0,400}?system\.node/;
+/** 去掉行/块注释（保留换行与其它字符，字符串内容原样保留）。 */
+function stripComments(src) {
+	let out = "";
+	let i = 0;
+	const n = src.length;
+	let state = "code"; // code | line | block | sq | dq | tpl
+	while (i < n) {
+		const c = src[i];
+		const c2 = src[i + 1];
+		if (state === "code") {
+			if (c === "/" && c2 === "/") { state = "line"; out += "  "; i += 2; continue; }
+			if (c === "/" && c2 === "*") { state = "block"; out += "  "; i += 2; continue; }
+			if (c === "'") state = "sq";
+			else if (c === '"') state = "dq";
+			else if (c === "`") state = "tpl";
+			out += c;
+			i++;
+			continue;
+		}
+		if (state === "line") {
+			if (c === "\n") { state = "code"; out += c; } else out += " ";
+			i++;
+			continue;
+		}
+		if (state === "block") {
+			if (c === "*" && c2 === "/") { state = "code"; out += "  "; i += 2; continue; }
+			out += c === "\n" ? "\n" : " ";
+			i++;
+			continue;
+		}
+		// 字符串态：原样保留（含转义），只在遇到对应引号时回到 code 态。
+		if (c === "\\") { out += c + (src[i + 1] || ""); i += 2; continue; }
+		if ((state === "sq" && c === "'") || (state === "dq" && c === '"') || (state === "tpl" && c === "`")) state = "code";
+		out += c;
+		i++;
+	}
+	return out;
+}
+function hasAndroidBranch(src) {
+	return RE_ANDROID_BRANCH.test(stripComments(src));
+}
+
+/** 判定一个目录是否是本脚本要的 <...>/@deepseek-ai 包目录（含 node-addon-system/lib/flock.js）。 */
+function isPackageDir(dir) {
+	return fs.existsSync(path.join(dir, PKG, "lib", "flock.js"));
+}
+
 function resolveRoot(optRoot) {
+	// ⚠️ --root 是硬契约：显式给出却定位不到就返回 null（调用方退 1），**绝不回落**其它候选。
+	// 旧实现把 optRoot 当作「候选链第一项」，定位失败便静默回落到生产安装树——
+	// 于是「拿夹具在临时目录里验证」的命令实际是在生产树上作业（AGENTS §7 的同类陷阱）。
+	if (optRoot) return isPackageDir(optRoot) ? optRoot : null;
 	const candidates = [];
-	if (optRoot) candidates.push(optRoot);
 	try {
 		const dshPkg = require.resolve("@deepseek-ai/dsh/package.json");
 		candidates.push(path.join(path.dirname(dshPkg), "node_modules", "@deepseek-ai"));
@@ -46,8 +106,8 @@ function resolveRoot(optRoot) {
 	// 可由当前 node 路径直接推出：<prefix>/bin/node -> <prefix>/lib/node_modules。
 	const globalRoot = path.join(path.dirname(path.dirname(process.execPath)), "lib", "node_modules");
 	candidates.push(path.join(globalRoot, "@deepseek-ai", "dsh", "node_modules", "@deepseek-ai"));
-	for (const c of candidates) if (fs.existsSync(path.join(c, PKG, "lib", "flock.js"))) return c;
-	return candidates[0] || null;
+	for (const c of candidates) if (isPackageDir(c)) return c;
+	return null;
 }
 
 /** 找 Node-API 头文件目录（node_api.h）。 */
@@ -77,7 +137,9 @@ function compileAddon(pkgDir, outFile) {
 
 /** 修补 lib/flock.js，使 android 从本地 bin 加载。 */
 function patchFlockJs(src) {
-	if (src.includes(MARKER)) return { changed: false, src };
+	// 语义判定（注释剥离后仍要有真 android 分支 + 加载 system.node）；
+	// marker 在但分支不在时**继续走修补**，锚点也没了才报 mismatch，绝不因一句注释假报 [OK]。
+	if (hasAndroidBranch(src)) return { changed: false, src };
 	let out = src;
 	if (!out.includes("fileURLToPath")) {
 		out = out.replace(
@@ -157,7 +219,12 @@ async function main() {
 	for (let i = 0; i < argv.length; i++) if (argv[i] === "--root") optRoot = argv[++i];
 	const root = resolveRoot(optRoot);
 	if (!root) {
-		console.error("无法定位 dsh 安装目录。请用 --root 指定 <...>/@deepseek-ai 包目录。");
+		if (optRoot) {
+			console.error(`--root 指向的 ${optRoot} 不是 dsh 包目录（需含 ${PKG}/lib/flock.js）。`);
+			console.error("本脚本是 --root 硬契约：显式给出却定位不到就退出，不会回落到其它安装树（避免夹具测试误写生产树）。");
+		} else {
+			console.error("无法定位 dsh 安装目录。请用 --root 指定 <...>/@deepseek-ai 包目录。");
+		}
 		process.exit(1);
 	}
 	const pkgDir = path.join(root, PKG);
@@ -189,7 +256,7 @@ async function main() {
 	const src = fs.readFileSync(flockJs, "utf8");
 	const patched = patchFlockJs(src);
 	if (patched.patternMismatch) {
-		console.error("[WARN    ] 未找到 lib/flock.js 的平台判断锚点，跳过改写，请人工检查");
+		console.error(`[WARN    ] 已产出 ${outFile}，但未找到 lib/flock.js 的平台判断锚点 → flock.js 未改写（android 下仍加载不到绑定），请人工检查`);
 		process.exit(2);
 	}
 	if (patched.changed) {

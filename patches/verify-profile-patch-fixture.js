@@ -167,7 +167,7 @@ async function main() {
 		const before = sha(target);
 		const result = run(target);
 		check("退出码 1", result.rc === 1, `rc=${result.rc}`);
-		check("报 [ERROR]", result.out.includes("[ERROR   ]"));
+		check("报 [ERROR]（走 stderr）", result.err.includes("[ERROR   ]"), result.err.trim().split("\n").pop());
 		check("原文件字节未变", sha(target) === before);
 		check("无备份/临时文件残留", noLeftovers(root).length === 0, noLeftovers(root).join(","));
 	}
@@ -178,7 +178,7 @@ async function main() {
 		const empty = fs.mkdtempSync(path.join(os.tmpdir(), "not-a-dsh-root-"));
 		const result = run(target, ["--root", empty]);
 		check("退出码 1", result.rc === 1, `rc=${result.rc}`);
-		check("报 [ERROR] 且提到 --root", result.out.includes("[ERROR   ]") && result.out.includes("--root"), result.out.trim().split("\n").pop());
+		check("报 [ERROR]（走 stderr）且提到 --root", result.err.includes("[ERROR   ]") && result.err.includes("--root"), result.err.trim().split("\n").pop());
 		check("目标未被改写", fs.readFileSync(target, "utf8") === TEMPLATE);
 		fs.rmSync(empty, { recursive: true, force: true });
 	}
