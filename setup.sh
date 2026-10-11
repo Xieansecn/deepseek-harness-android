@@ -201,9 +201,9 @@ anchor_precheck() {
   for spec in \
     'dsh-client-ui-conversation/lib/client.js|dsh-android: 普通回车换行|dsh-client-ui-conversation 回车补丁标记' \
     'dsh-tool-fs-search/lib/index.js|resolveSystemRg|dsh-tool-fs-search resolveSystemRg 回退' \
-    'dsh-session-persistence-jsonl/lib/index.js|publishNoReplaceNoHardlink|dsh-session-persistence 无硬链接迁移回退' \
-    'dsh-attachment-local/lib/index.js|publishNoReplaceNoHardlink|dsh-attachment-local 无硬链接发布回退' \
-    'dsh-fs-local/lib/index.js|publishNoReplaceNoHardlink|dsh-fs-local 无硬链接发布回退' \
+    'dsh-session-persistence-jsonl/lib/index.js|async function publishNoReplaceNoHardlink(|dsh-session-persistence 无硬链接迁移回退' \
+    'dsh-attachment-local/lib/index.js|async function publishNoReplaceNoHardlink(|dsh-attachment-local 无硬链接发布回退' \
+    'dsh-fs-local/lib/index.js|async function publishNoReplaceNoHardlink(|dsh-fs-local 无硬链接发布回退' \
     'node-addon-system/lib/flock.js|dsh-android-flock|dsh-android-flock Android flock 绑定' \
     'dsh-subprocess-local/lib/runner-launch-*.js|platform === "android"|dsh-subprocess-local android 终端检测'; do
     path="${spec%%|*}"; rest="${spec#*|}"; marker="${rest%%|*}"; label="${rest#*|}"
@@ -441,7 +441,7 @@ if [ -f "$HLFIX" ]; then
   if run_hidden node "$HLFIX" --root "$DSH_DIR/node_modules/@deepseek-ai"; then
     ok "  android 硬链接修复完成（session / attachment / fs-local）"
   else
-    warn "  硬链接修复脚本报告异常（dsh 版本不匹配？请人工检查）"
+    warn "  硬链接修复脚本报告异常（dsh 版本漂移？或目标文件是「仅含回退调用注释」的半成品？请人工检查；详见 $SETUP_LOG）"
   fi
 else
   warn "  缺少 patches/patch-dsh-android-link.js，跳过硬链接修复"
@@ -455,7 +455,7 @@ if [ -f "$FLOCKFIX" ]; then
   if run_hidden node "$FLOCKFIX" --root "$DSH_DIR/node_modules/@deepseek-ai"; then
     ok "  android flock 原生绑定完成（会话写锁可用）"
   else
-    warn "  [!!] flock 修复脚本报告异常（发消息会失败，请人工检查）"
+    warn "  [!!] flock 修复脚本报告异常（发消息会失败，请人工检查；可能 system.node 已写出但 flock.js 未改写，详见 $SETUP_LOG）"
   fi
 else
   warn "  缺少 patches/patch-dsh-android-flock.js，跳过 flock 修复"
@@ -631,10 +631,11 @@ EOF
   else
     warn "  [!!] 重建后的 dsh 不可用，回滚旧包装"
     if [ -e "$DSH_BACKUP" ] || [ -L "$DSH_BACKUP" ]; then
-      rm -f "$DSH_CMD"
-      if cp -P -f "$DSH_BACKUP" "$DSH_CMD" 2>/dev/null; then
+      # ⚠️ 回滚也必须是「原子替换目录项」：mv -f 不 follow 目标，符号链接备份会按符号链接还原。
+      #    过去写成 `rm -f "$DSH_CMD"` + `cp -P -f backup cmd`——删完到拷完之间命令是缺失的，
+      #    而且目标仍存在时 cp 会跟随符号链接把真实文件覆盖掉。
+      if mv -f "$DSH_BACKUP" "$DSH_CMD" 2>/dev/null; then
         warn "  已回滚旧包装"
-        rm -f "$DSH_BACKUP"
       else
         warn "  [!!] 回滚失败，保留备份供人工恢复: $DSH_BACKUP"
       fi
