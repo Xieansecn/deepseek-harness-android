@@ -1,22 +1,22 @@
 #!/data/data/com.termux/files/usr/bin/bash
-# DeepSeek Harness 一键安装脚本（Android/Termux）：安装 @deepseek-ai/dsh 并打上全部 Android 兼容补丁（幂等，可反复重跑）。
-# 用法：bash setup.sh [--verbose] [--pnpm]；装完用 bash ~/dsh/start_dsh.sh 启动。
-#   --pnpm / DSH_PM=pnpm      用 pnpm 11.x 安装 dsh；默认仍是 npm（npm 的安装命令/参数与旧版逐字一致）。
-#                             安装前先做**只读冲突预检**，发现冲突时打印具体中文提示并 exit 1（不产生安装副作用）。
-#                             注意：两种安装方式都会跑 2.5/9 的 pnpm 运行时供给（dsh ≥0.2.1 的插件功能
-#                             运行期 execa("pnpm") 依赖它；PATH 上已有可用 pnpm 11.x 时只报 [OK]、不写文件）。
-#   --npm  / DSH_PM=npm       显式选择默认 npm 方式（也可用于覆盖环境里已有的 DSH_PM=pnpm）。
-#   DSH_PNPM_BIN=<path>       pnpm 方式的 pnpm 可执行文件/入口（默认取 PATH 上的 pnpm）。
-#   DSH_PM_CONFLICT_OVERRIDE=1  「已存在 dsh 安装 / PATH 上有另一个 dsh」这类共存冲突时强制继续；
-#                             pnpm 方式会把旧目录改名备份为 dsh.npm-backup 而不是删除。版本类冲突不可覆盖。
-#   ── pnpm 运行时（dsh ≥0.2.1 插件市场 / `dsh plugin` 的运行期依赖；2.5/9 自动供给，npm/pnpm 两种方式都需要）──
-#   DSH_PNPM_PIN_DIR=<dir>    pnpm 安装目录（默认 ~/.local/share/pnpm-pin，npm --prefix 装 pnpm 11 JS build）。
-#   DSH_PNPM_WRAPPER_DIR=<dir> 包装脚本目录（默认 ~/bin；必须在 PATH 上，dsh 子进程 execa("pnpm") 才找得到）。
-#   DSH_PNPM_VERSION=<ver>    钉的 pnpm 版本（默认 11.27.1；本机实测可用的 JS build，勿随意升 12.x）。
-#   DSH_PNPM_CONFLICT_OVERRIDE=1  pnpm 运行时遇「用户自己的包装 / 不可共存的共存类冲突」时强制继续
-#                             （旧包装备份为 .dsh-android.bak）；pnpm 版本类冲突（≥12 / <11 / 坏）不可覆盖。
+# DeepSeek Harness 安装脚本（Android/Termux）：安装 @deepseek-ai/dsh 并应用全部 Android 兼容补丁（幂等，可重复运行）。
+# 用法：bash setup.sh [--verbose] [--pnpm]。安装完成后，执行 bash ~/dsh/start_dsh.sh 启动服务。
+#   --pnpm / DSH_PM=pnpm      以 pnpm 11.x 安装 dsh；默认仍为 npm（npm 的安装命令与参数与旧版逐字一致）。
+#                             安装前执行只读冲突预检；检测到冲突时输出具体中文提示并 exit 1（不产生安装副作用）。
+#                             说明：两种安装方式均执行 2.5/9 的 pnpm 运行时供给（dsh ≥0.2.1 的插件功能
+#                             在运行期通过 execa("pnpm") 依赖该运行时；PATH 上已有可用 pnpm 11.x 时仅输出 [OK]，不写文件）。
+#   --npm  / DSH_PM=npm       显式选择默认 npm 方式（亦可用于覆盖环境中已设置的 DSH_PM=pnpm）。
+#   DSH_PNPM_BIN=<path>       pnpm 方式的 pnpm 可执行文件或入口（默认取自 PATH 上的 pnpm）。
+#   DSH_PM_CONFLICT_OVERRIDE=1  对「已存在 dsh 安装 / PATH 上存在另一个 dsh」这类共存冲突强制继续；
+#                             pnpm 方式会将旧目录重命名备份为 dsh.npm-backup，不执行删除。版本类冲突不可覆盖。
+#   ── pnpm 运行时（dsh ≥0.2.1 插件市场与 `dsh plugin` 的运行期依赖；2.5/9 自动供给，npm 与 pnpm 两种方式均需要）──
+#   DSH_PNPM_PIN_DIR=<dir>    pnpm 安装目录（默认 ~/.local/share/pnpm-pin；npm --prefix 安装 pnpm 11 JS build）。
+#   DSH_PNPM_WRAPPER_DIR=<dir> 包装脚本目录（默认 ~/bin；必须位于 PATH，dsh 子进程的 execa("pnpm") 才能找到）。
+#   DSH_PNPM_VERSION=<ver>    指定的 pnpm 版本（默认 11.27.1，本机实测可用的 JS build；请勿随意升级至 12.x）。
+#   DSH_PNPM_CONFLICT_OVERRIDE=1  pnpm 运行时遇到「用户自有包装 / 不可共存的冲突」时强制继续
+#                             （旧包装备份为 .dsh-android.bak）；pnpm 版本类冲突（≥12 / <11 / 不可用）不可覆盖。
 #   DSH_SETUP_PREFIX / DSH_SETUP_PREFLIGHT_ONLY / DSH_SETUP_PROVISION_ONLY
-#                             仅测试夹具/排障使用（替换 Termux 前缀 / 只跑预检 / 只跑 pnpm 运行时供给），生产不要设置。
+#                             仅供测试夹具与排障使用（替换 Termux 前缀 / 仅执行预检 / 仅执行 pnpm 运行时供给），生产环境请勿设置。
 set -euo pipefail
 
 # ---------------------------------------------------------------- 输出/日志
@@ -186,7 +186,7 @@ on_exit() {
   if [ -n "$STATUS_FILE" ]; then rm -f "$STATUS_FILE" 2>/dev/null || true; fi
   if [ -n "$DSH_TMP" ]; then rm -f "$DSH_TMP" 2>/dev/null || true; fi
   if [ "$rc" -ne 0 ]; then
-    printf '\n%s[x]%s 安装失败（退出码 %s），最近日志：\n' "$C_RED" "$C_RST" "$rc" >&2
+    printf '\n%s[x]%s 安装失败（退出码 %s）。最近日志：\n' "$C_RED" "$C_RST" "$rc" >&2
     if [ -s "$SETUP_LOG" ]; then tail -25 "$SETUP_LOG" >&2; fi
   fi
 }
@@ -333,10 +333,10 @@ pnpm_runtime_preflight() {
   #    整次 npm install 必然中断 → 配置类冲突，不可覆盖（改回默认 false 即可）。
   if [ "$NPM_STRICT_ALLOW_SCRIPTS" = "true" ]; then
     error "  安装冲突：检测到 npm strict-allow-scripts=true。"
-    error "  该设置会把不在白名单（--allow-scripts）里的安装脚本变成**硬错误**（ESTRICTALLOWSCRIPTS）——"
-    error "  本脚本按设计跳过 koffi 的构建（它在 SKIP_SCRIPTS 里），于是整次 npm install 会中断。"
-    error "  处置：npm config set strict-allow-scripts false --location=user"
-    error "        （或删掉 ~/.npmrc / 项目 .npmrc 里的 strict-allow-scripts=true），再重跑本脚本。"
+    error "  原因：该设置会把未列入白名单（--allow-scripts）的安装脚本转为硬性错误（ESTRICTALLOWSCRIPTS）；"
+    error "  本脚本按设计跳过 koffi 构建（koffi 位于 SKIP_SCRIPTS），因此整次 npm install 将中断。"
+    error "  处置：执行 npm config set strict-allow-scripts false --location=user"
+    error "        或删除 ~/.npmrc 或项目 .npmrc 中的 strict-allow-scripts=true，随后重新运行本脚本。"
     exit 1
   fi
 
@@ -347,21 +347,21 @@ pnpm_runtime_preflight() {
       case "$maj" in
         ''|*[!0-9]*)
           error "  安装冲突：无法解析 pnpm 版本（$path_pnpm --version → '$ver'）。"
-          error "  本脚本的 pnpm 运行时只支持 11.x，请换用可正常输出版本的 pnpm 11.x。"
+          error "  本脚本的 pnpm 运行时仅支持 11.x，请改用可正常输出版本的 pnpm 11.x。"
           exit 1 ;;
       esac
       if [ "$maj" -ge 12 ]; then
-        error "  安装冲突：PATH 上的 pnpm 是 $ver（$path_pnpm），pnpm 12 在本机不可用。"
-        error "  pnpm 12 的 android-arm64 原生二进制写 store 必失败："
+        error "  安装冲突：PATH 上的 pnpm 为 $ver（$path_pnpm），pnpm 12 在本机不可用。"
+        error "  原因：pnpm 12 的 android-arm64 原生二进制写 store 必然失败："
         error "    ERR_PNPM_STORE_DIR_ACQUIRE_OPERATION_LOCK / lock_shared() not supported"
-        error "  处置：把本仓库的 pnpm 11.x 包装放到 PATH 前面（$DSH_PNPM_WRAPPER_DIR，"
-        error "        默认 ~/bin；确认 ~/bin 在 PATH 中且排在 $PREFIX_BIN 之前），或删掉坏的 pnpm 12。"
-        error "  注意：版本类冲突不可用 DSH_PNPM_CONFLICT_OVERRIDE 覆盖。"
+        error "  处置：将本仓库的 pnpm 11.x 包装置于 PATH 前端（$DSH_PNPM_WRAPPER_DIR，"
+        error "        默认 ~/bin；确认 ~/bin 已加入 PATH 且位于 $PREFIX_BIN 之前），或删除不可用的 pnpm 12。"
+        error "  版本类冲突不可通过 DSH_PNPM_CONFLICT_OVERRIDE 覆盖。"
         exit 1
       fi
       if [ "$maj" -lt 11 ]; then
-        error "  安装冲突：PATH 上的 pnpm 是 $ver（$path_pnpm），版本过旧。"
-        error "  本脚本需要 11.x 的 allowBuilds / strictDepBuilds 语义（旧版不认这些设置），请升级后重试。"
+        error "  安装冲突：PATH 上的 pnpm 为 $ver（$path_pnpm），版本过低。"
+        error "  原因：本脚本需要 11.x 的 allowBuilds / strictDepBuilds 语义（旧版本不支持上述设置）。请升级后重试。"
         exit 1
       fi
       PNPM_RUNTIME_STATE="ok"
@@ -375,17 +375,17 @@ pnpm_runtime_preflight() {
             PNPM_RUNTIME_STATE="repair"
           elif [ "$DSH_PNPM_CONFLICT_OVERRIDE" = "1" ]; then
             # 覆盖开关：把坏掉/不可用的用户包装视为「可重写」（2.5/9 会先备份为 .dsh-android.bak）
-            warn "  $path_pnpm 不可用且不是本仓库包装；已按 DSH_PNPM_CONFLICT_OVERRIDE=1 继续（将备份并重写）"
+            warn "  $path_pnpm 不可用且不属于本仓库包装；已按 DSH_PNPM_CONFLICT_OVERRIDE=1 继续（将备份后重写）。"
             PNPM_RUNTIME_STATE="repair"
           else
-            error "  安装冲突：PATH 上的 pnpm 不可用（$path_pnpm），且它不是本仓库生成的包装。"
-            error "  pnpm 运行时需要 11.x；请修复/删除这个 pnpm，或把它换成本仓库的包装（2.5/9 可自动供给）。"
-            error "  也可以设 DSH_PNPM_CONFLICT_OVERRIDE=1 让本脚本备份后重写这个包装。"
+            error "  安装冲突：PATH 上的 pnpm 不可用（$path_pnpm），且不属于本仓库生成的包装。"
+            error "  处置：pnpm 运行时需要 11.x；请修复或删除该 pnpm，或将其替换为本仓库包装（2.5/9 可自动供给）。"
+            error "        亦可设置 DSH_PNPM_CONFLICT_OVERRIDE=1，由本脚本备份后重写该包装。"
             exit 1
           fi ;;
         *)
-          error "  安装冲突：PATH 上的 pnpm 不可用（$path_pnpm：--version 失败或入口损坏）。"
-          error "  pnpm 运行时需要 11.x；请修复/删除这个 pnpm，再重跑本脚本。"
+          error "  安装冲突：PATH 上的 pnpm 不可用（$path_pnpm，--version 失败或入口损坏）。"
+          error "  处置：pnpm 运行时需要 11.x；请修复或删除该 pnpm 后重新运行本脚本。"
           exit 1 ;;
       esac
     fi
@@ -395,10 +395,10 @@ pnpm_runtime_preflight() {
 
   # c) 需要供给/修复时，包装目录必须在 PATH 上（否则 dsh 子进程 execa("pnpm") 找不到）。
   if [ "$PNPM_RUNTIME_STATE" != "ok" ] && ! dir_in_path "$DSH_PNPM_WRAPPER_DIR"; then
-    error "  安装冲突：pnpm 包装目录 $DSH_PNPM_WRAPPER_DIR 不在 PATH 上。"
-    error "  dsh 的插件功能会用 execa(\"pnpm\") 从 PATH 找 pnpm，包装写在这个目录但 PATH 看不到就白装。"
-    error "  处置（Termux）：在 ~/.bashrc 里加一行   export PATH=\"\$HOME/bin:\$PATH\""
-    error "        然后重开终端（或 source ~/.bashrc）再重跑本脚本。"
+    error "  安装冲突：pnpm 包装目录 $DSH_PNPM_WRAPPER_DIR 未加入 PATH。"
+    error "  原因：dsh 的插件功能通过 execa(\"pnpm\") 从 PATH 查找 pnpm；包装写入该目录但 PATH 未包含时不会生效。"
+    error "  处置（Termux）：在 ~/.bashrc 中追加一行：  export PATH=\"\$HOME/bin:\$PATH\""
+    error "        随后重新打开终端（或执行 source ~/.bashrc），再重新运行本脚本。"
     exit 1
   fi
   # c2) 已存在的包装文件（无论运行时当前是否可用都要查）：本仓库的检查是否损坏；
@@ -412,12 +412,12 @@ pnpm_runtime_preflight() {
     elif pnpm_wrapper_matches_pin "$file" "$rel"; then
       :   # 本机已有等价的手工 pin 包装：认领，不覆盖
     elif [ "$DSH_PNPM_CONFLICT_OVERRIDE" = "1" ]; then
-      warn "  $file 是本仓库之外的 pnpm 包装；已按 DSH_PNPM_CONFLICT_OVERRIDE=1 继续（会备份为 .dsh-android.bak）"
+      warn "  $file 不属于本仓库的 pnpm 包装；已按 DSH_PNPM_CONFLICT_OVERRIDE=1 继续（将备份为 .dsh-android.bak）。"
     else
-      error "  安装冲突：$file 已存在，但不是本仓库生成的 pnpm 包装（无 marker、内容也不等价）。"
-      error "  本脚本不会覆盖用户自己的包装。请先处理其一："
-      error "    删除/改名 $file（及同目录的 pn/pnpx/pnx 同名文件），再重跑本脚本"
-      error "    或设 DSH_PNPM_CONFLICT_OVERRIDE=1（旧文件会备份为 .dsh-android.bak 后再写）"
+      error "  安装冲突：$file 已存在，但不属于本仓库生成的 pnpm 包装（无 marker，内容亦不等价）。"
+      error "  本脚本不会覆盖用户自有包装。处置：请先执行以下操作之一："
+      error "    删除或重命名 $file（以及同目录下的 pn、pnpx、pnx 同名文件），然后重新运行本脚本"
+      error "    或设置 DSH_PNPM_CONFLICT_OVERRIDE=1（旧文件将备份为 .dsh-android.bak 后重写）"
       exit 1
     fi
   done
@@ -431,10 +431,10 @@ pnpm_runtime_preflight() {
       ''|*[!0-9]*) : ;;
       *)
         if [ "$gmaj" -ge 12 ]; then
-          warn "  提醒：npm 全局还装着 pnpm $gver（$npm_root/pnpm），当前被 pnpm 11.x 遮蔽。"
-          warn "        不要让它回到 PATH 前面：pnpm 12 在这个 Android 环境写 store 必失败（store 锁 / 原生 exe 无 android 构建）。"
+          warn "  提醒：npm 全局仍安装 pnpm $gver（$npm_root/pnpm），当前被 pnpm 11.x 遮蔽。"
+          warn "        请勿使其重新位于 PATH 前端：pnpm 12 在本 Android 环境写 store 必然失败（store 锁 / 原生 exe 无 android 构建）。"
         elif [ "$gmaj" -lt 11 ]; then
-          warn "  提醒：npm 全局还有旧版 pnpm $gver（$npm_root/pnpm），当前被 11.x 遮蔽；建议 npm uninstall -g pnpm 清理。"
+          warn "  提醒：npm 全局仍存在旧版 pnpm $gver（$npm_root/pnpm），当前被 11.x 遮蔽；建议执行 npm uninstall -g pnpm 清理。"
         fi ;;
     esac
   fi
@@ -444,43 +444,43 @@ pnpm_runtime_preflight() {
     maj="${pin_ver%%.*}"
     case "$maj" in
       ''|*[!0-9]*) : ;;
-      *) [ "$maj" -ne 11 ] && warn "  提醒：$DSH_PNPM_PIN_DIR 里是 pnpm $pin_ver（非 11.x），2.5/9 会重装成 $DSH_PNPM_VERSION。" ;;
+      *) [ "$maj" -ne 11 ] && warn "  提醒：$DSH_PNPM_PIN_DIR 中的 pnpm 版本为 $pin_ver（非 11.x），2.5/9 将重新安装为 $DSH_PNPM_VERSION。" ;;
     esac
   fi
 
   # e) 状态输出（预检是只读的，真正写入在 2.5/9）
   case "$PNPM_RUNTIME_STATE" in
-    ok)        info "  pnpm 运行时：可用（$PNPM_RUNTIME_INFO；dsh 插件市场/dsh plugin 依赖）" ;;
-    provision) info "  pnpm 运行时：PATH 上没有可用 pnpm 11.x，2.5/9 将安装并供给 pnpm $DSH_PNPM_VERSION" ;;
-    repair)    info "  pnpm 运行时：本仓库的 pnpm 安装/包装损坏，2.5/9 将重装修复" ;;
-    *)         error "  pnpm 运行时预检状态异常（$PNPM_RUNTIME_STATE）"; exit 1 ;;
+    ok)        info "  pnpm 运行时可用（$PNPM_RUNTIME_INFO；dsh 插件市场与 dsh plugin 依赖）。" ;;
+    provision) info "  pnpm 运行时：PATH 上未检测到可用的 pnpm 11.x，2.5/9 将安装并供给 pnpm $DSH_PNPM_VERSION。" ;;
+    repair)    info "  pnpm 运行时：本仓库的 pnpm 安装或包装已损坏，2.5/9 将重新安装并修复。" ;;
+    *)         error "  pnpm 运行时预检状态异常（$PNPM_RUNTIME_STATE）。"; exit 1 ;;
   esac
 }
 
 # pnpm 运行时供给（2.5/9 正式步骤；幂等：已可用则只报 [OK]，不写任何文件）。
 pnpm_runtime_provision() {
-  step "2.5/9 pnpm 运行时（dsh 插件依赖）"
+  step "2.5/9 pnpm 运行时供给（dsh 插件依赖）"
   local pin="$DSH_PNPM_PIN_DIR" wdir="$DSH_PNPM_WRAPPER_DIR" ver="" maj="" name="" rel="" tmp="" file="" node_bin="$PNPM_NODE_BIN"
   case "$PNPM_RUNTIME_STATE" in
     ok)
-      ok "  pnpm 运行时可用：$PNPM_RUNTIME_INFO"
+      ok "  pnpm 运行时可用（$PNPM_RUNTIME_INFO）。"
       return 0 ;;
     provision|repair) : ;;
     *)
-      error "  pnpm 运行时预检状态异常（$PNPM_RUNTIME_STATE），请在 2.5/9 之前先通过预检"
+      error "  pnpm 运行时预检状态异常（$PNPM_RUNTIME_STATE）；请先通过预检，再执行 2.5/9。"
       exit 1 ;;
   esac
   [ -n "$node_bin" ] || node_bin="node"
-  info "  安装 pnpm $DSH_PNPM_VERSION（npm --prefix $pin；JS build，无原生 exe）..."
+  info "  正在安装 pnpm $DSH_PNPM_VERSION（npm --prefix $pin；JS build，无原生 exe）……"
   mkdir -p "$pin" "$wdir"
-  if ! run_hidden_spinner "  正在安装 pnpm 运行时..." \
+  if ! run_hidden_spinner "  正在安装 pnpm 运行时……" \
       "${NPM_CMD[@]}" install --prefix "$pin" --no-audit --no-fund --loglevel=error "pnpm@$DSH_PNPM_VERSION"; then
-    error "  安装 pnpm 运行时失败（原因见 $SETUP_LOG）。"
-    error "  dsh ≥0.2.1 的插件市场 / dsh plugin 会 execa(\"pnpm\")，缺 pnpm 运行时这些功能不可用，故中断安装。"
+    error "  pnpm 运行时安装失败（原因见 $SETUP_LOG）。"
+    error "  原因：dsh ≥0.2.1 的插件市场与 dsh plugin 通过 execa(\"pnpm\") 调用 pnpm；缺少运行时将导致上述功能不可用，因此中断安装。"
     exit 1
   fi
   if [ ! -f "$pin/node_modules/pnpm/bin/pnpm.mjs" ]; then
-    error "  pnpm 运行时安装完成但缺少入口 $pin/node_modules/pnpm/bin/pnpm.mjs（安装目录异常）"
+    error "  pnpm 运行时安装完成，但未检测到入口 $pin/node_modules/pnpm/bin/pnpm.mjs（安装目录不符合预期）。"
     exit 1
   fi
   # 写 4 个包装（Termux 绝对 shebang + exec node <mjs> + 归属 marker）。已存在的用户包装先备份。
@@ -489,12 +489,12 @@ pnpm_runtime_provision() {
     file="$wdir/$name"
     if [ -e "$file" ] && ! pnpm_wrapper_is_ours "$file"; then
       cp -f "$file" "$file.dsh-android.bak" 2>/dev/null || true
-      warn "  已备份原有 pnpm 包装：$file.dsh-android.bak"
+      warn "  已备份原有 pnpm 包装至 $file.dsh-android.bak。"
     fi
     tmp="$wdir/.$name.dsh-tmp.$$"
     {
       printf '#!/data/data/com.termux/files/usr/bin/sh\n'
-      printf '# %s（setup.sh 2.5/9 生成，勿手改；pnpm %s JS build）\n' "$DSH_PNPM_WRAPPER_MARKER" "$DSH_PNPM_VERSION"
+      printf '# %s（由 setup.sh 2.5/9 生成，请勿手动修改；pnpm %s JS build）\n' "$DSH_PNPM_WRAPPER_MARKER" "$DSH_PNPM_VERSION"
       printf '# 为什么用 node 跑 pnpm.mjs：pnpm 12 的原生 android-arm64 二进制在本机写 store 必失败\n'
       printf '#   （ERR_PNPM_STORE_DIR_ACQUIRE_OPERATION_LOCK / lock_shared() not supported）。\n'
       printf '# 解除：rm -f %s/{pnpm,pn,pnpx,pnx} %s\n' "$wdir" "$pin"
@@ -505,25 +505,25 @@ pnpm_runtime_provision() {
   done
   # 验证：包装能跑、版本是 11.x、PATH 解析到我们写的包装。
   if ! ver="$("$wdir/pnpm" --version 2>/dev/null | tail -1)" || [ -z "$ver" ]; then
-    error "  pnpm 运行时包装不可执行：$wdir/pnpm --version 失败"
+    error "  pnpm 运行时包装不可执行：$wdir/pnpm --version 执行失败。"
     exit 1
   fi
   maj="${ver%%.*}"
   case "$maj" in
-    ''|*[!0-9]*) error "  无法解析装好的 pnpm 版本（'$ver'）"; exit 1 ;;
+    ''|*[!0-9]*) error "  无法解析已安装的 pnpm 版本（'$ver'）。"; exit 1 ;;
   esac
   if [ "$maj" -ne 11 ]; then
-    error "  装好的 pnpm 版本异常：$ver（需要 11.x）"
+    error "  已安装的 pnpm 版本不符合预期：$ver（需要 11.x）。"
     exit 1
   fi
   if [ "$(command -v pnpm 2>/dev/null || true)" != "$wdir/pnpm" ]; then
-    error "  pnpm 包装已写入，但 PATH 解析到的不是它：$(command -v pnpm 2>/dev/null || echo '（空）')（期望 $wdir/pnpm）"
-    error "  请把 $wdir 放到 PATH 前面（Termux 一般用 ~/.bashrc 里的 export PATH=\"\$HOME/bin:\$PATH\"）后重跑。"
+    error "  pnpm 包装已写入，但 PATH 解析结果不是该包装：$(command -v pnpm 2>/dev/null || echo '（空）')（期望 $wdir/pnpm）。"
+    error "  请将 $wdir 置于 PATH 前端（Termux 通常在 ~/.bashrc 中设置 export PATH=\"\$HOME/bin:\$PATH\"），然后重新运行。"
     exit 1
   fi
   PNPM_VERSION="$ver"
   PNPM_CMD=("$wdir/pnpm")   # 3/9 的 pnpm 安装方式复用同一套解析结果
-  ok "  pnpm 运行时就绪：$ver（包装 $wdir/pnpm，安装目录 $pin）"
+  ok "  pnpm 运行时已就绪（$ver；包装 $wdir/pnpm，安装目录 $pin）。"
 }
 
 # pnpm 可执行入口解析：优先 `node <pnpm.mjs/cjs>`，绕开坏 shebang（npm 装的 pnpm 常是 #!/usr/bin/env node，
@@ -585,41 +585,41 @@ pnpm_owns_dir() {
 
 # 冲突预检（只读）：必须在任何安装动作之前跑，冲突时 exit 1。只有 pnpm 模式启用（npm 路径行为完全不变）。
 pnpm_preflight() {
-  info "包管理器：pnpm（安装前冲突预检，只读）"
+  info "安装方式：pnpm（安装前冲突预检，只读）。"
   # a) pnpm 是否可运行（PATH 上完全没有 pnpm 时不再冲突：2.5/9 会自动供给 pnpm 11 运行时）
   local pnpm_usable=0 any_pp="" real_any=""
   if resolve_pnpm_cmd; then
     pnpm_usable=1
   elif [ -n "${DSH_PNPM_BIN:-}" ]; then
     # 显式指定的 pnpm 不可用 → 尊重用户意图，直接冲突（不去猜着替换）
-    error "  安装冲突/前置条件不满足：找不到可运行的 pnpm。"
-    error "  DSH_PNPM_BIN=$DSH_PNPM_BIN 不可执行或 --version 失败。"
-    error "  pnpm 安装方式需要 pnpm 11.x；请修好它，或去掉 DSH_PNPM_BIN 让脚本自动供给。"
-    error "    安装方法：npm install -g pnpm@11"
+    error "  安装冲突：未检测到可运行的 pnpm。"
+    error "  原因：DSH_PNPM_BIN=$DSH_PNPM_BIN 不可执行，或 --version 执行失败。"
+    error "  处置：pnpm 安装方式需要 pnpm 11.x；请修复该路径，或取消 DSH_PNPM_BIN 以由脚本自动供给。"
+    error "    安装方式：npm install -g pnpm@11"
     error "    或显式指定：DSH_PNPM_BIN=/path/to/pnpm"
     exit 1
   else
     any_pp="$(command -v pnpm 2>/dev/null || true)"
     if [ -z "$any_pp" ]; then
-      info "  PATH 上还没有 pnpm：2.5/9 会自动安装 pnpm ${DSH_PNPM_VERSION} 运行时（dsh 插件功能需要）"
+      info "  PATH 上未检测到 pnpm：2.5/9 将自动安装 pnpm ${DSH_PNPM_VERSION} 运行时（dsh 插件功能依赖）。"
     else
       real_any="$(readlink -f "$any_pp" 2>/dev/null || printf '%s' "$any_pp")"
       case "$real_any" in
         "$DSH_PNPM_WRAPPER_DIR"/*)
           if pnpm_wrapper_is_ours "$real_any"; then
-            info "  PATH 上的 pnpm 是本仓库包装但当前不可用（2.5/9 将重装修复）"
+            info "  PATH 上的 pnpm 属于本仓库包装，但当前不可用（2.5/9 将重新安装并修复）。"
           else
-            error "  安装冲突/前置条件不满足：找不到可运行的 pnpm。"
-            error "  PATH 上的 $any_pp 不可执行或入口损坏，且不是本仓库生成的包装。"
-            error "  请修复/删除它，或设 DSH_PNPM_BIN=/path/to/pnpm 指定可用的 pnpm 11.x。"
+            error "  安装冲突：未检测到可运行的 pnpm。"
+            error "  原因：PATH 上的 $any_pp 不可执行或入口已损坏，且不属于本仓库生成的包装。"
+            error "  处置：请修复或删除该 pnpm，或设置 DSH_PNPM_BIN=/path/to/pnpm 指定可用的 pnpm 11.x。"
             exit 1
           fi ;;
         *)
-          error "  安装冲突/前置条件不满足：找不到可运行的 pnpm。"
-          error "  PATH 上的 $any_pp 不可执行或入口损坏；pnpm 安装方式需要 pnpm 11.x。"
-          error "  安装方法（任选其一）："
+          error "  安装冲突：未检测到可运行的 pnpm。"
+          error "  原因：PATH 上的 $any_pp 不可执行或入口已损坏；pnpm 安装方式需要 pnpm 11.x。"
+          error "  处置（任选其一）："
           error "    npm install -g pnpm@11              # 本仓库实测可用的版本线"
-          error "    DSH_PNPM_BIN=/path/to/pnpm          # 或显式指定已有的 pnpm 入口"
+          error "    DSH_PNPM_BIN=/path/to/pnpm          # 或显式指定已有 pnpm 入口"
           exit 1 ;;
       esac
     fi
@@ -630,23 +630,23 @@ pnpm_preflight() {
   case "$maj" in
     ''|*[!0-9]*)
       error "  安装冲突：无法解析 pnpm 版本（--version 输出：'${PNPM_VERSION}'）。"
-      error "  本脚本只支持 pnpm 11.x，请换用可正常输出版本的 pnpm 后重试。"
+      error "  本脚本仅支持 pnpm 11.x；请改用可正常输出版本的 pnpm 后重试。"
       exit 1 ;;
   esac
   if [ "$maj" -ge 12 ]; then
     error "  安装冲突：pnpm ${PNPM_VERSION} 在本机不可用。"
-    error "  pnpm 12 的 android-arm64 原生二进制在写 store 时必然失败："
+    error "  原因：pnpm 12 的 android-arm64 原生二进制在写 store 时必然失败："
     error "    ERR_PNPM_STORE_DIR_ACQUIRE_OPERATION_LOCK / lock_shared() not supported"
-    error "  安装无法完成，因此拒绝继续。请改用 pnpm 11.x（例如 npm install -g pnpm@11，"
-    error "  或使用本仓库文档里 pinned 的 11.x 包装脚本）。"
+    error "  处置：安装无法完成，因此拒绝继续。请改用 pnpm 11.x（例如执行 npm install -g pnpm@11，"
+    error "  或使用本仓库文档中 pinned 的 11.x 包装脚本）。"
     exit 1
   elif [ "$maj" -lt 11 ]; then
-    error "  安装冲突：pnpm ${PNPM_VERSION} 版本过旧。"
-    error "  本脚本的 pnpm 路径依赖 11.x 的 allowBuilds / strictDepBuilds 语义（旧版不认这些设置，"
-    error "  构建脚本审批行为会不同）。请升级到 pnpm 11.x 后重试。"
+    error "  安装冲突：pnpm ${PNPM_VERSION} 版本过低。"
+    error "  原因：本脚本的 pnpm 路径依赖 11.x 的 allowBuilds / strictDepBuilds 语义（旧版本不支持上述设置，"
+    error "  构建脚本审批行为将不一致）。处置：请升级到 pnpm 11.x 后重试。"
     exit 1
   fi
-  ok "  pnpm ${PNPM_VERSION} 可运行（版本线检查通过）"
+  ok "  pnpm ${PNPM_VERSION} 可正常运行（版本线检查通过）。"
   fi
 
   # c) 已有 dsh 安装：npm 方式的历史安装 vs 本脚本 pnpm 方式的安装
@@ -655,14 +655,14 @@ pnpm_preflight() {
       info "  检测到上一次 pnpm 方式安装：$DSH_DIR（将原地重建）"
     elif [ "$DSH_PM_CONFLICT_OVERRIDE" = "1" ]; then
       warn "  检测到已存在的 dsh 安装（非 pnpm 方式）：$DSH_DIR"
-      warn "      已按 DSH_PM_CONFLICT_OVERRIDE=1 继续；旧目录会改名备份为 dsh.npm-backup（不删除）。"
+      warn "      已按 DSH_PM_CONFLICT_OVERRIDE=1 继续；旧目录将重命名备份为 dsh.npm-backup（不删除）。"
     else
-      error "  安装冲突：已存在 dsh 安装（很可能是 npm 全局安装，或手工放的目录）："
+      error "  安装冲突：已存在 dsh 安装（可能为 npm 全局安装，或手工放置的目录）："
       error "    $DSH_DIR"
-      error "  pnpm 方式会在同一位置重建包树，两套包管理器各自记录状态：后续升级/卸载会互相覆盖，"
-      error "  PATH 上也会出现「哪个 dsh 在生效」的歧义。请先二选一："
-      error "    npm uninstall -g @deepseek-ai/dsh    # 清理旧安装，再重跑本脚本（推荐）"
-      error "    或设 DSH_PM_CONFLICT_OVERRIDE=1       # 强制继续（旧目录会改名备份，不删除）"
+      error "  原因：pnpm 方式会在同一位置重建包树，两套包管理器各自维护状态，后续升级或卸载将互相覆盖，"
+      error "  且 PATH 上会出现「由哪个 dsh 生效」的歧义。处置：请先执行以下操作之一："
+      error "    npm uninstall -g @deepseek-ai/dsh    # 清理旧安装，再重新运行本脚本（推荐）"
+      error "    或设置 DSH_PM_CONFLICT_OVERRIDE=1     # 强制继续（旧目录将重命名备份，不删除）"
       exit 1
     fi
   fi
@@ -672,25 +672,25 @@ pnpm_preflight() {
   other_dsh="$(command -v dsh 2>/dev/null || true)"
   if [ -n "$other_dsh" ] && [ "$other_dsh" != "$DSH_CMD" ]; then
     if [ "$DSH_PM_CONFLICT_OVERRIDE" = "1" ]; then
-      warn "  PATH 上的 dsh 不是本脚本的目标位置：$other_dsh（目标 $DSH_CMD）；已按覆盖开关继续"
+      warn "  PATH 上的 dsh 非本脚本的目标位置：$other_dsh（目标 $DSH_CMD）；已按覆盖开关继续。"
     else
-      error "  安装冲突：PATH 上已有另一个 dsh，解析到：$other_dsh"
-      error "  本脚本会把包装脚本写到 $DSH_CMD，但你的 shell 实际会优先执行上面那个——"
-      error "  两边版本/补丁不一致时会出现「明明装了却没生效」。请先处理其一："
-      error "    删除/改名 $other_dsh，或调整 PATH 让 $PREFIX_BIN 优先"
-      error "    或设 DSH_PM_CONFLICT_OVERRIDE=1 强制继续（风险自负）"
+      error "  安装冲突：PATH 上已有另一个 dsh，解析结果：$other_dsh"
+      error "  原因：本脚本会将包装脚本写入 $DSH_CMD，但当前 shell 实际优先执行上述路径；"
+      error "  两者版本或补丁不一致时，将出现「已安装却未生效」的情况。处置：请先执行以下操作之一："
+      error "    删除或重命名 $other_dsh，或调整 PATH 使 $PREFIX_BIN 优先"
+      error "    或设置 DSH_PM_CONFLICT_OVERRIDE=1 强制继续（风险由操作者承担）"
       exit 1
     fi
   fi
   # 不在 PATH、但 pnpm 全局目录里残留的 dsh：不阻断，仅提醒（本方案不做 pnpm 全局安装，用不到它）
   local pnpm_home_bin="${PNPM_HOME:-$HOME/.local/share/pnpm}/bin"
   if [ -e "$pnpm_home_bin/dsh" ]; then
-    warn "  提醒：pnpm 全局目录里存在 dsh（$pnpm_home_bin/dsh），本脚本不会使用它；建议删除以免以后混淆。"
+    warn "  提醒：pnpm 全局目录中存在 dsh（$pnpm_home_bin/dsh），本脚本不会使用；建议删除以避免后续混淆。"
   fi
 
   # e) 说明：npm 的 allow-scripts 对 pnpm 无效，这里已显式映射（不是冲突，不需要用户处理）
-  info "  pnpm 不读取 ~/.npmrc 的 allow-scripts；已把构建白名单映射到项目级 allowBuilds（+ strictDepBuilds=false），"
-  info "  使「白名单内构建执行、白名单外只警告跳过」与 npm 语义一致。"
+  info "  pnpm 不读取 ~/.npmrc 的 allow-scripts；本脚本已将构建白名单映射至项目级 allowBuilds（并设置 strictDepBuilds=false），"
+  info "  使「白名单内构建执行、白名单外仅警告并跳过」与 npm 语义保持一致。"
 }
 
 if [ "$DSH_PM" = "pnpm" ]; then
@@ -698,7 +698,7 @@ if [ "$DSH_PM" = "pnpm" ]; then
 elif [ "$DSH_PM" = "npm" ]; then
   :   # 默认 npm 路径：行为与旧版完全一致（不做任何新增预检/输出）
 else
-  error "  安装方式无效：DSH_PM='$DSH_PM'（只支持 npm / pnpm）"
+  error "  安装方式无效：DSH_PM='$DSH_PM'（仅支持 npm / pnpm）"
   error "  用法：bash setup.sh [--verbose] [--pnpm]"
   exit 1
 fi
@@ -706,13 +706,13 @@ fi
 pnpm_runtime_preflight
 # 仅夹具/人工预检：做完上面的（只读）预检就退出，绝不进入安装步骤。
 if [ "$SETUP_PREFLIGHT_ONLY" = "1" ]; then
-  info "仅预检模式（DSH_SETUP_PREFLIGHT_ONLY=1）：预检结束，未做任何安装"
+  info "仅预检模式（DSH_SETUP_PREFLIGHT_ONLY=1）：预检已完成，未执行任何安装。"
   exit 0
 fi
 # 仅夹具/排障：只跑 pnpm 运行时供给（不装 dsh、不碰安装树）。
 if [ "$SETUP_PROVISION_ONLY" = "1" ]; then
   pnpm_runtime_provision
-  info "仅供给模式（DSH_SETUP_PROVISION_ONLY=1）：pnpm 运行时已就绪，退出（未安装 dsh）"
+  info "仅供给模式（DSH_SETUP_PROVISION_ONLY=1）：pnpm 运行时已就绪，退出（未安装 dsh）。"
   exit 0
 fi
 
@@ -739,7 +739,7 @@ anchor_precheck() {
     if [ "$hit" -eq 1 ]; then
       ok "  [ok]   $label"
     else
-      warn "  [warn] $label 未检测到锚点（$marker）。对应补丁可能需更新锚点或已由上游原生实现。"
+      warn "  [warn] $label 未检测到锚点（$marker）。对应补丁可能需要更新锚点，或该功能已由上游原生实现。"
       missing=$((missing+1))
     fi
   done
@@ -756,7 +756,7 @@ anchor_precheck() {
   if [ "$pb_hit" -eq 1 ]; then
     ok "  [ok]   profile-boot 双信号强退语义（停止梯子前提）"
   else
-    warn "  [warn] profile-boot 未检测到 interrupt/forceExitOnce（停止可能退化为等满 DSH_STOP_TIMEOUT 兜底）"
+    warn "  [warn] profile-boot 未检测到 interrupt/forceExitOnce（停止操作可能退化为等待 DSH_STOP_TIMEOUT 后兜底）。"
   fi
   # 0.1.7 新增的原生 addon 家族：node-addon-require-builtin 靠平台可选包
   # node-addon-require-builtin-<platform>-<arch> 提供绑定，上游没有 android 版。缺它时
@@ -771,9 +771,9 @@ anchor_precheck() {
   if [ "$rb_hit" -eq 1 ]; then
     ok "  [ok]   node-addon-require-builtin android 平台包（dsh 启动前提）"
   else
-    warn "  [warn] node-addon-require-builtin android 平台包缺失——dsh 将无法启动（No usable native binding found）"
+    warn "  [warn] node-addon-require-builtin android 平台包缺失，dsh 将无法启动（No usable native binding found）。"
   fi
-  [ "$missing" -eq 0 ] && ok "  所有关键锚点就位" || true
+  [ "$missing" -eq 0 ] && ok "  所有关键锚点均已就位" || true
 }
 anchor_precheck
 
@@ -782,7 +782,7 @@ step "1/9 安装构建依赖"
 run_hidden pkg update -y || true
 run_hidden pkg install -y cmake clang make binutils pkg-config python nodejs ripgrep
 
-command -v node >/dev/null 2>&1 || { warn "node 未安装，重试安装 nodejs..."; run_hidden pkg install -y nodejs; }
+command -v node >/dev/null 2>&1 || { warn "未检测到 node，正在重新安装 nodejs……"; run_hidden pkg install -y nodejs; }
 NODE_VER="$(node -v | sed 's/^v//')"
 info "Node.js v${NODE_VER}"
 
@@ -794,22 +794,22 @@ is_slow() {
   awk -v t="$t" 'BEGIN { exit !(t > 1.0) }'
 }
 if is_slow "https://registry.npmjs.org/-/ping"; then
-  info "默认 npm 源较慢，自动切换到 npmmirror 镜像 (registry.npmmirror.com)"
+  info "默认 npm 源响应较慢，本次运行切换至 npmmirror 镜像（registry.npmmirror.com）。"
   export npm_config_registry="https://registry.npmmirror.com"
 fi
 if is_slow "https://nodejs.org/dist/"; then
-  info "nodejs.org 较慢，node-gyp 下载 Node headers 自动切换到 npmmirror 镜像"
+  info "nodejs.org 响应较慢，node-gyp 下载 Node headers 时切换至 npmmirror 镜像。"
   export npm_config_disturl="https://npmmirror.com/mirrors/node/"
 fi
 
 # ------------------------------------------------------- 2/9 准备 gyp 补丁
 step "2/9 准备 Node headers"
 # node-gyp 缓存的 common.gypi 引用了 android_ndk_path，Termux 无 NDK 必须补空定义，否则 node-pty 构建失败。
-run_hidden_spinner "  正在下载 Node headers（约 1 分钟）..." timeout 300 npx --yes node-gyp install || true
+run_hidden_spinner "  正在下载 Node headers（约 1 分钟）……" timeout 300 npx --yes node-gyp install || true
 
 GYP_GIPI="$HOME/.cache/node-gyp/$NODE_VER/include/node/common.gypi"
 if [ -f "$GYP_GIPI" ]; then
-  info "检查 common.gypi：Termux 无 NDK，需补 android_ndk_path 空定义（否则 node-pty 构建失败）"
+  info "检查 common.gypi：Termux 无 NDK，需要补充 android_ndk_path 空定义，否则 node-pty 构建将失败。"
   # python 自己往终端打印，擦行字节必须由它一并写出（SP_CLEAR 已 export）：python3 启动约 40ms，
   # ticker 每 0.15s 重画一次，"先 status_clear 再 python 打印"会有约 1/4 概率把正文叠到状态行上。
   python3 - "$GYP_GIPI" <<'PY'
@@ -822,13 +822,13 @@ ANCHOR = "'variables': {"
 if "'android_ndk_path%': ''" in s:
     print(CLR + "  [skip] common.gypi 已修补")
 elif ANCHOR not in s:
-    print(ECLR + "  [warn] common.gypi 未找到锚点 %s，跳过（node-pty 可能构建失败）" % ANCHOR, file=sys.stderr)
+    print(ECLR + "  [warn] common.gypi 未检测到锚点 %s，已跳过（node-pty 可能构建失败）。" % ANCHOR, file=sys.stderr)
 else:
     open(p, 'w', encoding='utf-8').write(s.replace(ANCHOR, "'variables': {\n    'android_ndk_path%': '',", 1))
     print(CLR + "  patched common.gypi")
 PY
 else
-  warn "未找到 $GYP_GIPI，请确认 node 已安装；可先手动跑一次 `npm i -g @deepseek-ai/dsh` 填充缓存"
+  warn "未检测到 $GYP_GIPI，请确认 node 已安装；可先手动执行一次 `npm i -g @deepseek-ai/dsh` 填充缓存。"
 fi
 
 # ------------------------------------------------- 2.5/9 pnpm 运行时供给
@@ -836,7 +836,7 @@ fi
 pnpm_runtime_provision
 
 # ------------------------------------------------------------- 3/9 正式安装
-step "3/9 安装 dsh（可能 5~15 分钟）"
+step "3/9 安装 dsh（预计耗时 5～15 分钟）"
 # android30 仅是安全 no-op；绝不可加 --sysroot=$PREFIX 或切 -target aarch64-linux-gnu 上 glibc（会头/库/ABI 混用）。
 # 真正需要编译的只有 node-pty（无 android-arm64 预编译），koffi 3.x 走预编译包。
 PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
@@ -890,8 +890,8 @@ pnpm_install_dsh() {
   local proj="$PNPM_PROJECT" parent="" bak="" registry_args=()
   # 预检时 PNPM_CMD 可能还是空的（当时 PATH 上没有 pnpm，由 2.5/9 刚供给）：这里重新解析一次。
   if ! resolve_pnpm_cmd || [ -z "${PNPM_VERSION:-}" ]; then
-    error "  pnpm 安装方式需要可运行的 pnpm 11.x，但当前解析不到（2.5/9 供给后仍失败）。"
-    error "  请确认 $DSH_PNPM_WRAPPER_DIR 在 PATH 上，或用 DSH_PNPM_BIN 指定 pnpm 11.x。"
+    error "  pnpm 安装方式需要可运行的 pnpm 11.x，但当前无法解析（2.5/9 供给后仍失败）。"
+    error "  处置：请确认 $DSH_PNPM_WRAPPER_DIR 已加入 PATH，或通过 DSH_PNPM_BIN 指定 pnpm 11.x。"
     exit 1
   fi
   if [ -n "${npm_config_registry:-}" ]; then
@@ -901,15 +901,15 @@ pnpm_install_dsh() {
   mkdir -p "$proj"
   write_pnpm_project_config "$proj"
   info "  安装目标：${DSH_NPM}（pnpm ${PNPM_VERSION}，hoisted 布局，构建白名单：${ALLOW_SCRIPTS}）"
-  if ! run_hidden_spinner "  正在用 pnpm 安装 dsh 和编译原生模块..." \
+  if ! run_hidden_spinner "  正在使用 pnpm 安装 dsh 并编译原生模块……" \
       env CFLAGS="$EXTRA_FLAGS" CXXFLAGS="$EXTRA_FLAGS" \
       "${PNPM_CMD[@]}" --dir "$proj" add "$DSH_NPM" \
       --store-dir "$PNPM_STORE" --loglevel=error "${registry_args[@]}"; then
-    error "  [!!] pnpm 安装失败（原因见 $SETUP_LOG）。现有安装未被改动。"
+    error "  pnpm 安装失败（原因见 $SETUP_LOG）；现有安装未被改动。"
     exit 1
   fi
   if [ ! -d "$proj/node_modules/@deepseek-ai/dsh" ]; then
-    error "  [!!] pnpm 安装完成但没找到 $proj/node_modules/@deepseek-ai/dsh（安装目录异常）"
+    error "  pnpm 安装完成，但未检测到 $proj/node_modules/@deepseek-ai/dsh（安装目录不符合预期）。"
     exit 1
   fi
   parent="$(dirname "$DSH_DIR")"
@@ -922,7 +922,7 @@ pnpm_install_dsh() {
       bak="$parent/dsh.npm-backup"
       rm -rf "$bak" 2>/dev/null || true
       mv "$DSH_DIR" "$bak"
-      warn "  旧安装已改名备份：$bak（确认新安装可用后可手动删除）"
+      warn "  旧安装已重命名备份至 $bak（确认新安装可用后可手动删除）。"
     fi
   fi
   # 关键一步：pnpm project 的 node_modules 是扁平真实目录，整体搬到 <dsh>/node_modules 后即与 npm 嵌套布局一致
@@ -931,7 +931,7 @@ pnpm_install_dsh() {
   mv "$proj/node_modules" "$DSH_DIR/node_modules"
   printf 'pnpm\n' > "$DSH_DIR/.dsh-android-pm"   # 归属标记：下次 pnpm 方式重跑允许原地重建
   rm -rf "$proj"
-  ok "  pnpm 安装完成并迁移到 $DSH_DIR"
+  ok "  pnpm 安装完成，已迁移至 $DSH_DIR。"
 }
 
 if [ "$DSH_PM" = "pnpm" ]; then
@@ -940,40 +940,40 @@ else
   # npm allow-scripts 策略探测：npm 11 默认 advisory（白名单建议性、白名单外脚本仍执行、只警告），
   # npm 12 起白名单强制；用户显式 strict-allow-scripts=true 已在预检里当安装冲突拒绝，这里只报告。
   case "${NPM_STRICT_ALLOW_SCRIPTS:-unknown}" in
-    false) info "  npm allow-scripts 策略：advisory（npm 11 语义——白名单为建议性，白名单外脚本仍会执行；koffi 实测可编译）" ;;
-    *)     info "  npm allow-scripts 策略：${NPM_STRICT_ALLOW_SCRIPTS:-未探测到}（按 npm 默认 advisory 处理）" ;;
+    false) info "  npm allow-scripts 策略：advisory（npm 11 语义：白名单为建议性，白名单外脚本仍会执行；koffi 实测可编译）。" ;;
+    *)     info "  npm allow-scripts 策略：${NPM_STRICT_ALLOW_SCRIPTS:-未探测到}（按 npm 默认 advisory 处理）。" ;;
   esac
-  info "  安装目标：${DSH_NPM}（装脚本白名单：${ALLOW_SCRIPTS}）"
-  run_hidden_spinner "  正在安装 dsh 和编译原生模块（5~15 分钟）..." \
+  info "  安装目标：${DSH_NPM}（安装脚本白名单：${ALLOW_SCRIPTS}）"
+  run_hidden_spinner "  正在安装 dsh 并编译原生模块（预计耗时 5～15 分钟）……" \
     env CFLAGS="$EXTRA_FLAGS" CXXFLAGS="$EXTRA_FLAGS" \
     "${NPM_CMD[@]}" install -g --no-audit --no-fund --loglevel=error \
     --allow-scripts="$ALLOW_SCRIPTS" "$DSH_NPM"
 fi
 if [ -f "$DSH_DIR/node_modules/node-pty/build/Release/pty.node" ]; then
-  ok "  node-pty 编译产物就位 (build/Release/pty.node)"
+  ok "  node-pty 编译产物已就绪（build/Release/pty.node）"
 else
-  warn "  [!!] node-pty 原生产物缺失：node-gyp 编译失败（PTY 功能将不可用）"
-  warn "       请检查上方 node-pty 编译日志（常见：gyp 缓存未修补或缺 cmake/clang）。建议修复后重跑本脚本。"
+  warn "  node-pty 原生产物缺失：node-gyp 编译失败（PTY 功能将不可用）。"
+  warn "        请检查上方 node-pty 编译日志（常见原因：gyp 缓存未修补，或缺少 cmake、clang）；建议修复后重新运行本脚本。"
   exit 1
 fi
 if (cd "$DSH_DIR" && node -e "require('node-pty');" >/dev/null 2>&1); then
-  ok "  node-pty 可加载"
+  ok "  node-pty 模块可正常加载"
 else
-  warn "  [!!] node-pty 产物无法加载（可能 ABI 不匹配），PTY 功能将不可用"
+  warn "  node-pty 产物无法加载（疑似 ABI 不匹配），PTY 功能将不可用。"
 fi
 # koffi 是否「按设计跳过」：bash 原生模式匹配，不起子进程。
 case ",$SKIP_SCRIPTS," in *,koffi,*) KOFFI_SKIPPED=1 ;; *) KOFFI_SKIPPED=0 ;; esac
 if (cd "$DSH_DIR/node_modules/koffi" && node -e "try{require('koffi');}catch(e){process.exit(1)}" >/dev/null 2>&1); then
-  ok "  koffi 预编译包可加载"
+  ok "  koffi 预编译包可正常加载"
 elif [ "$KOFFI_SKIPPED" -eq 1 ]; then
   # 预期内：不进白名单 → 装脚本被 npm 跳过 → 没有原生模块。只报一行，不当告警喊。
-  info "  koffi 原生模块不可用（按设计跳过，不阻断）：上游 0.2.0-rc.2 钉的 3.1.1 无 android 预编译包、"
-  info "  且其 install 脚本在 bionic 上编译必失败；dsh 里 koffi 只在 win32 分支懒加载，Android 用不到。"
+  info "  koffi 原生模块不可用（按设计跳过，不阻断）：上游 0.2.0-rc.2 指定的 3.1.1 无 android 预编译包，"
+  info "  且其 install 脚本在 bionic 上编译必然失败；dsh 中 koffi 仅在 win32 分支懒加载，Android 不涉及。"
 else
-  warn "  koffi 原生模块不可用（不阻断）：上游 0.2.0-rc.2 把 koffi 精确钉在 3.1.1，而 @koromix/koffi-android-arm64"
-  warn "  从 3.2.1 才有预编译包，3.1.1 的 install 脚本在 bionic 上编译必然失败——所以本脚本故意把它放进 SKIP_SCRIPTS，"
-  warn "  让 npm 只警告并跳过（放进白名单会让整次安装退 1）。dsh 里所有 koffi 调用点都是懒加载且 "
-  warn "  platform === \"win32\" 才走，Android 运行期用不到；win32 场景才需要它。"
+  warn "  koffi 原生模块不可用（不阻断）：上游 0.2.0-rc.2 将 koffi 精确钉在 3.1.1，而 @koromix/koffi-android-arm64"
+  warn "  自 3.2.1 起才提供预编译包；3.1.1 的 install 脚本在 bionic 上编译必然失败，因此本脚本将其列入 SKIP_SCRIPTS，"
+  warn "  由 npm 仅警告并跳过（列入白名单将导致整次安装返回 1）。dsh 中所有 koffi 调用点均为懒加载且 "
+  warn "  仅在 platform === \"win32\" 时执行，Android 运行期不涉及；win32 场景才需要它。"
 fi
 
 # 安装脚本白名单自检：npm 12 只对 --allow-scripts 内的包跑 install/postinstall，其余静默跳过。
@@ -1008,25 +1008,25 @@ const lines = [];
 for (const [n, h] of found) lines.push(`    ${allow.has(n) ? "[allowed]  " : skip.has(n) ? "[skipped]  " : "[UNCOVERED]"} ${n} (${h})`);
 const uncovered = [...found.keys()].filter((n) => !allow.has(n) && !skip.has(n));
 const skipped = [...found.keys()].filter((n) => skip.has(n));
-if (skipped.length > 0) lines.push(`    [note] ${skipped.length} 个带脚本的包按设计不进白名单（${skipped.join(", ")}）：让 npm 只警告并跳过，见 setup.sh 的 SKIP_SCRIPTS`);
+if (skipped.length > 0) lines.push(`    [note] ${skipped.length} 个带脚本的包按设计未列入白名单（${skipped.join(", ")}）：npm 仅警告并跳过，详见 setup.sh 的 SKIP_SCRIPTS。`);
 if (uncovered.length > 0) {
-  lines.push(`    [warn] ${uncovered.length} 个带安装脚本的包不在白名单内，其构建步骤已被 npm 跳过`);
+  lines.push(`    [warn] ${uncovered.length} 个带安装脚本的包未列入白名单，其构建步骤已被 npm 跳过。`);
   console.log(CLR + lines.join("\n"));
   process.exit(3);
 }
-lines.push(`    [ok] ${found.size - skipped.length} 个带安装脚本的包都在白名单内${skipped.length ? `（另有 ${skipped.length} 个按设计跳过）` : ""}`);
+lines.push(`    [ok] ${found.size - skipped.length} 个带安装脚本的包均在白名单内${skipped.length ? `（另有 ${skipped.length} 个按设计跳过）` : ""}。`);
 console.log(CLR + lines.join("\n"));
 JS
 then
-  ok "  安装脚本白名单覆盖完整"
+  ok "  安装脚本白名单覆盖完整。"
 else
   rc=$?
   if [ "$rc" -eq 3 ]; then
-    warn "  [!!] 有带安装脚本的包不在 --allow-scripts 白名单（见上表）：其构建步骤被跳过，原生产物可能缺失。"
-    warn "       请把包名加入本脚本的 ALLOW_SCRIPTS 后重跑；若确认它的构建在 Android 上必然失败（或在运行期用不到），"
-    warn "       应改加到 SKIP_SCRIPTS（那样 npm 只警告不中断），别放进 ALLOW_SCRIPTS——白名单里的脚本失败会让整次安装退 1。"
+    warn "  有带安装脚本的包未列入 --allow-scripts 白名单（见上表）：其构建步骤被跳过，原生产物可能缺失。"
+    warn "        处置：请将该包名加入本脚本的 ALLOW_SCRIPTS 后重新运行；若确认其构建在 Android 上必然失败（或运行期不涉及），"
+    warn "        应改列入 SKIP_SCRIPTS（npm 仅警告、不中断），请勿放入 ALLOW_SCRIPTS；白名单内脚本失败将导致整次安装返回 1。"
   else
-    warn "  [!!] 安装脚本白名单自检执行异常（退出码 $rc）"
+    warn "  安装脚本白名单自检执行异常（退出码 $rc）。"
   fi
 fi
 
@@ -1044,13 +1044,13 @@ step "4/9 后端兼容补丁"
 RBFIX="$SCRIPT_DIR/patches/patch-dsh-android-require-builtin.js"
 if [ -f "$RBFIX" ]; then
   if run_hidden node --expose-internals "$RBFIX" --root "$DSH_DIR"; then
-    ok "  android require-builtin 平台包就绪（dsh 启动前提）"
+    ok "  android require-builtin 平台包已就绪（dsh 启动前提）"
   else
-    error "  [!!] require-builtin 平台包补丁失败——dsh 将无法启动（No usable native binding found）"
+    error "  require-builtin 平台包补丁失败，dsh 将无法启动（No usable native binding found）。"
     exit 1
   fi
 else
-  error "  缺少 patches/patch-dsh-android-require-builtin.js，dsh 将无法启动"
+  error "  缺少 patches/patch-dsh-android-require-builtin.js，dsh 将无法启动。"
   exit 1
 fi
 
@@ -1060,10 +1060,10 @@ if [ -f "$HLFIX" ]; then
   if run_hidden node "$HLFIX" --root "$DSH_DIR/node_modules/@deepseek-ai"; then
     ok "  android 硬链接修复完成（session / attachment / fs-local）"
   else
-    warn "  硬链接修复脚本报告异常（dsh 版本漂移？或目标文件是「仅含回退调用注释」的半成品？请人工检查；详见 $SETUP_LOG）"
+    warn "  硬链接修复脚本报告异常（可能原因：dsh 版本漂移，或目标文件为「仅含回退调用注释」的半成品）。请人工核查，详见 $SETUP_LOG。"
   fi
 else
-  warn "  缺少 patches/patch-dsh-android-link.js，跳过硬链接修复"
+  warn "  缺少 patches/patch-dsh-android-link.js，已跳过硬链接修复。"
 fi
 
 # 4a-verify 必须等 sharp WASM 回退（step 5）之后再跑，否则附件测试 import sharp 失败会误报验证未通过。
@@ -1074,10 +1074,10 @@ if [ -f "$FLOCKFIX" ]; then
   if run_hidden node "$FLOCKFIX" --root "$DSH_DIR/node_modules/@deepseek-ai"; then
     ok "  android flock 原生绑定完成（会话写锁可用）"
   else
-    warn "  [!!] flock 修复脚本报告异常（发消息会失败，请人工检查；可能 system.node 已写出但 flock.js 未改写，详见 $SETUP_LOG）"
+    warn "  flock 修复脚本报告异常（发消息将失败，请人工核查；可能 system.node 已写出但 flock.js 未改写，详见 $SETUP_LOG）。"
   fi
 else
-  warn "  缺少 patches/patch-dsh-android-flock.js，跳过 flock 修复"
+  warn "  缺少 patches/patch-dsh-android-flock.js，已跳过 flock 修复。"
 fi
 
 # 4c subprocess 终端检测 android 视同 linux：锚点可能内联在内容哈希 bundle 里（lib/runner-launch-*.js），
@@ -1102,7 +1102,7 @@ for f in files:
         print(CLR + "  patched %s (android→linux)" % os.path.basename(f))
         hits += 1
 if hits == 0:
-    print(ECLR + "  [warn] 未找到 subprocess 终端检测锚点（dsh 版本漂移），终端功能可能不可用", file=sys.stderr)
+    print(ECLR + "  [warn] 未检测到 subprocess 终端检测锚点（dsh 版本漂移），终端功能可能不可用。", file=sys.stderr)
     sys.exit(3)
 PY
 then
@@ -1110,9 +1110,9 @@ then
 else
   rc=$?
   if [ "$rc" -eq 3 ]; then
-    warn "  [!!] subprocess-local 终端检测补丁未命中锚点（dsh 版本漂移），终端功能可能不可用；请人工检查 $SP_LIB"
+    warn "  subprocess-local 终端检测补丁未命中锚点（dsh 版本漂移），终端功能可能不可用；请人工核查 $SP_LIB。"
   else
-    warn "  [!!] subprocess-local 补丁执行异常（退出码 $rc）"
+    warn "  subprocess-local 补丁执行异常（退出码 $rc）。"
   fi
 fi
 
@@ -1133,12 +1133,12 @@ if 'dsh-android: 普通回车换行' in s:
     print(CLR + '  already patched'); sys.exit(0)
 entry = 'if (event !== null && isComposingEvent(event, recentlyComposing)) return true;'
 if s.count(entry) != 1:
-    print(CLR + '  ERROR: 回车处理器入口锚点出现 %d 次，无法唯一配对' % s.count(entry)); sys.exit(2)
+    print(CLR + '  ERROR: 回车处理器入口锚点出现 %d 次，无法唯一配对。' % s.count(entry)); sys.exit(2)
 i = s.index(entry)
 line_end = s.index('\n', i)
 indent = s[s.rindex('\n', 0, i) + 1:i]
 if indent.strip():
-    print(CLR + '  ERROR: 入口锚点前导非空白，缩进异常'); sys.exit(2)
+    print(CLR + '  ERROR: 入口锚点前导非空白，缩进异常。'); sys.exit(2)
 guard = (indent + '/* dsh-android: 普通回车换行，Ctrl/Cmd+Enter 发送 */\n'
        + indent + 'if (event?.ctrlKey !== true && event?.metaKey !== true) return false;\n')
 s = s[:line_end + 1] + guard + s[line_end + 1:]
@@ -1147,9 +1147,9 @@ print(CLR + '  patched client-ui-conversation (Enter=newline, Ctrl+Enter=send)')
 PY
   then
     rc=$?
-    warn "  client-ui-conversation 回车补丁未生效（退出码 $rc），回滚备份"
+    warn "  client-ui-conversation 回车补丁未生效（退出码 $rc），已回滚备份。"
     cp -f "$CB_BAK" "$CB" 2>/dev/null || true
-    warn "  该补丁影响安卓输入法回车误发送，必须修复后才能正常使用。请人工核对锚点后重跑 setup.sh。"
+    warn "  该补丁影响安卓输入法回车误发送，必须修复后方可正常使用。请人工核对锚点后重新运行 setup.sh。"
     exit 1
   else
     rm -f "$CB_BAK" 2>/dev/null || true   # 验证成功后才删除备份
@@ -1166,11 +1166,11 @@ if [ -f "$RG_FIX" ]; then
   if run_hidden env DSH_ROOT="$DSH_DIR" bash "$RG_FIX"; then
     ok "  ripgrep 修复完成"
   else
-    error "  ripgrep 修复失败：resolveRgPath() 实际解析不通过，grep/glob 将不可用。详见 $SETUP_LOG"
+    error "  ripgrep 修复失败：resolveRgPath() 实际解析不通过，grep/glob 将不可用（详见 $SETUP_LOG）。"
     exit 1
   fi
 else
-  warn "  缺少 apply-rg-fix.sh，跳过 grep/glob ripgrep 修复"
+  warn "  缺少 apply-rg-fix.sh，已跳过 grep/glob ripgrep 修复。"
 fi
 
 # ------------------------------------------------------ 5/9 sharp wasm 回退
@@ -1180,20 +1180,20 @@ WASM_VER="$(node -e "console.log(require('$DSH_DIR/node_modules/@img/sharp-wasm3
 # 只看"目录在不在"会在 sharp 升级后残留旧 wasm 时报假成功（目录在、版本对不上、加载仍然失败）。
 # 因此必须比对 wasm 自己的版本与当前 sharp 版本，一致才算就位。
 if [ -n "$WASM_VER" ] && [ "$WASM_VER" = "$SHARP_VER" ]; then
-  ok "  sharp-wasm32 已就位 (v$WASM_VER)"
+  ok "  sharp-wasm32 已就绪（v$WASM_VER）"
 elif [ -z "$SHARP_VER" ]; then
   # 读不到 sharp 版本就不能猜：装错版本的 wasm 比不装更糟（ABI/协议不匹配）。
-  warn "  无法确定 sharp 版本（sharp 未安装？），跳过 sharp-wasm32 回退"
+  warn "  无法确定 sharp 版本（可能未安装 sharp），已跳过 sharp-wasm32 回退。"
 else
   if [ -n "$WASM_VER" ]; then
-    warn "  sharp-wasm32 版本不匹配（wasm $WASM_VER ≠ sharp $SHARP_VER），重新安装"
+    warn "  sharp-wasm32 版本不匹配（wasm $WASM_VER ≠ sharp $SHARP_VER），将重新安装。"
   fi
   # 在临时目录里装 wasm 包，再拷进 dsh 的 node_modules。npm 输出写入 setup.log：
   # 早先把输出丢进 /dev/null，装失败时 set -e 只会抛一句无线索的"安装失败"，日志尾部也是空的。
   SWTMP="$(mktemp -d)"
   if ! ( cd "$SWTMP" && "${NPM_CMD[@]}" init -y >/dev/null 2>&1 && "${NPM_CMD[@]}" install "@img/sharp-wasm32@$SHARP_VER" ) >>"$SETUP_LOG" 2>&1; then
     rm -rf "$SWTMP"
-    error "  sharp-wasm32@${SHARP_VER} 安装失败（原因见 $SETUP_LOG）。sharp 无 Android 原生包，缺 wasm 会让附件模块加载失败。"
+    error "  sharp-wasm32@${SHARP_VER} 安装失败（原因见 $SETUP_LOG）：sharp 无 Android 原生包，缺少 wasm 将导致附件模块加载失败。"
     exit 1
   fi
   mkdir -p "$DSH_DIR/node_modules/@img"
@@ -1213,10 +1213,10 @@ if [ -f "$HFIX_VERIFY" ]; then
   if run_hidden node "$HFIX_VERIFY" --root "$DSH_DIR/node_modules/@deepseek-ai"; then
     ok "  android 硬链接修复验证通过（会话/附件/fs-local）"
   else
-    warn "  [!!] android 硬链接修复验证未通过，请人工检查对应补丁"
+    warn "  android 硬链接修复验证未通过，请人工核查对应补丁。"
   fi
 else
-  warn "  缺少 patches/verify-android-link-fix.js，跳过硬链接修复验证"
+  warn "  缺少 patches/verify-android-link-fix.js，已跳过硬链接修复验证。"
 fi
 
 # ------------------------------------------------------ 6/9 dsh 包装脚本
@@ -1226,11 +1226,11 @@ step "6/9 dsh 包装脚本"
 DSH_BIN="$DSH_DIR/lib/bin.js"
 NODE_BIN="$PREFIX_BIN/node"
 if [ ! -x "$NODE_BIN" ] || [ ! -f "$DSH_BIN" ]; then
-  warn "  [!!] 未找到 node($NODE_BIN) 或 dsh bin.js($DSH_BIN)，跳过包装脚本重建，保留 $DSH_CMD"
+  warn "  未检测到 node（$NODE_BIN）或 dsh bin.js（$DSH_BIN），已跳过包装脚本重建，保留 $DSH_CMD。"
 else
   if [ -L "$DSH_CMD" ]; then
     # 这是 npm install -g 的正常产物（每次升级都会出现），不是错误，故用 info 而非 warn。
-    info "  $DSH_CMD 被 npm 覆盖为符号链接（$(readlink "$DSH_CMD" 2>/dev/null || echo '?')），重建为独立包装脚本"
+    info "  $DSH_CMD 已被 npm 覆盖为符号链接（$(readlink "$DSH_CMD" 2>/dev/null || echo '?')），将重建为独立包装脚本。"
   fi
   DSH_BACKUP="$DSH_CMD.dsh-android.bak"
   if [ -e "$DSH_CMD" ] || [ -L "$DSH_CMD" ]; then
@@ -1248,7 +1248,7 @@ EOF
     ok "  dsh $("$DSH_CMD" --version) 可用"
     rm -f "$DSH_BACKUP"
   else
-    warn "  [!!] 重建后的 dsh 不可用，回滚旧包装"
+    warn "  重建后的 dsh 不可用，已回滚旧包装。"
     if [ -e "$DSH_BACKUP" ] || [ -L "$DSH_BACKUP" ]; then
       # ⚠️ 回滚也必须是「原子替换目录项」：mv -f 不 follow 目标，符号链接备份会按符号链接还原。
       #    过去写成 `rm -f "$DSH_CMD"` + `cp -P -f backup cmd`——删完到拷完之间命令是缺失的，
@@ -1256,7 +1256,7 @@ EOF
       if mv -f "$DSH_BACKUP" "$DSH_CMD" 2>/dev/null; then
         warn "  已回滚旧包装"
       else
-        warn "  [!!] 回滚失败，保留备份供人工恢复: $DSH_BACKUP"
+        warn "  回滚失败，已保留备份供人工恢复：$DSH_BACKUP"
       fi
     fi
     exit 1
@@ -1289,18 +1289,18 @@ if [ -f "$PROFILE_PATCH_TOOL" ]; then
   fi
   if PATCH_OUT="$(node "$PROFILE_PATCH_TOOL" --target "$PROFILE_PATCH" --layer "$SANDBOX_LAYER_FILE" "${PATCH_ROOT_ARGS[@]}" 2>&1)"; then
     printf '%s\n' "$PATCH_OUT" >>"$SETUP_LOG"
-    ok "  权限模式已就位：$(printf '%s' "$PATCH_OUT" | grep -oE '^\[[A-Z]+' | tail -1 | tr -d '[') $PROFILE_PATCH"
+    ok "  权限模式已就绪：$(printf '%s' "$PATCH_OUT" | grep -oE '^\[[A-Z]+' | tail -1 | tr -d '[') $PROFILE_PATCH"
   else
     status_clear 2>/dev/null || true
     printf '%s\n' "$PATCH_OUT" >&2
     printf '%s\n' "$PATCH_OUT" >>"$SETUP_LOG"
-    error "  [!!] 权限层写入失败：$PROFILE_PATCH 不是可解析的顶层数组，原文件未被改动。"
-    error "       dsh 的 profile 装载会在 boot 前失败（起不来），所以这里中断而不是继续。"
-    error "       按上面提示修好该文件（或删掉它让 dsh 重建），再重跑本脚本。"
+    error "  权限层写入失败：$PROFILE_PATCH 不是可解析的顶层数组，原文件未被改动。"
+    error "       原因：dsh 的 profile 装载将在 boot 前失败（无法启动），因此此处中断而非继续。"
+    error "       处置：按上方提示修复该文件（或删除该文件由 dsh 重建），然后重新运行本脚本。"
     exit 1
   fi
 else
-  error "  缺少 patches/apply-profile-patch.js，无法安全安装权限层（dsh 会起不来）"
+  error "  缺少 patches/apply-profile-patch.js，无法安全安装权限层（dsh 将无法启动）。"
   exit 1
 fi
 
@@ -1311,8 +1311,8 @@ if [ -f "$SCRIPT_DIR/apply-js-patches.sh" ]; then
   if run_hidden env DSH_PACKAGES_DIR="$DSH_DIR/node_modules/@deepseek-ai" bash "$SCRIPT_DIR/apply-js-patches.sh"; then
     ok "  JS 性能补丁完成"
   else
-    warn "  [!!] apply-js-patches.sh 退出码非 0。看上面标 [FAIL] 的那几条：真锚点失配（上游重构）或应用失败（[deprecated] 是弃用围栏里的旧补丁，不算问题）；不影响核心功能。"
-    warn "       可单独重试: bash $SCRIPT_DIR/apply-js-patches.sh"
+    warn "  apply-js-patches.sh 退出码非 0。请查看上方标 [FAIL] 的条目：可能为真实锚点失配（上游重构）或应用失败（[deprecated] 表示弃用围栏中的旧补丁，不属于问题）；不影响核心功能。"
+    warn "       可单独重试：bash $SCRIPT_DIR/apply-js-patches.sh"
   fi
 fi
 
@@ -1322,17 +1322,17 @@ step "9/9 完成"
 # 状态指示器到此为止：先擦掉常驻状态行，再打完成横幅，否则横幅会和它叠在同一行。
 status_stop
 printf '%s════════════════════════════════════════%s\n' "$C_CYAN" "$C_RST"
-printf '%s  安装完成 ✅%s\n' "$C_GREEN" "$C_RST"
-printf '  耗时        : %s\n' "$(printf '%d分%02d秒' $((ELAPSED / 60)) $((ELAPSED % 60)))"
-printf '  日志        : %s\n' "$SETUP_LOG"
-printf '\n  下一步\n'
-printf '  1. bash ~/dsh/start_dsh.sh\n'
-printf '  2. 打开 http://127.0.0.1:3080\n'
-printf '  3. 在 Web UI 的 Models 页面填入 DeepSeek API Key\n'
-printf '  4. 停止服务: bash ~/dsh/stop_dsh.sh\n'
-printf '\n  注意\n'
-printf '  - 服务只监听 127.0.0.1（本机），不走局域网。\n'
-printf '  - API Key 存于 ~/.dsh/.credentials.yaml（0600 权限），不进日志。\n'
-printf '  - danger-full-access 关闭了进程沙箱（Android 无替代），仅建议个人设备使用。\n'
-printf '  - 升级 dsh 或 Node 后需重跑本脚本。\n'
+printf '%s  安装完成%s\n' "$C_GREEN" "$C_RST"
+printf '  耗时        ：%s\n' "$(printf '%d分%02d秒' $((ELAPSED / 60)) $((ELAPSED % 60)))"
+printf '  日志        ：%s\n' "$SETUP_LOG"
+printf '\n  后续操作\n'
+printf '  1. 执行 bash ~/dsh/start_dsh.sh 启动服务\n'
+printf '  2. 通过浏览器打开 http://127.0.0.1:3080\n'
+printf '  3. 在 Web UI 的 Models 页面填写 DeepSeek API Key\n'
+printf '  4. 执行 bash ~/dsh/stop_dsh.sh 停止服务\n'
+printf '\n  注意事项\n'
+printf '  - 服务仅监听 127.0.0.1（本机），不通过局域网暴露。\n'
+printf '  - API Key 存储于 ~/.dsh/.credentials.yaml（权限 0600），不会写入日志。\n'
+printf '  - danger-full-access 已关闭进程沙箱（Android 无替代方案），仅建议在个人设备使用。\n'
+printf '  - 升级 dsh 或 Node 后，需要重新运行本脚本。\n'
 printf '%s════════════════════════════════════════%s\n' "$C_CYAN" "$C_RST"

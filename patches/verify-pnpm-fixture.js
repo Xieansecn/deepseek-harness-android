@@ -232,7 +232,7 @@ function main() {
 		// PATH 上没有 pnpm，且显式给了不存在的 DSH_PNPM_BIN —— 两种失败都要在预检里被抓住。
 		const r = caseRun({ name: "no-pnpm", pnpm: false, env: { DSH_PNPM_BIN: "/nonexistent/pnpm-not-here" } });
 		check(r.rc === 1, "a1 找不到可运行的 pnpm → exit 1", `rc=${r.rc}`);
-		check(r.out.includes("找不到可运行的 pnpm"), "a1 输出中文「找不到可运行的 pnpm」");
+		check(r.out.includes("未检测到可运行的 pnpm"), "a1 输出中文「未检测到可运行的 pnpm」");
 		check(r.out.includes("npm install -g pnpm@11"), "a1 给出安装 11.x 的具体方法");
 		check(!r.out.includes("1/9"), "a1 在安装步骤之前就退出（无 1/9）");
 	}
@@ -247,7 +247,7 @@ function main() {
 		const fakePrefix = makeFakePrefix(root);
 		const r = runSetup({ PATH: `${bin}${path.delimiter}${toolbin}`, DSH_SETUP_PREFIX: fakePrefix, DSH_PM: "pnpm" });
 		check(r.rc === 1, "a2 不可执行的 pnpm 包装 → exit 1", `rc=${r.rc}`);
-		check(r.out.includes("找不到可运行的 pnpm"), "a2 输出中文「找不到可运行的 pnpm」");
+		check(r.out.includes("未检测到可运行的 pnpm"), "a2 输出中文「未检测到可运行的 pnpm」");
 	}
 
 	// ---------------------------------------------------------------- b) 版本线冲突
@@ -261,7 +261,7 @@ function main() {
 	{
 		const r = caseRun({ name: "pnpm10", version: "10.30.0" });
 		check(r.rc === 1, "b2 pnpm 10 → exit 1", `rc=${r.rc}`);
-		check(r.out.includes("版本过旧"), "b2 指明版本过旧（缺 allowBuilds/strictDepBuilds 语义）");
+		check(r.out.includes("版本过低"), "b2 指明版本过低（缺 allowBuilds/strictDepBuilds 语义）");
 	}
 	{
 		const r = caseRun({ name: "pnpm-badver", version: "not-a-version" });
@@ -311,7 +311,7 @@ function main() {
 	{
 		const r = caseRun({ name: "clean-pnpm-flag", args: ["--pnpm"], env: { DSH_PM: "" } });
 		check(r.rc === 0, "e2 --pnpm 旗标等价于 DSH_PM=pnpm（预检通过）", `rc=${r.rc}`);
-		check(r.out.includes("包管理器：pnpm"), "e2 确实是 pnpm 模式");
+		check(r.out.includes("安装方式：pnpm"), "e2 确实是 pnpm 模式");
 	}
 	{
 		const r = caseRun({ name: "verbose-flag", args: ["--verbose", "--pnpm"], env: { DSH_PM: "" } });
@@ -323,7 +323,7 @@ function main() {
 		// npm 默认模式：即使存在「会冲突」的 dsh 目录也不做新预检（完全维持旧行为）
 		const r = caseRun({ name: "npm-default", withDsh: true, env: { DSH_PM: "" } });
 		check(r.rc === 0, "f1 默认 npm 模式不做冲突预检（预检模式 exit 0）", `rc=${r.rc}`);
-		check(!r.out.includes("包管理器：pnpm"), "f1 npm 模式不打印 pnpm 预检信息");
+		check(!r.out.includes("安装方式：pnpm"), "f1 npm 模式不打印 pnpm 预检信息");
 		check(r.out.includes("仅预检模式"), "f1 只预检模式正常收尾（测试钩子可用）");
 	}
 	{

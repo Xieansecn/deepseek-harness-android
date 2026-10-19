@@ -61,7 +61,7 @@
 
 **pnpm 方式的安装前冲突预检**（`pnpm_preflight()`，**只读、发生在任何安装动作之前**；冲突 → 中文具体提示 + `exit 1`，不产生安装副作用）：
 
-- 找不到可运行的 pnpm（提示 `npm install -g pnpm@11` / `DSH_PNPM_BIN=…`）。
+- 未检测到可运行的 pnpm（提示 `npm install -g pnpm@11` / `DSH_PNPM_BIN=…`）。
 - pnpm 主版本 **≥ 12**：pnpm 12 的 android-arm64 原生二进制在写 store 时必失败（`ERR_PNPM_STORE_DIR_ACQUIRE_OPERATION_LOCK` / `lock_shared() not supported`）→ 版本类冲突**不可覆盖**。
 - pnpm **< 11** 或 `--version` 解析失败（没有 `allowBuilds`/`strictDepBuilds` 语义）→ 不可覆盖。
 - `$DSH_DIR` 已存在且**不是** pnpm 方式装的（无 `<dsh>/.dsh-android-pm` 归属标记；典型是 npm 全局安装，两套包管理器会互相覆盖）→ 需先 `npm uninstall -g @deepseek-ai/dsh`，或设 `DSH_PM_CONFLICT_OVERRIDE=1` 强制继续（旧目录**改名备份**为 `dsh.npm-backup`，绝不删除）。
@@ -92,7 +92,7 @@
 | `6/9` | 重建 `dsh` 包装脚本（`--expose-internals --no-warnings`，临时文件 + `mv -f` 原子替换，绝不 `cat >` 覆盖符号链接）。 |
 | `7/9` | 把 `start/stop/restart` 三个脚本拷到 `~/dsh/`；调 `patches/apply-profile-patch.js` 把权限层（`sandbox-policy` + `approval` **两条**）**安全合并**进 `~/.dsh/profiles/web/cordis.patch.yml`（分类 + 按条目补缺失 + 残留 `[]` 定点修复；写前写后都用 dsh 自己的 `loadOverlayPatches()` 校验，不可解析就 `error` + `exit 1`，见 §7 的 `[]` 陷阱）。 |
 | `8/9` | `apply-js-patches.sh`（**可选增强**：失败只 `warn`，不中断）。 |
-| `9/9` | 完成汇总（耗时、日志、下一步、注意事项）。 |
+| `9/9` | 完成汇总（耗时、日志、后续操作、注意事项）。 |
 
 `4/9` 的补丁落点：
 

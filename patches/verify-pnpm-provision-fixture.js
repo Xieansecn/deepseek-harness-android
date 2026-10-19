@@ -261,7 +261,7 @@ function main() {
 		check(r.rc === 1, "a1 PATH 上 pnpm 12 → exit 1", `rc=${r.rc}`);
 		check(r.out.includes("pnpm 12"), "a1 指明 pnpm 12 不可用");
 		check(r.out.includes("ERR_PNPM_STORE_DIR_ACQUIRE_OPERATION_LOCK"), "a1 给出本机实测的 store 锁错误");
-		check(r.out.includes("不可用 DSH_PNPM_CONFLICT_OVERRIDE 覆盖"), "a1 说明版本类冲突不可覆盖");
+		check(r.out.includes("不可通过 DSH_PNPM_CONFLICT_OVERRIDE 覆盖"), "a1 说明版本类冲突不可覆盖");
 		check(!r.out.includes("1/9"), "a1 在安装步骤之前退出（无 1/9）");
 	}
 	{
@@ -271,7 +271,7 @@ function main() {
 		const pnpmbin = makePnpmOnPath(root, "10.30.0");
 		const r = runSetup(root, { pathDirs: [pnpmbin, npmbin, toolbin], env: { DSH_SETUP_PREFLIGHT_ONLY: "1" } });
 		check(r.rc === 1, "a2 PATH 上 pnpm 10 → exit 1", `rc=${r.rc}`);
-		check(r.out.includes("版本过旧"), "a2 指明版本过旧（缺 allowBuilds/strictDepBuilds 语义）");
+		check(r.out.includes("版本过低"), "a2 指明版本过低（缺 allowBuilds/strictDepBuilds 语义）");
 	}
 	{
 		const root = mkTmp("broken");
@@ -300,7 +300,7 @@ function main() {
 			env: { DSH_SETUP_PREFLIGHT_ONLY: "1" },
 		});
 		check(r.rc === 1, "b1 用户自己的 pnpm 包装（非本仓库）→ exit 1", `rc=${r.rc}`);
-		check(r.out.includes("不是本仓库生成的 pnpm 包装"), "b1 指明包装归属不是本仓库");
+		check(r.out.includes("不属于本仓库生成的 pnpm 包装"), "b1 指明包装归属不是本仓库");
 		check(fs.readFileSync(file, "utf8") === before, "b1 不会覆盖用户包装（内容不变）");
 	}
 	{
@@ -334,7 +334,7 @@ function main() {
 			env: { DSH_SETUP_PREFLIGHT_ONLY: "1" },
 		});
 		check(r.rc === 1, "b3 包装目录不在 PATH → exit 1", `rc=${r.rc}`);
-		check(r.out.includes("不在 PATH 上"), "b3 指明包装目录不在 PATH");
+		check(r.out.includes("未加入 PATH"), "b3 指明包装目录不在 PATH");
 		check(r.out.includes("export PATH"), "b3 给出 export PATH=\"$HOME/bin:$PATH\" 的处置");
 	}
 
@@ -363,7 +363,7 @@ function main() {
 			env: { DSH_SETUP_PREFLIGHT_ONLY: "1", FAKE_NPM_STRICT: "false", FAKE_NPM_ROOT: path.join(root, "no-root") },
 		});
 		check(r.rc === 0, "c2 npm advisory（默认）→ 预检通过", `rc=${r.rc}`);
-		check(r.out.includes("pnpm 运行时：可用"), "c2 报 pnpm 运行时可用");
+		check(r.out.includes("pnpm 运行时可用"), "c2 报 pnpm 运行时可用");
 	}
 
 	// ---------------------------------------------------------- d) 被遮蔽的 npm 全局 pnpm 12：只 warn
@@ -401,7 +401,7 @@ function main() {
 		const r = runSetup(root, { pathDirs: [wrapDir, npmbin, toolbin], wrapDir, pinDir, env });
 		check(r.rc === 0, "e1 缺失 pnpm → 自动供给成功（exit 0）", `rc=${r.rc}`);
 		check(r.out.includes("2.5/9"), "e1 走的是 2.5/9 步骤");
-		check(r.out.includes("pnpm 运行时就绪"), "e1 报运行时就绪");
+		check(r.out.includes("pnpm 运行时已就绪"), "e1 报运行时就绪");
 		const calls = fs.readFileSync(npmLog, "utf8").split("\n").filter((l) => l.startsWith("install"));
 		check(calls.length === 1 && calls[0].includes("pnpm@11.27.1"), "e1 用 npm --prefix 安装 pnpm@11.27.1（一次）", `calls=${calls.length}`);
 		let pinVer = "";
@@ -469,7 +469,7 @@ function main() {
 			env: { DSH_SETUP_PROVISION_ONLY: "1", FAKE_NPM_STRICT: "false", FAKE_NPM_ROOT: path.join(root, "no-root") },
 		});
 		check(r.rc === 0, "f1 本仓库包装损坏 → 2.5/9 自动修复（exit 0）", `rc=${r.rc}`);
-		check(r.out.includes("将重装修复") || r.out.includes("运行时就绪"), "f1 预检识别损坏并修复");
+		check(r.out.includes("将重新安装并修复") || r.out.includes("运行时已就绪"), "f1 预检识别损坏并修复");
 		const f = path.join(wrapDir, "pnpm");
 		check(fs.existsSync(f) && fs.readFileSync(f, "utf8").includes(`${pinDir}/node_modules/pnpm/bin/pnpm.mjs`), "f1 包装已重写指向新 pin 目录");
 	}
@@ -519,7 +519,7 @@ function main() {
 			},
 		});
 		check(r.rc === 0, "h1 默认 npm 方式预检通过（exit 0）", `rc=${r.rc}`);
-		check(!r.out.includes("包管理器：pnpm"), "h1 默认 npm 方式没有 pnpm 安装方式预检");
+		check(!r.out.includes("安装方式：pnpm"), "h1 默认 npm 方式没有 pnpm 安装方式预检");
 		check(r.out.includes("仅预检模式"), "h1 只预检模式正常收尾");
 		check(fs.readFileSync(npmLog, "utf8").trim() === "" || !fs.readFileSync(npmLog, "utf8").includes("install"), "h1 预检不触发任何 npm install");
 	}
@@ -553,7 +553,7 @@ function main() {
 		});
 		check(r.rc === 0, "h3 --pnpm 方式预检通过（空前缀 + pnpm 11）", `rc=${r.rc}`);
 		check(r.out.includes("安装前冲突预检"), "h3 同时跑了 pnpm 安装方式预检");
-		check(r.out.includes("pnpm 运行时：可用"), "h3 与运行时预检复用同一套解析逻辑");
+		check(r.out.includes("pnpm 运行时可用"), "h3 与运行时预检复用同一套解析逻辑");
 	}
 
 	console.log("");
