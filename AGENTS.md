@@ -10,25 +10,32 @@
 
 ## 2. 版本基准与已验证状态
 
-- 当前基准：`@deepseek-ai/dsh` **0.2.0-rc.2**（= npm `latest` = `next`；`alpha` 是 `0.2.1-alpha.2`）。其 `node_modules/@deepseek-ai/*` 同为 **0.2.0-rc.2**（`@deepseek-ai/node-addon-system` 0.1.2；`node-addon-require-builtin` 与 `node-addon-native-custom-loader` 均为 **0.1.9**，且两者是**非 scoped** 包，装在 `<dsh>/node_modules/` 而**不在** `@deepseek-ai/` 下——脚本按运行时推导包名，本行只是实测时点记录）。**0.1.7-rc.2 线同样实测通过**（同一套补丁与权限层）。
-- **0.2.0 相对 0.1.7 的三处关键变化**：
-  1. **`koffi` 被精确钉在 `3.1.1`，而它的 install 脚本在 Android 上必然失败**：`@koromix/koffi-android-arm64` 从 3.2.1 才有预编译包；3.1.1 的 `cnoke --prebuild` 会自愈式回退到本地编译，死在 bionic 与 glibc 的 `statx` 原型差异（`lib/native/base/base.cc`）。**npm 12 实测语义：白名单内脚本失败 → 整次 `npm install` 退 1（`setup.sh` 3/9 随即中断）；白名单外 → 只警告并跳过。** 所以 koffi 移出 `ALLOW_SCRIPTS`、进 `SKIP_SCRIPTS`（实测：白名单含 koffi → `npm install` 退 1；移出后隔离安装 rc=0）。dsh 里所有 koffi 调用点都是懒加载且 `platform === "win32"` 才走 → Android 运行期不受影响。
+- 当前基准：`@deepseek-ai/dsh` **0.2.1-rc.2**（= npm `latest` = `next`；`alpha` 是 `0.2.1-alpha.5`）。**0.2.0-rc.2 线同样支持**（生产设备当前仍跑它，回退验证通过）；`0.1.7-rc.2` 线也仍通过同一套补丁与权限层。`node_modules/@deepseek-ai/*` 中 `@deepseek-ai/node-addon-system` 0.1.2；`node-addon-require-builtin` 与 `node-addon-native-custom-loader` 均为 **0.1.9**，且两者是**非 scoped** 包，装在 `<dsh>/node_modules/` 而**不在** `@deepseek-ai/` 下——脚本按运行时推导包名，本行只是实测时点记录。
+- **0.2.1 相对 0.2.0 的变化（2026-10 核对：现有补丁全部命中，未改任何锚点）**：
+  1. **依赖闭包 532 → 604 个包，直接依赖 +10/−6**。新增：11 个实验性 bundle、`dsh-plugin-manager`、`dsh-plugin-market*`、`dsh-tool-schedule`/`dsh-tool-terminal`/`dsh-tool-session-query`、`dsh-session-query-sqlite`（用 `node:sqlite`，Node 26 可用）等；移除：`dsh-webhook`/`dsh-webhook-github`、`dsh-hooks-codex`/`dsh-hooks-claude-code`、`dsh-tool-ralph`、`dsh-experimental-schedule-bundle`、`dsh-client-store`/`ui-primitives`/`ui-slots`、`dsh-invariants`、`dsh-hook-protocol`、`dsh-subagent-in-process-driver`。
+  2. **`OPTIONAL_BUNDLES` 4 → 12**（全部实验性、默认不启用）；**Web 默认 bundle 不变**；`profile` 权限层、锚点、`internalModules()`/loader 契约、`PROFILE_PATCH_TEMPLATE`、sharp 0.35.5 + wasm32 0.35.5 全部不变。
+  3. **版本敏感项**：`cordis` 4.0.5、`chokidar` 5（要求 Node ≥20.19；Node 26 满足）、`openai` 7.x、`pi-ai` 1.3；不变：`koffi` 3.1.1、`node-pty` 1.2.0-beta.15、`sharp` 0.35.5、`node-addon-system` 0.1.2、`node-addon-require-builtin`/`native-custom-loader` 0.1.9。
+  4. **`RETIRED_BUNDLES` 迁移**：0.2.1 首次启动会**自动从已有 profile 摘除 `dsh-experimental-schedule-bundle`**（上游正常迁移，**不是错误**，不要当故障排查）。
+  5. **新增运行期依赖 pnpm**：0.2.1 引入插件管理器（plugin-manager / plugin-market / `dsh plugin …`），它 `execa("pnpm")` 从 PATH 找 pnpm → **pnpm 11.x 成为 dsh 插件功能的事实运行期依赖**（见 §4 的 pnpm 运行时供给、§7 的 pnpm 12 陷阱）。
+  6. **潜伏风险（默认不触发）**：`sherpa-onnx-node`（语音输入，只经默认不选的 `dsh-experimental-voice-input-bundle` 到达）与 `libreoffice-kit`（**没有 android 平台包**，office→pdf 可能不可用）——都是手动启用实验性 bundle 才会碰。
+- **0.2.0 相对 0.1.7 的关键变化（历史，仍适用）**：
+  1. **`koffi` 被精确钉在 `3.1.1`**：`@koromix/koffi-android-arm64` 从 3.2.1 才有预编译包；3.1.1 的 `cnoke --prebuild` 会自愈式回退到本地编译，历史上死在 bionic 与 glibc 的 `statx` 原型差异（`lib/native/base/base.cc`）。**npm 12 语义：白名单内脚本失败 → 整次 `npm install` 退 1（`setup.sh` 3/9 中断）；白名单外 → 只警告并跳过。** 因此 koffi 移出 `ALLOW_SCRIPTS`、进 `SKIP_SCRIPTS`。⚠️ **本机（npm 11.21.1）实测修正**：npm 11 的 `--allow-scripts=<list>` 是**建议性**的（未列出的包脚本仍会执行，只打警告；只有 `strict-allow-scripts` 才硬失败），所以这台设备上 **koffi 的 install 脚本实际执行且编译成功、可加载**（`koffi.load('libc.so')` OK）——「Android 上构建必然失败」**不成立**。运行期两种 npm 线都不受影响：dsh 的 koffi 调用点全是懒加载且 `platform === "win32"` 才走。**保留 `SKIP_SCRIPTS` 设计**：npm 12 下白名单才强制，koffi 留在白名单里仍会拖死整次安装；`setup.sh` 增加 npm 策略探测行（advisory / strict），把用户显式设的 `strict-allow-scripts=true` 当安装冲突处理。
   2. **新增 `permission` 行（`@deepseek-ai/dsh-permission-presets`），它按「组合后的 sandbox + approval」反查预设表**：预设 `danger-full-access` 的定义就是 `{sandbox: danger-full-access, approval: never}`。因此权限层必须是**两条**（`sandbox-policy.mode` + `approval.policy`）——只改 sandbox、approval 还是基线的 `ask`，组合即 `custom`：该行不激活并在启动日志里报 `permission: composed sandbox and approval defaults match no preset`（实测 0.2.0-rc.2 复现；补上 approval 后日志零告警）。0.1.7 没有这个校验，两条层在旧线只是「设置审批策略」，行为一致。
-  3. **补丁 `01` 重锚**：MIME 表尾的 `.gz`（`application/gzip`）从 0.1.5-rc.3 起就存在，旧 hunk 是靠 GNU patch 默认 fuzz=2 才命中（`-F0`/`git apply` 已失配，上游再插一行就硬 `[FAIL]`）。现在把 `.gz` 写进上下文，**`-F0` 在 0.1.5-rc.3 / 0.1.7-rc.2 / 0.2.0-rc.2 三版都命中**（实测），产物与旧 fuzz 结果逐字节一致。
-  4. **其余全部不变**（逐项核对过）：`internalModules()` 与 loader 契约 byte-identical、link/flock/4c/4d/rg 锚点全在（4c 改名 `runner-launch-B2zsQ1Dz.js`，通配已覆盖）、`profile-boot-*.js` 的 `forceExitOnce`/`interrupt(code)` 仍在、`PROFILE_PATCH_TEMPLATE` 仍是「3 行注释 + `[]`」、sharp 0.35.5 + wasm32 0.35.5 可用、全闭包只有 5 个带安装脚本的包。**潜伏风险**：`sherpa-onnx-node`（语音输入）同样没有 android 预编译包，但它只经默认不选的 `dsh-experimental-voice-input-bundle`（`OPTIONAL_BUNDLES`）到达 → 手动开语音输入才会炸。
+  3. **补丁 `01` 重锚**：MIME 表尾的 `.gz`（`application/gzip`）从 0.1.5-rc.3 起就存在，旧 hunk 是靠 GNU patch 默认 fuzz=2 才命中（`-F0`/`git apply` 已失配，上游再插一行就硬 `[FAIL]`）。现在把 `.gz` 写进上下文，**`-F0` 在 0.1.5-rc.3 / 0.1.7-rc.2 / 0.2.0-rc.2 / 0.2.1-rc.2 上都命中**（实测），产物与旧 fuzz 结果逐字节一致。
+  4. **其余不变**（逐项核对过）：`internalModules()` 与 loader 契约 byte-identical、link/flock/4c/4d/rg 锚点全在（4c 在内容哈希 bundle 里，通配已覆盖）、`profile-boot-*.js` 的 `forceExitOnce`/`interrupt(code)` 仍在、`PROFILE_PATCH_TEMPLATE` 仍是「3 行注释 + `[]`」、sharp 0.35.5 + wasm32 0.35.5 可用、全闭包只有 5 个带安装脚本的包。
 - **⚠️ 版本号只表示「撰写/实测时点」，绝不能当逻辑依赖**：脚本与补丁一律**不得按版本号分支**（`setup.sh` 默认跟随 npm `latest`，`DSH_VERSION` 只由调用方按需传；补丁靠锚点/形状匹配，不靠版本串）。升级前后都用 `node -p "require('$DSH_DIR/package.json').version"` 与 `npm view @deepseek-ai/dsh dist-tags` 核对**实际**版本，再回来更新本行——在此之前，本行的版本号对代码没有任何约束力。
 - **0.1.7 相对 0.1.5 的两处关键变化**：
   1. **新增原生 addon 家族，缺平台包就完全起不来**：`node-addon-require-builtin` 只发 darwin/linux/win32 预编译包、**没有 android**，于是 `dsh-app-boot` 的 `internalModules()`（无条件 require、无 JS 回退）抛 `No usable native binding found` → dsh 起不来。由 `patches/patch-dsh-android-require-builtin.js` 补 android 平台包解决（机制见 §7「平台可选包」与 §11）。
   2. 客户端 combo 惰性化已由上游原生 `lazyBody` 实现，补丁 02 的锚点必然失配（预期；02 已**移入 §12 弃用围栏**，只报 `[deprecated]` 而非失败，不影响运行）；补丁 01/03 仍命中。`resolveRgPath()` 也多了 electron `.asar` 归一化分支。
-- **带安装脚本的包（全闭包只有 5 个）**：`@deepseek-ai/dsh-subprocess-local`、`node-pty`、`@google/genai`、`protobufjs` 进 `ALLOW_SCRIPTS`；**`koffi` 进 `SKIP_SCRIPTS`**（理由见上：Android 上构建必然失败，放白名单会拖死整次安装）。3/9 末尾的自检表把 koffi 标 `[skipped]`、其余不在白名单的标 `[UNCOVERED]` 并退 3。`sharp` 仍走项目自己的 wasm32 回退（0.35.5 → `@img/sharp-wasm32@0.35.5` + `@emnapi/runtime`）。
-- **JS 补丁锚点核对（可复现，正向更省事）**：`npm pack` 两个目标包 → 解包 → 对上游源码**正向**打 `patches/01`、`02`、`03` → 与安装树 `diff`。本机对 `0.1.5-rc.3` 与 `0.2.0-rc.2` 都验过：安装树 = 上游 + 能命中的补丁，逐字节 IDENTICAL、无额外漂移（其它差异来自第 4 节的 Android 补丁表与应用侧改动）。
-- **本机最近一次全量实测（0.2.0-rc.2，隔离 prefix + 临时 `DSH_HOME` + `--port 3099`）**：隔离安装 rc=0（koffi 只 warn）；require-builtin/link/flock/rg/4c/4d 全绿；`apply-js-patches.sh` → `01[ok] 02[deprecated] 03[ok]`（二次 `[skip]`）；权限层就位；`dsh web` 冷启动到 token **7~13s**、303→cookie→`/` 200、**零 warn/error**（0.1.7-rc.2 同样）。流水看 `git log`。
+- **带安装脚本的包（全闭包只有 5 个）**：`@deepseek-ai/dsh-subprocess-local`、`node-pty`、`@google/genai`、`protobufjs` 进 `ALLOW_SCRIPTS`；**`koffi` 进 `SKIP_SCRIPTS`**（npm 12 上放白名单会拖死整次安装；本机 npm 11 advisory 语义下它会真的编译成功，但运行期不需要，见上）。3/9 末尾的自检表把 koffi 标 `[skipped]`、其余不在白名单的标 `[UNCOVERED]` 并退 3。`sharp` 仍走项目自己的 wasm32 回退（0.35.5 → `@img/sharp-wasm32@0.35.5` + `@emnapi/runtime`）。
+- **JS 补丁锚点核对（可复现，正向更省事）**：`npm pack` 两个目标包 → 解包 → 对上游源码**正向**打 `patches/01`、`02`、`03` → 与安装树 `diff`。本机对 `0.1.5-rc.3`、`0.2.0-rc.2`、`0.2.1-rc.2` 都验过：安装树 = 上游 + 能命中的补丁，逐字节 IDENTICAL、无额外漂移（其它差异来自第 4 节的 Android 补丁表与应用侧改动）。
+- **本机最近一次全量实测（0.2.1-rc.2，隔离 prefix `~/dsh-verify` + 临时 `DSH_HOME` + `--port 3099`）**：隔离安装 rc=0（npm 报告 `added 605 packages`，koffi 在本机 npm 11 下真的编译成功）；require-builtin/link/flock/rg/4c/4d 全绿（**锚点零改动**）；`apply-js-patches.sh` → `01[ok] 02[deprecated] 03[ok]`（二次 `[skip]`）；sharp 0.35.5 + wasm32 0.35.5；权限层就位；`dsh web` 冷启动到 token **14s**（npm 装法）/ **10s**（pnpm 装法）、303→cookie→`/` 200、**零 warn/error**。生产设备仍跑 0.2.0-rc.2（回退验证通过）。流水看 `git log`。
 
 ## 3. 目录结构
 
 | 路径 | 作用 |
 |---|---|
-| `setup.sh` | **主入口**。0~9 步：锚点预检 → 依赖 → Node headers → 安装 dsh → 后端兼容补丁 → sharp WASM 回退 + 硬链接验证 → 重建 `dsh` 包装脚本 → 安装启动/停止/重启脚本与权限层 → JS 性能补丁 → 汇总。默认简洁输出，原始命令写入 `~/dsh/setup.log`；`--verbose` / `SETUP_VERBOSE=1` 透传原始输出。安装/升级后必须重跑。 |
+| `setup.sh` | **主入口**。0~9 步 + `2.5/9`：安装前冲突预检（仅 pnpm 方式）与 pnpm 运行时预检（两种方式）→ 锚点预检 → 依赖 → Node headers → **2.5/9 pnpm 运行时供给（dsh 插件依赖）** → 安装 dsh（默认 npm，`--pnpm` 走 pnpm 11）→ 后端兼容补丁 → sharp WASM 回退 + 硬链接验证 → 重建 `dsh` 包装脚本 → 安装启动/停止/重启脚本与权限层 → JS 性能补丁 → 汇总。默认简洁输出，原始命令写入 `~/dsh/setup.log`；`--verbose` / `SETUP_VERBOSE=1` 透传原始输出。参数：`--pnpm`/`--npm`（或 `DSH_PM=pnpm|npm`；默认 npm）。安装/升级后必须重跑。 |
 | `apply-js-patches.sh` | 应用 `patches/01`、`02`、`03` 三个 JS 性能补丁（静态资源 immutable 缓存头；客户端 combo 按需构建，冷启动 22s→12s；`newlineCount` 索引循环）。**分层设计**：`01/02` 面向 0.1.5 线，`03` 与版本无关。**两个区**：活跃清单 `PATCHES`（`[skip]` 已应用 / `[ok]` 成功 / `[FAIL]` 失配或写失败并退非 0）与**已弃用围栏** `DEPRECATED_PATCHES`（锚点已失效但为旧线保留：能命中就照打并标 `[ok]（弃用围栏：在目标版本上仍然有效）`，命中不了只报 `[deprecated]`、**不计失败**；见 §12）。⚠️ `PATCHES` 的**顺序即语义**（02 必须先于 03），围栏只改报告与退出码、不得改执行顺序。 |
 | `apply-rg-fix.sh` | 修复 grep/glob 报 `ripgrep launch failed`（软链系统 `rg` 到 `@vscode/ripgrep-android-arm64/bin/rg` + 给 `resolveRgPath()` 加回退，已识别 4 种上游形态）。**锚点漂移不再判死**：软链本身就能让 `@vscode/ripgrep` 解析成功，故未识别形态只 `warn`，成败交给第 3 步 fresh node 的实际解析结果。 |
 | `start_dsh.sh` | 启动/复用 `dsh web`：流式读日志取带 token 的鉴权 URL、`curl` 校验 303/302，然后按包名优先用 **Via**（`am start`）打开浏览器，找不到再回退系统默认浏览器。默认静默（提示/剪贴板只在 `DSH_HINTS=1`）。 |
@@ -44,18 +51,42 @@
 | `patches/patch-dsh-android-require-builtin.js` | **dsh ≥0.1.7 启动前提**：在 `<dsh>/node_modules/` 生成 `node-addon-require-builtin-android-arm64` 平台包（纯 JS `requireBuiltin` 实现，`backend=napi`/`abi=napi-v9`），补上上游缺失的 android 预编译槽位；自带 `internalModules()` 自检。**失败必须中断安装**（缺它 dsh 起不来）。dsh <0.1.7（没有该 addon 家族）→ `[SKIP]` 退 0，前提是「定位到 dsh 安装根」与「entry 包存在」**解耦**。幂等按**内容**判定：三个文件与脚本模板逐字节一致才 `[OK]`，否则 `[REFRESHED]` 原地刷新（manifest 修正、模板更新、entry 包版本变化都能下发）。归属判定读 manifest 的 `dshAndroidPatch` **字段**、存在性看**目录**；非本补丁生成的包一律让路不覆盖（`[SKIP]`），可用性由同一次 `verify()` 断言——通过退 0、加载不了才退 1。`--root` 是硬契约：显式给出但定位不到 dsh 安装根即报错退 1，**不回落**其它候选。`name`/`os`/`cpu` 由包名与 `process.platform`/`process.arch` 推导，不写死。 |
 | `patches/verify-android-link-fix.js` | 硬链接补丁验证（静态检查 + 临时目录真实运行：附件保存/去重、fs-local 新建文件在 `link()`=EACCES 下必须成功）。 |
 | `patches/verify-client-modules-lazy.js` | 补丁 02 自检：`--port 0` 起临时实例，逐字节核对单条/批量 bundle 与 sourcemap、未知 URL 404、HEAD 200，并打印启动到 token 的秒数。 |
-| `patches/verify-*fixture.js` / `verify-setup-static-check.sh` / `verify-all-checks.sh` | **脚本级测试**（151 条夹具断言 + 静态契约 25 条 + 变异 13/13）：require-builtin 平台包、权限层、link/flock 守护条件、js 补丁正向/幂等、start/stop/restart 行为契约，以及「往仓库副本注入已知回归必须变红」。一行跑完：`bash patches/verify-all-checks.sh [--verbose] [--full]`；只读或只写临时目录。各夹具用例见 §9。 |
+| `patches/verify-*fixture.js` / `verify-setup-static-check.sh` / `verify-all-checks.sh` | **脚本级测试**（**7 个夹具 / 250 条断言**：js-patches 21、runtime-scripts 21、guards 39、require-builtin 29、profile 41、pnpm 46、pnpm-provision 53；外加静态契约 25 条 + 变异 13/13）：require-builtin 平台包、权限层、link/flock 守护条件、js 补丁正向/幂等、start/stop/restart 行为契约、pnpm 安装方式/冲突预检、pnpm 运行时供给，以及「往仓库副本注入已知回归必须变红」。一行跑完：`bash patches/verify-all-checks.sh [--verbose] [--full]`；只读或只写临时目录。各夹具用例见 §9。 |
 | `docs/index.html` | 说明文档站。 |
 | `README.md` | 中英文用户文档（安装、修复项、FAQ、仓库结构）。 |
 
 ## 4. 安装/修补流程（`setup.sh`）
+
+**安装方式**：默认 **npm**（`npm install` 命令与旧版逐字一致）；`bash setup.sh --pnpm` 或 `DSH_PM=pnpm` 走 **pnpm 11** 安装路径；`--npm` / `DSH_PM=npm` 显式强制 npm。⚠️ **npm 方式并非「零新增」**：`2.5/9` 的 **pnpm 运行时预检 + 供给**对**两种安装方式都跑**（dsh ≥0.2.1 插件功能运行期依赖 pnpm）；PATH 上已有可用 pnpm 11.x 时只报 `[OK]`、不写任何文件。3/9 的 npm 分支会打印一行 `allow-scripts` 策略（advisory / strict）。
+
+**pnpm 方式的安装前冲突预检**（`pnpm_preflight()`，**只读、发生在任何安装动作之前**；冲突 → 中文具体提示 + `exit 1`，不产生安装副作用）：
+
+- 找不到可运行的 pnpm（提示 `npm install -g pnpm@11` / `DSH_PNPM_BIN=…`）。
+- pnpm 主版本 **≥ 12**：pnpm 12 的 android-arm64 原生二进制在写 store 时必失败（`ERR_PNPM_STORE_DIR_ACQUIRE_OPERATION_LOCK` / `lock_shared() not supported`）→ 版本类冲突**不可覆盖**。
+- pnpm **< 11** 或 `--version` 解析失败（没有 `allowBuilds`/`strictDepBuilds` 语义）→ 不可覆盖。
+- `$DSH_DIR` 已存在且**不是** pnpm 方式装的（无 `<dsh>/.dsh-android-pm` 归属标记；典型是 npm 全局安装，两套包管理器会互相覆盖）→ 需先 `npm uninstall -g @deepseek-ai/dsh`，或设 `DSH_PM_CONFLICT_OVERRIDE=1` 强制继续（旧目录**改名备份**为 `dsh.npm-backup`，绝不删除）。
+- PATH 上解析到**另一个 dsh**（与目标 `$PREFIX/bin/dsh` 不同 → 会「装了却没生效」）→ 可覆盖。
+- pnpm 全局目录（`${PNPM_HOME:-$HOME/.local/share/pnpm}/bin`）残留 dsh → 仅 `warn`（本方案不做 pnpm 全局安装，用不到它）。
+- pnpm 方式的落点仍是规范 `DSH_DIR`：pnpm 的**全局**布局（`$PNPM_HOME/global/...` + virtual store 符号链接）与补丁模型（直接改写 `<dsh>/node_modules/@deepseek-ai/…`）不兼容，所以用「非全局 project 安装（`nodeLinker: hoisted`、`enableGlobalVirtualStore: false`、`packageImportMethod: copy`、项目级 `allowBuilds` 映射 ALLOW/SKIP、`strictDepBuilds: false`）+ 装完把 `<proj>/node_modules` 整体 `mv` 进 `$DSH_DIR`（同文件系统 rename，秒级）」；产物与 npm 布局逐项对应，**4/9~9/9 与所有补丁脚本无需改动**。pnpm 11 的 `.npmrc` 只读 registry/auth/网络类键，npm 的 `allow-scripts` 对 pnpm 无效，故必须显式映射。
+- pnpm 方式实测（隔离）：pnpm 11.27.1 装 dsh 0.2.0-rc.2 **34.4s**（npm 5~15min）；node-pty 编译可加载；迁移后全部补丁绿；`--port 3099` boot 8s→token 303→cookie 200；端到端 `DSH_PM=pnpm bash setup.sh` rc=0 九步全绿；生产树指纹零改动。
+
+**pnpm 运行时预检 + 供给**（`pnpm_runtime_preflight()` 只读、`2.5/9` 实际写入；**npm / pnpm 两种安装方式都跑**，因为 dsh ≥0.2.1 的插件功能 `execa("pnpm")` 需要运行期 pnpm）：
+
+- PATH 上已有可用 **pnpm 11.x** → 直接复用（`[OK]`，不写任何文件）。
+- PATH 上没有 pnpm → `2.5/9` 用 `npm --prefix "$DSH_PNPM_PIN_DIR" install pnpm@"$DSH_PNPM_VERSION"`（默认 pin dir `~/.local/share/pnpm-pin`、版本 **11.27.1**、纯 JS build）并写 `$DSH_PNPM_WRAPPER_DIR`（默认 `~/bin`）下的 `pnpm`/`pn`/`pnpx`/`pnx` 四个包装：**Termux 绝对 shebang**（`#!/data/data/com.termux/files/usr/bin/sh`）+ `exec <node> <pin>/node_modules/pnpm/bin/{pnpm,pnpx}.mjs "$@"` + 归属 marker；写完验证 `pnpm --version` 是 11.x 且 PATH 解析到包装，否则 `exit 1`。
+- **版本类冲突（不可覆盖，`exit 1`）**：PATH 上 pnpm `--version` 不可解析 / 主版本 **≥12**（Android store 锁必失败）/ **<11**；PATH 上 pnpm 跑不起来且不是本仓库包装；需要供给/修复时 `$DSH_PNPM_WRAPPER_DIR` **不在 PATH**（dsh 子进程找不到）。
+- **共存类冲突（`DSH_PNPM_CONFLICT_OVERRIDE=1` 可覆盖）**：`$DSH_PNPM_WRAPPER_DIR` 下已有**别人的** pnpm 包装（无 marker 且内容不等价）→ 默认拒绝；覆盖后旧文件备份为 `.dsh-android.bak`。本机已有的**等价手工 pin 包装**（无 marker 但 `exec` 目标就是 pin 目录的正确 mjs）被**认领、不覆盖**。
+- **配置类冲突（不可覆盖）**：npm `strict-allow-scripts=true`（会把 `SKIP_SCRIPTS` 的 koffi 变硬错误、整次 npm install 中断）→ 提示 `npm config set strict-allow-scripts false --location=user` 后 `exit 1`。
+- 被遮蔽的 npm-global pnpm 12 / pin 目录里的非 11.x → 只 `warn`。
+- 幂等：已可用时 `2.5/9` 只报 `[OK]` 不写文件；包装损坏报 `repair` 重写。测试/排障可只跑这一步：`DSH_SETUP_PROVISION_ONLY=1 bash setup.sh`。
 
 | 步骤 | 做什么 |
 |---|---|
 | `0/9` | **锚点预检** `anchor_precheck()`：只读检查 7 条「路径\|补丁后特征串\|标签」（路径支持通配）+ 1 条 `lib/profile-boot-*.js` 的 `forceExitOnce`/`interrupt(code)` 探测。未命中只 `warn`，不中断。 |
 | `1/9` | `pkg update/install`（`cmake clang make binutils pkg-config python nodejs ripgrep`）；探测 npmjs/nodejs.org 是否慢，慢则**仅本次会话** export `npm_config_registry` / `npm_config_disturl` 到 npmmirror。 |
 | `2/9` | `npx node-gyp install` 拉 Node headers，再往 `~/.cache/node-gyp/<ver>/include/node/common.gypi` 的 `'variables': {` 后插入 `'android_ndk_path%': ''`（Termux 无 NDK，否则 node-pty 构建失败）。 |
-| `3/9` | `npm install -g @deepseek-ai/dsh`：`CFLAGS/CXXFLAGS=-target aarch64-linux-android30 -I$PREFIX/include`，`--allow-scripts="$ALLOW_SCRIPTS"`（**只放行构建能在 Android 成功的包**；构建必然失败的进 `SKIP_SCRIPTS`，因为 npm 12 里白名单内脚本失败会让整次安装退 1，白名单外只警告）。校验 `node-pty` 的 `build/Release/pty.node` 能加载；node-pty 缺产物直接 `exit 1`。koffi 不可加载时按 `SKIP_SCRIPTS` 判定：是 → 一行 `info`（预期内），否 → `warn`。之后跑**白名单自检**：扫描安装树里所有带 `preinstall/install/postinstall` 的包，标 `[allowed]`/`[skipped]`/`[UNCOVERED]`（后者列出并退 3 → `warn`）。支持 `DSH_VERSION=<ver>` 钉版本。 |
+| `2.5/9` | **pnpm 运行时**：按预检状态 `[OK]` / 安装 pnpm 11（`npm --prefix "$DSH_PNPM_PIN_DIR" install pnpm@"$DSH_PNPM_VERSION"`）并写 `$DSH_PNPM_WRAPPER_DIR` 包装 / 修复损坏包装。npm 与 pnpm 两种安装方式都执行；幂等。 |
+| `3/9` | **npm 方式（默认）**：`npm install -g @deepseek-ai/dsh`，`CFLAGS/CXXFLAGS=-target aarch64-linux-android30 -I$PREFIX/include`，`--allow-scripts="$ALLOW_SCRIPTS"`（**只放行构建能在 Android 成功的包**；按 npm 12 语义，白名单内脚本失败会让整次安装退 1，白名单外只警告，故 koffi 进 `SKIP_SCRIPTS`）。**pnpm 方式**：`pnpm --dir <proj> add dsh` + hoisted 布局，装完迁到 `DSH_DIR` 并写 `.dsh-android-pm` 归属标记。两种方式之后都：校验 `node-pty` 的 `build/Release/pty.node` 能加载（缺产物 `exit 1`）；koffi 不可加载时按 `SKIP_SCRIPTS` 判定：是 → `info`（预期内），否 → `warn`；跑**白名单自检**：扫描安装树里所有带 `preinstall/install/postinstall` 的包，标 `[allowed]`/`[skipped]`/`[UNCOVERED]`（后者列出并退 3 → `warn`）；报告实际生效的 npm allow-scripts 策略（advisory / strict——由 `pnpm_probe_npm_strict()` 读 `npm config get strict-allow-scripts`，strict 已在预检里当冲突拒绝）。支持 `DSH_VERSION=<ver>` 钉版本。 |
 | `4/9` | 后端兼容补丁，见下表。 |
 | `5/9` | **sharp WASM 回退**：比对 `sharp` 与 `@img/sharp-wasm32` 版本，一致才跳过；否则在临时目录装同版本 wasm 包，先 `rm -rf` 再 `cp`（旧目录直接 `cp -r` 是合并、会版本混装），并补 `@emnapi`。之后立刻跑 **硬链接验证**（必须在这一步之后，见第 7 节）。 |
 | `6/9` | 重建 `dsh` 包装脚本（`--expose-internals --no-warnings`，临时文件 + `mv -f` 原子替换，绝不 `cat >` 覆盖符号链接）。 |
@@ -151,6 +182,14 @@ dsh Web UI 用 **进程 launch token + 持久化签名 cookie** 鉴权：
 | `DSH_VIA_APP` / `DSH_OPEN_APP` / `DSH_OPEN_CHOOSER` | `mark.via` / 空 / `0` | start | 浏览器选择 |
 | `SETUP_VERBOSE` / `NO_COLOR` | 空 | setup | 透传原始输出 / 关色 |
 | `DSH_VERSION` | 空（跟随 npm `latest`） | setup | **仅**灰度/回退时钉版本（`DSH_VERSION=<ver>`，`<ver>` 从 npm 取）；默认留空，别写死 |
+| `DSH_PM` | `npm` | setup | 安装方式：`npm`（默认，`npm install` 命令与旧版逐字一致）或 `pnpm`（pnpm 11 路径）。等价旗标：`--pnpm` / `--npm`（参数顺序任意） |
+| `DSH_PNPM_BIN` | 空（取 PATH 上的 pnpm） | setup | pnpm 方式显式指定 pnpm 可执行文件/命令名（PATH 上的 pnpm 不理想、或想钉某个 pnpm 时用） |
+| `DSH_PM_CONFLICT_OVERRIDE` | `0` | setup | pnpm 方式遇到「已存在非 pnpm 归属的 `$DSH_DIR` / PATH 上另一个 dsh」这类**共存冲突**时强制继续（旧目录改名 `dsh.npm-backup`，**绝不删除**）；版本类冲突（pnpm ≥12 / <11 / 不可解析）**不可覆盖** |
+| `DSH_PNPM_PIN_DIR` | `~/.local/share/pnpm-pin` | setup（2.5/9） | pnpm 11 运行时的安装目录（`npm --prefix` 装；纯 JS build，无原生 exe） |
+| `DSH_PNPM_WRAPPER_DIR` | `~/bin` | setup（2.5/9） | `pnpm`/`pn`/`pnpx`/`pnx` 包装脚本目录；**必须在 PATH 上**，否则 dsh 子进程 `execa("pnpm")` 找不到（预检会 `exit 1`） |
+| `DSH_PNPM_VERSION` | `11.27.1` | setup（2.5/9） | 供给的 pnpm 版本（JS build）。**别升 12.x**（Android 不可用）；11.28+ 也可能改回原生二进制路径 |
+| `DSH_PNPM_CONFLICT_OVERRIDE` | `0` | setup（pnpm 运行时） | `$DSH_PNPM_WRAPPER_DIR` 下已有**别人的** pnpm 包装时强制继续（旧文件备份 `.dsh-android.bak`）；pnpm 版本类冲突不可覆盖。与安装方式的 `DSH_PM_CONFLICT_OVERRIDE` 是两个独立开关 |
+| `DSH_SETUP_PREFIX` / `DSH_SETUP_PREFLIGHT_ONLY` / `DSH_SETUP_PROVISION_ONLY` | 空 / `0` / `0` | setup | **仅测试夹具/排障用**：把生产路径整体换到临时前缀 / 只跑预检就退出 / 只跑 pnpm 运行时供给就退出。**生产不要设置** |
 | `DSH_PACKAGES_DIR` | dsh 的 `node_modules/@deepseek-ai` | apply-js-patches | 目标包目录 |
 | `DSH_ROOT`、`RG_PATH` | dsh 安装根、`command -v rg` | apply-rg-fix | 目标根、指定系统 rg |
 | `DSH_DIR` | dsh 安装根 | verify-client-modules-lazy | 目标根（link/flock/verify-link 用 `--root`） |
@@ -182,7 +221,12 @@ Shell 语义：
 - **⚠️ loader 的「平台可选包」通道不要求 `.node` 文件**：`node-addon-native-custom-loader` 的 `tryRequirePackage()` 只按 `validateLoadedBinding()` 校验导出形状（`requireBuiltin`/`isAllowedInternalId` 是函数、`getNativeBindingInfo()` 返回 `{mode,product,backend,abi}` 且 `backend∈{napi,nodeabi}`、`abi` 与 backend 自洽），**不检查文件是不是 ELF**。所以缺预编译包时可以自己写平台包顶上，不必交叉编译。上游之所以用原生 addon，是为了在**没有** `--expose-internals` 时也能 `require("internal/*")`；而本项目 `dsh` 包装脚本必定带 `--expose-internals`（第 6 步重建，缺了 HMR 会崩），该前提下纯 JS 实现完全够用。⚠️ 但纯 JS **没有**可靠的绕过 `--expose-internals` 的办法（`process.binding("natives")` 只给源码，esm/cjs loader 必须是真实例），所以这条路径与「包装脚本必须带 `--expose-internals`」是**强绑定**的，别拆开。
 - **⚠️ 硬阻断补丁要和「只 warn」的补丁区分开**：`node-addon-require-builtin` 平台包缺失 = dsh 起不来，必须 `error` + `exit 1`；link/flock 这类「功能受损但能跑」才是 `warn` + 继续。把两者混成一种语义，会出现「setup 全绿但 dsh 根本起不来」或反过来「一个可选功能缺失就中断安装」。
 - **⚠️ 「往 dsh 自己写的 YAML 里追加」不是追加那么简单：`[]` 是个已结束的文档**：dsh 首次启动（哪怕跑失败的那次）由 `initProfile()` 写出 `~/.dsh/profiles/web/cordis.patch.yml` = 3 行注释 + `[]`（`PROFILE_PATCH_TEMPLATE`）。旧版 `setup.sh` 只 `grep danger-full-access` 就 `printf … >>` → `dsh web` 报 `YAMLException: end of the stream or a document separator is expected (13:1)`（行号正好落在我们自己写的那一行）——**补丁全在、自检全绿，dsh 依然起不来**（与 require-builtin 同属「跑不起来」级）。修法是「按内容分类」：`apply-profile-patch.js` 空数组模板→替换、真实层→追加、残留裸 `[]`→定点摘除，写前写后都用 dsh 自己的 `loadOverlayPatches()` 校验（`!!js` 标签只有它的 schema 认），坏文件一字节不动（夹具 41 断言）。通用教训：**往上游/用户维护的文件里写内容前先解析一遍再决定怎么合并**；`grep` 能判「已就位」，判不了「怎么合并」。
-- **⚠️ `ALLOW_SCRIPTS` 是「可用性风险面」：npm 12 里白名单内的脚本失败会让整次安装退 1**：blocked（不在白名单）只 `warn` 并跳过，allowed 但**执行失败**则 `npm install` 退 1（实测 `npm install -g --allow-scripts=koffi koffi@3.1.1` → 退 1；`setup.sh` 3/9 在 `set -euo pipefail` 下随即中断）。所以「把带脚本的包都塞进白名单」是错的：必须区分「构建能在 Android 成功」与「必然失败/运行期用不到」。判据：查平台可选包是否存在（`npm view @koromix/koffi-android-arm64@<ver>` 404 即无）、看失败是否发生在编译期、再确认运行期是否真有调用点（koffi 全是懒加载 + `win32` 门控）。⚠️ 配套改自检表语义：koffi 这种「按设计跳过」的包若照旧算 `[UNCOVERED]`，每次安装都喊一次狼——所以引入 `SKIP_SCRIPTS` 并让它标 `[skipped]`。
+- **⚠️ `ALLOW_SCRIPTS` 是「可用性风险面」，而 `--allow-scripts` 的语义**随 npm 版本**不同**：**npm 12** 里白名单内脚本失败会让整次安装退 1（实测 `npm install -g --allow-scripts=koffi koffi@3.1.1` → 退 1；`setup.sh` 3/9 在 `set -euo pipefail` 下随即中断），白名单外只 `warn` 并跳过；**npm 11（本机 11.21.1）** 的 `--allow-scripts=<list>` 只是**建议性**的——未列出的包脚本**仍会执行**、只打警告，只有 `--strict-allow-scripts` 才硬失败。**本机实测后果**：`SKIP_SCRIPTS` 里的 koffi 3.1.1 安装脚本真的执行了，而且**编译成功、可加载**（`koffi.load('libc.so')` OK）——「Android 上构建必然失败」的旧结论在本机**不成立**。这不改变设计：`SKIP_SCRIPTS` 保留（npm 12 下白名单才强制，koffi 留在 `ALLOW_SCRIPTS` 仍会拖死整次安装），`setup.sh` 3/9 增加 npm 策略探测行（advisory / strict），并把用户显式设的 `strict-allow-scripts=true` 当安装冲突处理。判据：查平台可选包是否存在（`npm view @koromix/koffi-android-arm64@<ver>` 404 即无）、看失败是否发生在编译期、再确认运行期是否真有调用点（koffi 全是懒加载 + `win32` 门控）。⚠️ 配套自检表语义：koffi 这种「按设计跳过」的包若照旧算 `[UNCOVERED]`，每次安装都喊一次狼——所以引入 `SKIP_SCRIPTS` 并让它标 `[skipped]`。
+- **⚠️ `DSH_HOME` 是根，profile 在 `$DSH_HOME/profiles/web`——不是 `$DSH_HOME/.dsh/profiles/web`**：dsh 的 home 目录结构是 `<root>/{profiles,storage,sessions,...}`，默认 `DSH_HOME=~/.dsh`，于是常被记成「`.dsh` 里再套一层 `.dsh`」。写补丁层或做隔离验收时若写成 `$DSH_HOME/.dsh/profiles/web/cordis.patch.yml`，**文件会写成功但 dsh 永远不读它**（静默忽略，既没报错也没生效）——`apply-profile-patch.js --target` 必须直接指向 `$DSH_HOME/profiles/web/cordis.patch.yml`；隔离验收时若把 `DSH_HOME` 指到临时目录，要记得 profile 就在该目录的 `profiles/web` 下。
+- **⚠️ 0.2.1 的 `RETIRED_BUNDLES` 迁移是正常行为，不要当报错**：0.2.1 首次启动会把 `dsh-experimental-schedule-bundle` 从已有 profile 的 bundle 列表里自动摘掉（上游内置迁移）。升级后看到 profile 文件被改、或日志里出现 retired/migrat* 相关行，先确认是不是这条迁移再排查。**不要**为了「保持原样」把该 bundle 塞回去。
+- **⚠️ pnpm 12 在 Android 上不可用；pnpm 11.x 是 dsh 插件功能的运行期依赖**：0.2.1 的 plugin-manager / `dsh plugin …` 会 `execa("pnpm")` 从 PATH 找 pnpm。pnpm 12 的原生 `pnpm.exe`（android-arm64 无对应构建/写入 store 失败：`ERR_PNPM_STORE_DIR_ACQUIRE_OPERATION_LOCK` / `lock_shared() not supported`）在这台设备上必失败，所以**只用 pnpm 11.x**。注意本机存在**两个 pnpm**：`$PREFIX/bin/pnpm` 是坏的 npm-global **12.11.2**，`~/bin/pnpm` 是手工钉的 **11.27.1** 包装；`~/bin` 在 PATH 中靠前所以生效的是 11——但 `PATH` 顺序变化时坏 pnpm 会冒出来，排查「pnpm 报 store 锁错误」先跑 `command -v pnpm && pnpm --version` 确认解析到哪个。`setup.sh` 的 pnpm 冲突预检把 ≥12 当硬冲突（中文提示 + `exit 1`，不可用 `DSH_PM_CONFLICT_OVERRIDE` 覆盖）。
+- **⚠️ pnpm 11 的 `.npmrc` 只读 registry/auth/网络类键，不读 npm 的 `allow-scripts` 语义**：pnpm 11 源码里的 `isNpmrcReadableKey` 会过滤掉 `allow-scripts` 这类键，所以 npm 路径的构建白名单对 pnpm **完全无效**。pnpm 方式必须在项目级 `pnpm-workspace.yaml` 写 `allowBuilds`（把 `ALLOW_SCRIPTS` 映射 true、`SKIP_SCRIPTS` 映射 false）并设 `strictDepBuilds: false`：pnpm 11 默认对「未审批的构建脚本」是**硬失败**（`ERR_PNPM_IGNORED_BUILDS`），设为 false 后才与 npm「只警告并跳过」语义一致，未知带脚本包再由 3/9 自检报 `[UNCOVERED]`。
+- **⚠️ pnpm 的全局布局与补丁模型不兼容，必须走「非全局 project 安装 + 迁移」**：pnpm 全局安装（`$PNPM_HOME/global/v11/<hash>/node_modules` + global virtual store 符号链接）不是补丁期望的嵌套真实目录布局（补丁直接改写 `<dsh>/node_modules/@deepseek-ai/…`）。`setup.sh` 用 `nodeLinker: hoisted` + `enableGlobalVirtualStore: false` + `packageImportMethod: copy` 产出扁平真实目录树，装完整体 `mv` 到规范 `DSH_DIR`（同文件系统 rename，秒级），产物与 npm 布局逐项对应，**4/9~9/9 与所有补丁脚本无需改动**。pnpm 11.27.1 隔离实测装 0.2.0-rc.2 仅 34.4s（npm 5~15min）、端到端九步全绿、生产树指纹零改动。
 - **⚠️ 0.2.0 的权限预设按「sandbox + approval 组合」反查，权限层少一条就整行不激活**：`@deepseek-ai/dsh-permission-presets`（行 id `permission`）在构造时用 `derive(EMPTY_KNOBS)` 反查预设表——`danger-full-access` 预设 = `{sandbox: danger-full-access, approval: never}`，而 approval 的基线默认是 `(process.env.DSH_PERMISSION_MODE ?? 'workspace-write') === 'danger-full-access' ? 'never' : 'ask'`。只把 sandbox 设成 danger-full-access（旧版层的做法）→ 组合是 `{danger-full-access, ask}` → 匹配不到任何预设 → 抛 `permission: composed sandbox and approval defaults match no preset`，该行不激活（启动日志 `warning: 1 entry did not activate`），bash 仍能跑但权限预设服务缺失。**这类「上游新增校验把看起来无关的两行配置耦合起来」的变化，静态锚点检查发现不了**——只有真起一次、扫日志才会暴露（与 require-builtin 同类教训）。判据：新版本里出现「按组合状态反查预设/枚举」的插件时，把该组合在补丁层里**成对**写全。
 - **⚠️ 生成物的 manifest 要填包名、「幂等」要比内容**：`patch-dsh-android-require-builtin.js` 早期把 `manifest.name` 写成平台包目录的**绝对路径**（非法 npm 元数据），且 `reuse` 只查标记不比内容 → 改了模板但已装设备永远不更新。现在：`platformPackageFiles()` 算内容 → 逐字节一致才 `[OK]`、否则 `[REFRESHED]`；**归属读 manifest 的 `dshAndroidPatch` 字段、存在性看目录**（按 `index.js` 存在性判断会改写 `main` 指向 `prebuilt/` 的外来包；按子串扫会认错描述里恰好提到它的包）；外来包一律**让路不覆盖**（曾写成直接 throw，而 4-boot 把非 0 当硬阻断 → 把上游合法包判成安装失败），可用性交给同一次 `verify()`：能加载就 `[SKIP]` 退 0。`os`/`cpu` 由 `process.platform`/`process.arch` 推导。通用教训：生成型补丁 ① 幂等比内容不比标记；② 「不是我的东西」要么让路要么报错，报错前先确认它真的不可用。
 - **⚠️ `--root` 必须是硬契约（覆盖每个「能改生产树」的脚本）；幂等判定要比语义、不能比子串**：link/flock/verify-link/require-builtin 早期把 `--root` 当「候选链第一项」，给了假 root 就**静默回落生产树**并在那里作业——「拿夹具在临时目录里验证」于是变成假话（实测 `--root <tmp>/badroot` 打印的却是生产路径；生产恰好已打补丁才没写坏）。现在显式 `--root` 定位不到一律报错退 1、不回落。require-builtin 还额外要求**定位契约不依赖「正要判断存在性的那个东西」**：早期「找到 entry 包的 `package.json` 才算安装根」让紧随的「entry 包不存在 → `[SKIP]` 退 0」（dsh <0.1.7）**恒不可达**，健康的 0.1.5 回退安装被 4-boot 硬中断；现在按「根 `package.json` 的 `name` 为 `@deepseek-ai/dsh`，或该目录下就有 entry 包」判定，与 entry 包解耦。幂等判定同样：link 曾用 `includes("publishNoReplaceNoHardlink")`、flock 曾用 `includes("[dsh-android-flock]")` 判「已修」——注释/字符串里出现该标识就报 `[OK]`（实测「仅一句注释」的文件被假成功掩盖）；现在两者都先**逐字符状态机剥掉注释与字符串**再判定：link 要两个 helper 的**函数定义**，flock 要 `platform === 'android'` 真分支并加载 `system.node`（marker 只用于注入）。异常项（`[WARN]`/`[ERROR]`）统一走 **stderr**。回归由 `patches/verify-patch-guards-fixture.js`（39 断言，含断言总数下限）守着——拿修复前脚本跑同一夹具有 21 条 FAIL。
@@ -205,8 +249,11 @@ Shell 语义：
 ## 8. 常用命令
 
 ```bash
-bash setup.sh                       # 一键安装/升级 + 全量修补（简洁模式）
+bash setup.sh                       # 一键安装/升级 + 全量修补（简洁模式，默认 npm）
 bash setup.sh --verbose             # 同时显示原始子命令输出
+bash setup.sh --pnpm                # 用 pnpm 11 装 dsh（装前只读冲突预检；冲突 → 中文提示 + exit 1）
+DSH_PM=pnpm bash setup.sh           # 同上（环境变量形式；--npm / DSH_PM=npm 强制 npm）
+DSH_PM_CONFLICT_OVERRIDE=1 bash setup.sh --pnpm   # 强制越过「已有 npm 安装 / PATH 上另一个 dsh」类共存冲突
 bash ~/dsh/start_dsh.sh             # 启动 dsh web 并打开带 token 浏览器
 bash ~/dsh/stop_dsh.sh              # 停止
 bash ~/dsh/restart_dsh_now.sh       # 重启 dsh web（不打开浏览器）
@@ -231,6 +278,8 @@ node patches/apply-profile-patch.js --target "$HOME/.dsh/profiles/web/cordis.pat
 node patches/verify-profile-patch-fixture.js
 # link/flock 守护条件夹具自检（11 用例 / 39 断言）
 node patches/verify-patch-guards-fixture.js
+# pnpm 安装方式 + 冲突预检夹具自检（46 断言；离线、不联网、不装包）
+node patches/verify-pnpm-fixture.js
 # 补丁 02 自检（--port 0 临时实例，不打扰正在跑的服务）
 node patches/verify-client-modules-lazy.js [--timeout 120]
 ```
@@ -249,7 +298,7 @@ node "$(readlink -f "$(command -v npm)")" view @deepseek-ai/dsh dist-tags   # �
 
 ## 9. 测试与验证
 
-- **脚本级一键检查（每次都该跑）**：`bash patches/verify-all-checks.sh [--verbose] [--full]` = 语法 + 静态契约 25 条 + 5 个夹具（21/21/39/29/41 断言）；`--full` 再跑**变异测试**（9 个注入回归必须让对应套件变红 + 4 个对照组为绿，实测 13/13）。**只读或只写临时目录**：不跑 setup.sh、不碰 3080、不写 `~/.dsh`。
+- **脚本级一键检查（每次都该跑）**：`bash patches/verify-all-checks.sh [--verbose] [--full]` = 语法 + 静态契约 25 条 + **7 个夹具（250 条断言）**：js-patches 21 / runtime-scripts 21 / guards 39 / require-builtin 29 / profile 41 / **pnpm 46** / **pnpm-provision 53**（全绿输出 **`套件 PASS=9 FAIL=0`**）；`--full` 再跑**变异测试**（9 个注入回归必须让对应套件变红 + 4 个对照组为绿，实测 13/13，本次未新增变异用例）。**只读或只写临时目录**：不跑 setup.sh、不碰 3080、不写 `~/.dsh`。
 - 无单测框架。此外仍需真实 Termux+Android 环境实跑一次（`dsh web` 起在 `127.0.0.1:3080`）。
 - **语法自检**：`bash -n setup.sh`、`bash -n apply-*.sh`；三个运行期脚本还要 `dash -n`。
 - **幂等自检**：连续跑两次修补，第二次应全部 `[OK]`/`[skip]`。
@@ -260,6 +309,8 @@ node "$(readlink -f "$(command -v npm)")" view @deepseek-ai/dsh dist-tags   # �
 - **require-builtin 夹具自检**：`node patches/verify-require-builtin-fixture.js`——**8 用例 / 29 断言**（本机全绿）。覆盖让路、`dsh <0.1.7` 的 `[SKIP]` 退 0、`--root` 硬契约、两个归属判定回归（外部包无 `index.js`、描述含标记串）。只写临时目录并断言真实树未被触碰。
 - **权限层夹具自检**：`node patches/verify-profile-patch-fixture.js`——**11 用例 / 41 断言**（本机全绿）：**崩溃现场 `[REPAIRED]`**（先断言确实解析不了再修）、用户层 `[APPENDED]` 原条目逐字保留、旧版单条层只补 `approval`、用户自配沙箱时不塞 `approval`、坏文件退 1 且一字节不动、真实 `~/.dsh` profile 哈希不变。
 - **link/flock 守护条件夹具自检**：`node patches/verify-patch-guards-fixture.js`——**11 用例 / 39 断言**（含断言总数下限；本机全绿）：假 `--root` 退 1 不回落、副本内真编译、注释/字符串/`label://` 骗不过幂等判定。修复前脚本跑同一夹具有 21 条 FAIL。
+- **pnpm 安装方式夹具自检**：`node patches/verify-pnpm-fixture.js`——**46 断言**、约 2.7s、**离线**（不联网、不装包）、连跑幂等。把 `setup.sh` 当黑盒，用 `DSH_SETUP_PREFLIGHT_ONLY=1` + `DSH_SETUP_PREFIX=<临时前缀>` + 干净 `PATH`（只有工具软链，无真实 dsh/pnpm）覆盖：无 pnpm → 中文提示 + 退 1；pnpm ≥12 / <11 / 不可解析 → 退 1；已有非 pnpm 归属的 dsh 安装 → 退 1（`DSH_PM_CONFLICT_OVERRIDE=1` 时警告并继续，旧目录名 `dsh.npm-backup`）；PATH 上另一个 dsh → 退 1；无冲突 11.x / `--pnpm` 旗标 / `--verbose --pnpm` → 预检通过；默认 npm 路径**不新增安装冲突预检**（`2.5/9` 运行时供给在已可用时只报 `[OK]`）；坏 shebang 的 pnpm 壳包装能被解析成 `node …pnpm.mjs`；冲突预检**无副作用**（前缀内容快照前后一致、不创建安装目录）。
+- **pnpm 运行时供给夹具自检**：`node patches/verify-pnpm-provision-fixture.js`——**53 断言**、**离线**（fake `PATH`/`HOME`/`DSH_PNPM_PIN_DIR`/`DSH_PNPM_WRAPPER_DIR`，不碰真实 `~/.local/share/pnpm-pin`、`~/bin`、安装树、3080、`~/.dsh`）。覆盖各冲突分支（`--version` 不可用 / ≥12 / <11、`DSH_PNPM_WRAPPER_DIR` 不在 PATH、别人的包装、`strict-allow-scripts=true`）、被遮蔽 npm-global pnpm 12 只 warn、手工等价 pin 包装被认领不覆盖、`DSH_SETUP_PROVISION_ONLY=1` 供给幂等（第二次只报 `[OK]`）、默认 npm 路径不变、与 `--pnpm` 安装方式复用同一套 pnpm 解析逻辑。
 - **⚠️ 版本升级的隔离验收（不碰 3080）**：`npm install -g --prefix ~/dsh-verify @deepseek-ai/dsh@<ver>` → 补丁脚本 `--root` 指向该 prefix（`apply-rg-fix.sh` 的 `DSH_ROOT` 是 dsh 安装根；link/flock/verify-link 才用 `--root <@deepseek-ai>`）→ `DSH_HOME=<临时目录> … web --no-open --port 3099` → 校验 token URL 303、cookie 后 `/` 200、日志零 warn/error。sharp 回退要手动照 5/9 做一遍。
 - **⚠️ 版本漂移要端到端验收**：跑完 `setup.sh` 后**必须**真的起一次，确认日志有 `?token=`、token URL 303、换 cookie 后 `/` 200、无 `warn/error/fatal`。静态全绿 ≠ 能跑（0.1.7 的 require-builtin 就是反例）。
 - **补丁 02**：`node patches/verify-client-modules-lazy.js`（`--port 0` 临时实例；核对单条/批量 bundle 与 sourcemap、未知 URL 404、HEAD 200，并打印启动到 token 秒数）。手工等价验证（需另起 `--port 3099`）：与未打补丁实例逐字节比对 `__DSH_BOOT__` 里的资源 URL（比对前去掉 `//# sourceMappingURL=` 行）。冷启动实测：未打补丁 22.6s / 打补丁 12.5s。
@@ -280,6 +331,8 @@ node "$(readlink -f "$(command -v npm)")" view @deepseek-ai/dsh dist-tags   # �
 - **原生 addon 的 Android 适配（两条路，按上游是否发布源码选）**：① 上游带 `src/*.c`（`@deepseek-ai/node-addon-system` 的 `flock.c`）→ clang 编译成本机 `system.node`（Node headers 取 `$PREFIX/include/node` 或 `~/.cache/node-gyp/<ver>/include/node`）并改加载分支；② 上游**只有预编译包、不发源码**（`node-addon-require-builtin`，其 README 明说 published install "fail closed instead of compiling unvalidated local binaries"）→ 按 loader 的「平台可选包」约定自建 `<name>-android-arm64` 包，导出形状过 `validateLoadedBinding()` 即可，纯 JS 亦可（前提运行时带 `--expose-internals`）。其它原生 addon 若报 “not supported on android-*” 或 “No usable native binding found” 可照这两条模式处理。
 - 终端 / 平台检测：`process.platform === "android"` 需视同 `"linux"` 处理（见第 7 节 4c 的通配扫描要求）。
 - **`03-client-modules-newline-count`**：只改 `newlineCount()` 的循环写法（`for (const char of value)` → `charCodeAt` 索引循环），不改语义。它是**版本无关**的兜底性能补丁，锚点在 0.1.5/0.1.7 上都稳定。
+- **安装后端（pnpm）的设计约束**：① **产物必须落在规范 `DSH_DIR` 且与 npm 布局逐项对应**——所有补丁脚本按 `<dsh>/node_modules/@deepseek-ai/…` 定位，pnpm 的全局/virtual-store 符号链接布局不兼容，故走「非全局 project 安装（`nodeLinker: hoisted`、`enableGlobalVirtualStore: false`、`packageImportMethod: copy`）+ 整体 `mv` 到 `DSH_DIR`」；② 构建脚本白名单必须**显式映射**到项目级 `allowBuilds`（npm 的 `allow-scripts` 对 pnpm 无效），并把 `strictDepBuilds` 设为 `false` 以对齐 npm 的「未审批只警告」；③ **版本线硬校验**：只接受 pnpm 11.x，≥12（Android store 锁）或 <11 一律 `exit 1`；④ 归属标记 `<dsh>/.dsh-android-pm` 用于区分「上次 pnpm 装的」与「npm 装的」，前者原地重建、后者改名 `dsh.npm-backup` 不删除；⑤ 私有 store `<dsh>/pnpm-store` 供快速重装复用（不自动清理，可手动删）；⑥ 默认 npm 路径**保持 `npm install` 命令逐字不变**——新增的只有 `2.5/9` pnpm 运行时供给（两种方式都跑；PATH 上已有可用 pnpm 11.x 时只报 `[OK]`、不写文件）与 3/9 的一行 allow-scripts 策略输出。
+- **pnpm 运行时的设计约束**：dsh ≥0.2.1 的插件功能 `execa("pnpm")` 是**运行期**依赖，所以 `2.5/9` 必须对 npm / pnpm 两种安装方式都执行；供给的 pnpm 必须是**纯 JS build**（`npm --prefix <pin> install pnpm@11.x`，用 `node <pin>/node_modules/pnpm/bin/pnpm.mjs` 跑），**绝不能用 pnpm 12 的原生 exe**（android 无构建/写 store 必失败）。包装脚本必须：Termux 绝对 shebang、`exec <node> <绝对路径 mjs> "$@"`、带归属 marker（幂等判定 + 不覆盖用户文件）、且 `$DSH_PNPM_WRAPPER_DIR` 必须在 PATH 且排在坏 pnpm 之前。
 - **`02-client-modules-lazy-compose`（仅 0.1.5 线，已弃用）**：改 `dsh-client-modules/lib/index.js` 三处——`newlineCount` 改 `charCodeAt` 索引循环；`buildCombo` 行数只数一次；`compose()` 不再为每条记录急切构建 artifact（`singleRecords` + `singleResponses` 按需缓存，`bundleResource` 用 `?? this.singleResponse(url)` 兜底）。背景：启动期间 `ClientModuleRegistry` 会因 `internal/plugin` 事件**全量重组约 10 次**（实测 table 0→48→…→60），10.8MB 源码下一次 compose 约 2s、占冷启动一半以上（实测 22.6s→12.5s）；挂载的 client 插件越多越慢。
 - **本仓库不改动 dsh 前端界面文件**：不注入 CSS/JS、不改 `dsh-web-frontend/dist/index.html` 的 viewport、不改 manifest。历史上 `apply-frontend.sh` + `patches/mobile.css`/`mobile.js` 做过移动端适配，因依赖上游类名/DOM 结构、每次升级必漂移且违背「最小侵入」已删除；前端问题提给上游，本仓库只保证启动/鉴权链路与后端兼容修补。
 
@@ -303,7 +356,7 @@ node "$(readlink -f "$(command -v npm)")" view @deepseek-ai/dsh dist-tags   # �
 ## 13. 重跑 `setup.sh` 之后怎么复验（本轮经验）
 
 - **npm 重装清掉自补包是预期**：`npm install -g` 会打印 `removed 4 packages, and changed 530 packages`（自补包目录也在其中）；故 4-boot/4-link/4-flock/5/9 重报 `[CREATED]/[PATCHED]/[BUILT]` **不是故障**。
-- **复验三步（都不改生产文件）**：① `bash patches/verify-all-checks.sh --full`；② 逐个重跑修补步骤，必须全 `[OK]`/`[skip]`（各修补全 `[OK]`/`[skip]`；js `[skip]×2 + [deprecated]×1`，rg `already patched`）；③ 核对产物：sharp 与 `@img/sharp-wasm32` 同版本、rg 软链在、`system.node` 可加载、权限层两条齐备且无裸 `[]`。
+- **复验三步（都不改生产文件）**：① `bash patches/verify-all-checks.sh --full`；② 逐个重跑修补步骤，必须全 `[OK]`/`[skip]`（各修补全 `[OK]`/`[skip]`；js `[skip]×2 + [deprecated]×1`，rg `already patched`；**pnpm 运行时 `2.5/9` 报 `[OK]` 且 `command -v pnpm && pnpm --version` 指向 11.x**）；③ 核对产物：sharp 与 `@img/sharp-wasm32` 同版本、rg 软链在、`system.node` 可加载、权限层两条齐备且无裸 `[]`、`~/bin/{pnpm,pn,pnpx,pnx}` 都在且 `~/bin/pnpm --version` 是 11.x。
 - **⚠️ `~/dsh/` 三个副本会与仓库漂移**：只有 `setup.sh` 7/9 同步它们，单独改仓库脚本后**设备跑的还是旧脚本**（本轮实测：仓库已修 `--port`，副本没有）。同步用 `install -m 700 start_dsh.sh stop_dsh.sh restart_dsh_now.sh ~/dsh/` 并核对 `sha256sum`；脚本改动不必重启 dsh。
 - **判定「运行中的实例是否真吃到补丁」**：`setup` 只改磁盘，进程内存里可能是旧代码。用 `stat -c '%y' /proc/<pid>` 拿启动时刻（⚠️ Android 上 `ps -o lstart=` 给出荒谬时间、`/proc/uptime` 与 `/proc/net/tcp` 都是 Permission denied、也没有 `getconf`），与补丁产物 mtime 比较；决定性证据是 `/proc/<pid>/maps` 里出现 `…/node-addon-system/bin/android-arm64/system.node`。补丁晚于进程启动 → 必须重启。
 - **⚠️ 实例不是 `start_dsh.sh` 拉起时，「复用」会白等 90s**：判据是 `/proc/<pid>/fd` 的 0/1/2 指向 `/dev/pts/*`（该脚本的拉起路径必然把 stdout 重定向进 `dsh.log`）且 `~/dsh/storage/{dsh.log,dsh.pid}` 陈旧（本轮：日志停在 10 天前、pid 文件差 9000+）。此时 token 只打在它自己的终端，`tail -n 0 -f` 只读新行 → 等满 `DSH_READY_TIMEOUT` 才降级裸 URL（401，靠浏览器 cookie 才进）。`stop_dsh.sh` 有 `pgrep` 兜底不受影响。**一律用 `start_dsh.sh` / `restart_dsh_now.sh` 起服务**。
