@@ -10,15 +10,17 @@
  * 并在任何安装动作之前做只读冲突预检。本夹具只用假 npm / 假 pnpm 覆盖这些分支：
  *
  *   a) PATH 上的 pnpm 主版本 >=12 / <11 / --version 不可用 → exit 1（版本类，不可覆盖）；
- *   b) 包装目录里已有「用户自己的、非本仓库生成」的包装 → exit 1（可 DSH_PNPM_CONFLICT_OVERRIDE=1，写前备份）；
- *      内容等价于本仓库布局的**手工 pin 包装**（本机现状）→ 认领不覆盖；
+ *   b) PATH 首位是**能用的**用户包装（11.x）→ 直接复用不覆盖；需重写时遇到不等价的用户包装 → exit 1
+ *      （可 DSH_PNPM_CONFLICT_OVERRIDE=1，写前备份）；
  *   c) 需要供给但包装目录不在 PATH → exit 1 并给出 export PATH 命令；
  *   d) npm strict-allow-scripts=true → exit 1（会把 SKIP_SCRIPTS 里的 koffi 变硬错误 ESTRICTALLOWSCRIPTS）；
  *   e) 被 ~/bin 遮蔽的 npm 全局 pnpm@12 → 只 warn 不阻断；
  *   f) 缺失时供给：写 pin 目录（假 npm 造）+ 4 个包装（marker / Termux shebang / exec node <mjs> / 755），
  *      验证 `pnpm --version`=11.x 且 PATH 解析到包装；第二次跑幂等（不再调用 npm install）；
  *   g) 本仓库包装损坏 → 修复；用户包装 + 覆盖开关 → 备份后重写；
- *   h) 默认 npm 路径没有新增 pnpm「安装方式」预检（核心行为不变）；冲突预检无副作用（快照一致）。
+ *   h) 默认 npm 路径没有新增 pnpm「安装方式」预检（核心行为不变）；冲突预检无副作用（快照一致）；
+ *   i) 版本探测不写死 pnpm：第一个 pnpm 不合格时继续探测 PATH 各目录 / pin / PNPM_HOME / npm 全局，
+ *      找到能用的 11.x 就复用；压不过坏 pnpm 就停止（只读，无副作用），用户换掉版本后重跑必须能继续。
  *
  * 用法：node patches/verify-pnpm-provision-fixture.js
  * 退出码：0 = 全部通过；1 = 有断言失败（逐条打印）。
@@ -222,7 +224,6 @@ function runSetup(root, opts = {}) {
 		NO_COLOR: "1",
 		SETUP_VERBOSE: "0",
 		PATH: pathDirs.join(path.delimiter),
-		DSH_PM: "",
 		DSH_SETUP_PREFIX: path.join(root, "prefix"),
 		DSH_SETUP_PREFLIGHT_ONLY: "0",
 		DSH_SETUP_PROVISION_ONLY: "0",
@@ -285,7 +286,7 @@ function main() {
 
 	// ---------------------------------------------------------- b) 包装冲突 / 认领
 	{
-		// 用户自己的包装：可运行但不是本仓库生成（指向 wrapDir 里另一份 mjs），且内容不等价 → 冲突
+		// 用户自己的包装但**可用**（11.x，非本仓库生成）：PATH 首位能用的 11.x 就直接复用
 		const root = mkTmp("user-wrapper");
 		const toolbin = makeToolbin(root);
 		const npmbin = makeFakeNpm(root);
@@ -299,9 +300,29 @@ function main() {
 			wrapDir,
 			env: { DSH_SETUP_PREFLIGHT_ONLY: "1" },
 		});
-		check(r.rc === 1, "b1 用户自己的 pnpm 包装（非本仓库）→ exit 1", `rc=${r.rc}`);
-		check(r.out.includes("不属于本仓库生成的 pnpm 包装"), "b1 指明包装归属不是本仓库");
-		check(fs.readFileSync(file, "utf8") === before, "b1 不会覆盖用户包装（内容不变）");
+		check(r.rc === 0, "b1 可用的用户包装（11.x，非本仓库）→ 直接复用（exit 0）", `rc=${r.rc}`);
+		check(r.out.includes("pnpm 运行时可用"), "b1 报运行时可用");
+		check(fs.readFileSync(file, "utf8") === before, "b1 不会覆盖可用的用户包装（内容不变）");
+	}
+	{
+		// 必须写包装时遇到用户自有且不等价的包装 → 冲突（DSH_PNPM_CONFLICT_OVERRIDE=1 才备份重写）
+		const root = mkTmp("user-wrapper-conflict");
+		const toolbin = makeToolbin(root);
+		const npmbin = makeFakeNpm(root);
+		const wrapDir = path.join(root, "wbin");
+		const pnpm12 = makePnpmOnPath(root, "12.11.2");
+		const userMjs = path.join(root, "user-pnpm.mjs");
+		fs.writeFileSync(userMjs, "process.exit(0);\n"); // 坏包装：--version 无输出
+		const file = makeWrapper(wrapDir, "pnpm", userMjs, { marker: false });
+		const before = fs.readFileSync(file, "utf8");
+		const r = runSetup(root, {
+			pathDirs: [wrapDir, pnpm12, npmbin, toolbin],
+			wrapDir,
+			env: { DSH_SETUP_PROVISION_ONLY: "1" },
+		});
+		check(r.rc === 1, "b1b 需重写包装但遇到用户自有包装 → exit 1", `rc=${r.rc}`);
+		check(r.out.includes("不属于本仓库生成的 pnpm 包装"), "b1b 指明包装归属不是本仓库");
+		check(fs.readFileSync(file, "utf8") === before, "b1b 不会覆盖用户包装（内容不变）");
 	}
 	{
 		// 等价的手工 pin 包装（无 marker）：认领、不覆盖、不报冲突
@@ -537,23 +558,110 @@ function main() {
 		check(snapshot(wrapDir) + snapshot(pinDir) === before, "h2 冲突预检无副作用（包装/pin 目录未被创建或改动）");
 	}
 	{
-		// pnpm 安装方式（--pnpm）下运行时预检同样生效，但「安装方式」预检仍是它自己的输出
-		const root = mkTmp("pnpm-mode");
+		// 安装方式已统一为 npm：旧的 --pnpm / --npm 旗标必须被明确拒绝（而不是静默当成 npm 安装）
+		for (const flag of ["--pnpm", "--npm"]) {
+			const root = mkTmp("legacy-flag");
+			const toolbin = makeToolbin(root);
+			const npmbin = makeFakeNpm(root);
+			const pnpmbin = makePnpmOnPath(root, "11.27.1");
+			const r = runSetup(root, {
+				pathDirs: [pnpmbin, npmbin, toolbin],
+				args: [flag],
+				env: {
+					DSH_SETUP_PREFLIGHT_ONLY: "1",
+					FAKE_NPM_STRICT: "false",
+					FAKE_NPM_ROOT: path.join(root, "no-root"),
+				},
+			});
+			check(r.rc === 1, `h3 旧旗标 ${flag} → exit 1（安装方式只有 npm）`, `rc=${r.rc}`);
+			check(r.out.includes("参数已废弃"), `h3 ${flag} 给出废弃提示`);
+			check(!r.out.includes("1/9"), `h3 ${flag} 在任何安装步骤之前退出`);
+		}
+	}
+
+	// ---------------------------------------------------------- i) 版本探测 / 不写死 pnpm / 停止后可恢复
+	{
+		// PATH 上第一个是坏的 pnpm 12，且包装目录排在它后面（压不过）→ 停止 + 提示，且只读
+		const root = mkTmp("stop");
 		const toolbin = makeToolbin(root);
 		const npmbin = makeFakeNpm(root);
-		const pnpmbin = makePnpmOnPath(root, "11.27.1");
+		const pnpm12 = makePnpmOnPath(root, "12.11.2");
+		const wrapDir = path.join(root, "wbin");
+		const pinDir = path.join(root, "pin");
+		const before = snapshot(wrapDir) + snapshot(pinDir);
 		const r = runSetup(root, {
-			pathDirs: [pnpmbin, npmbin, toolbin],
-			env: {
-				DSH_PM: "pnpm",
-				DSH_SETUP_PREFLIGHT_ONLY: "1",
-				FAKE_NPM_STRICT: "false",
-				FAKE_NPM_ROOT: path.join(root, "no-root"),
-			},
+			pathDirs: [pnpm12, wrapDir, npmbin, toolbin],
+			wrapDir,
+			pinDir,
+			env: { DSH_SETUP_PREFLIGHT_ONLY: "1" },
 		});
-		check(r.rc === 0, "h3 --pnpm 方式预检通过（空前缀 + pnpm 11）", `rc=${r.rc}`);
-		check(r.out.includes("安装前冲突预检"), "h3 同时跑了 pnpm 安装方式预检");
-		check(r.out.includes("pnpm 运行时可用"), "h3 与运行时预检复用同一套解析逻辑");
+		check(r.rc === 1, "i1 压不过坏的 pnpm 12 → 停止（exit 1）", `rc=${r.rc}`);
+		check(r.out.includes("pnpm 12"), "i1 指出探测到的 pnpm 12");
+		check(r.out.includes("排在包装目录") && r.out.includes("PATH 顺序"), "i1 指出 PATH 顺序是根因");
+		check(r.out.includes("npm install -g pnpm@11") && r.out.includes("npm uninstall -g pnpm"), "i1 给出两种修复命令");
+		check(r.out.includes("未改动任何文件"), "i1 明确告知预检未做写入");
+		check(snapshot(wrapDir) + snapshot(pinDir) === before, "i1 停止前没有任何写入（无副作用）");
+
+		// 用户按提示把那个 pnpm 换成 11.x（这里直接改写假 mjs 的版本）→ 再跑必须能正常继续
+		fs.writeFileSync(
+			path.join(pnpm12, "fake-pnpm.mjs"),
+			`if (process.argv[2] === "--version") { console.log("11.27.1"); process.exit(0); }\nprocess.exit(0);\n`,
+		);
+		const r2 = runSetup(root, { pathDirs: [pnpm12, wrapDir, npmbin, toolbin], wrapDir, pinDir, env: { DSH_SETUP_PREFLIGHT_ONLY: "1" } });
+		check(r2.rc === 0, "i1 修好 pnpm 版本后重跑 → 预检通过（exit 0）", `rc=${r2.rc}`);
+		check(r2.out.includes("pnpm 运行时可用"), "i1 重跑直接复用修好的 11.x");
+	}
+	{
+		// PATH 上第一个是坏的 pnpm 12，但包装目录排在它前面（能压过）→ 自动供给，不必让用户手改
+		const root = mkTmp("shadow12");
+		const toolbin = makeToolbin(root);
+		const npmbin = makeFakeNpm(root);
+		const pnpm12 = makePnpmOnPath(root, "12.11.2");
+		const wrapDir = path.join(root, "wbin");
+		const pinDir = path.join(root, "pin");
+		const npmLog = path.join(root, "npm-calls.log");
+		fs.writeFileSync(npmLog, "");
+		const r = runSetup(root, {
+			pathDirs: [wrapDir, pnpm12, npmbin, toolbin],
+			wrapDir,
+			pinDir,
+			env: { DSH_SETUP_PROVISION_ONLY: "1", FAKE_NPM_LOG: npmLog },
+		});
+		check(r.rc === 0, "i2 包装目录能压过坏的 pnpm 12 → 自动供给（exit 0）", `rc=${r.rc}`);
+		check(r.out.includes("2.5/9 将安装 pnpm"), "i2 预检报将安装 11.x");
+		const wr = spawnSync(path.join(wrapDir, "pnpm"), ["--version"], { encoding: "utf8", timeout: 30000 });
+		check((wr.stdout || "").trim() === "11.27.1", "i2 供给后包装是 11.27.1", (wr.stdout || "").trim());
+		const which = spawnSync(BASH, ["-c", 'command -v pnpm'], {
+			encoding: "utf8",
+			timeout: 30000,
+			env: { ...process.env, PATH: [wrapDir, pnpm12, npmbin, toolbin].join(path.delimiter) },
+		});
+		check((which.stdout || "").trim() === path.join(wrapDir, "pnpm"), "i2 坏 pnpm 12 已被包装遮蔽", (which.stdout || "").trim());
+	}
+	{
+		// PATH 首位是 pnpm 12，但 pin 目录里已有可用的 11.x → 复用（不重新下载）
+		const root = mkTmp("reuse");
+		const toolbin = makeToolbin(root);
+		const npmbin = makeFakeNpm(root);
+		const pnpm12 = makePnpmOnPath(root, "12.11.2");
+		const wrapDir = path.join(root, "wbin");
+		const pinDir = makeFakePin(path.join(root, "pin"), "11.27.1");
+		const npmLog = path.join(root, "npm-calls.log");
+		fs.writeFileSync(npmLog, "");
+		const r = runSetup(root, {
+			pathDirs: [wrapDir, pnpm12, npmbin, toolbin],
+			wrapDir,
+			pinDir,
+			env: { DSH_SETUP_PROVISION_ONLY: "1", FAKE_NPM_LOG: npmLog },
+		});
+		check(r.rc === 0, "i3 pin 里已有可用 11.x → 复用（exit 0）", `rc=${r.rc}`);
+		check(r.out.includes("复用已有的 pnpm 11.27.1"), "i3 预检报复用已有版本");
+		const calls = fs.readFileSync(npmLog, "utf8").split("\n").filter((l) => l.startsWith("install"));
+		check(calls.length === 0, "i3 复用时不再执行 npm install", `calls=${calls.length}`);
+		const body = fs.readFileSync(path.join(wrapDir, "pnpm"), "utf8");
+		check(body.includes(path.join(pinDir, "node_modules/pnpm/bin/pnpm.mjs")), "i3 包装指向被复用的 pin 入口");
+		const wr = spawnSync(path.join(wrapDir, "pnpm"), ["--version"], { encoding: "utf8", timeout: 30000 });
+		check((wr.stdout || "").trim() === "11.27.1", "i3 复用后包装 --version = 11.27.1", (wr.stdout || "").trim());
 	}
 
 	console.log("");
