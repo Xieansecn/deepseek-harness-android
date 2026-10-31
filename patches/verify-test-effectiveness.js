@@ -11,12 +11,13 @@
  *   2. stop_dsh.sh 去掉「进程/端口仍在」的 exit 1                 → runtime 夹具
  *   3. restart_dsh_now.sh 去掉 curl=000 判定                      → runtime 夹具
  *   4. start_dsh.sh 降级原因不带 no-token 码                      → runtime 夹具
- *   5. apply-js-patches.sh 把 03 排到 02 前面（顺序即语义）        → js-patches 夹具
- *   6. apply-js-patches.sh 退出码不看 failed                      → js-patches 夹具
- *   7. setup.sh link 预检 marker 回退成裸标识符                   → 静态契约检查
- *   8. setup.sh 用「先 rm 后写」替换 mv -f 原子替换               → 静态契约检查
- *   9. guards 夹具里删掉 3 条断言                                 → guards 夹具（断言下限）
- *  10. 对照组：不改任何东西                                      → 对应套件必须绿
+ *   5. start_dsh.sh 拉起前不探端口（端口被占也白拉一次）          → runtime 夹具
+ *   6. apply-js-patches.sh 把 03 排到 02 前面（顺序即语义）        → js-patches 夹具
+ *   7. apply-js-patches.sh 退出码不看 failed                      → js-patches 夹具
+ *   8. setup.sh link 预检 marker 回退成裸标识符                   → 静态契约检查
+ *   9. setup.sh 用「先 rm 后写」替换 mv -f 原子替换               → 静态契约检查
+ *  10. guards 夹具里删掉 3 条断言                                 → guards 夹具（断言下限）
+ *  11. 对照组：不改任何东西                                      → 对应套件必须绿
  *
  * 用法：node patches/verify-test-effectiveness.js
  * 退出码：0 = 每个变异都被抓住且对照组为绿；1 = 有变异没被抓住（测试有盲区）。
@@ -101,6 +102,12 @@ const CASES = [
 		name: "start_dsh.sh 降级原因不再打印 no-token",
 		file: "start_dsh.sh",
 		mutate: (s) => s.replace("no-token（日志里还没有带 token 的 URL）", "日志里还没有带 token 的 URL"),
+		suite: "runtime",
+	},
+	{
+		name: "start_dsh.sh 拉起前不再探测端口（端口被占也白拉一次）",
+		file: "start_dsh.sh",
+		mutate: (s) => s.replace('if port_up; then\n  explain_busy_port\n  exit 1\nfi', ''),
 		suite: "runtime",
 	},
 	{

@@ -59,12 +59,26 @@ pid_is_dsh() {
   list_pids | grep -qx "$1" 2>/dev/null && return 0
   ps -p "$1" -o args= 2>/dev/null | grep -q -- "$DSH_WEB_PATTERN"
 }
-is_running() {
+# 当前在跑的 dsh web pid：pid 文件里经身份校验的那个，否则取 pgrep 的第一个。
+# wait_for_token 拿它给 `tail --pid`：进程一死 tail 立即退出，不用等满 READY_TIMEOUT。
+running_pid() {
   if [ -f "$PID_FILE" ]; then
-    _p="$(cat "$PID_FILE" 2>/dev/null || true)"
-    if [ -n "$_p" ] && kill -0 "$_p" 2>/dev/null && pid_is_dsh "$_p"; then return 0; fi
+    _rp="$(cat "$PID_FILE" 2>/dev/null || true)"
+    if [ -n "$_rp" ] && kill -0 "$_rp" 2>/dev/null && pid_is_dsh "$_rp"; then
+      printf '%s' "$_rp"
+      return 0
+    fi
   fi
-  [ -n "$(list_pids)" ]
+  list_pids | head -1
+}
+# 本次等待从日志的哪个字节开始：失败时只贴本次启动新增的内容，不把上一轮的旧报错/旧 token 混进来。
+LOG_OFF=0
+mark_log_offset() {
+  LOG_OFF="$(wc -c < "$LOG_FILE" 2>/dev/null | tr -d ' ')"
+  case "$LOG_OFF" in ''|*[!0-9]*) LOG_OFF=0 ;; esac
+}
+tail_log_since() {
+  tail -c "+$((LOG_OFF + 1))" "$LOG_FILE" 2>/dev/null | tail -n "${1:-20}"
 }
 
 # 日志里【最后一条】带 token URL，仅用于复用已在运行的服务。
@@ -137,6 +151,8 @@ open_url() {
 # 优先已校验过的带 token URL，失败才退回裸 URL（浏览器已有 cookie 时仍可用）。
 open_gui() {
   _given="${1:-}"
+# 降级原因要报真话：日志里最后一条 token 可能是旧进程留下的（校验会 401），不能一律说成 no-token。
+  [ -n "$AUTH_URL" ] || AUTH_URL="$(last_auth_url)"
   if [ -n "$_given" ]; then
     AUTH_URL="$_given"
     announce_and_open "http://${OPEN_HOST}:${PORT}/?token=${AUTH_URL#*token=}"
@@ -177,39 +193,82 @@ announce_and_open() {
   open_url "$1"
 }
 
-# 流式跟随日志等 token：读到新打印的带 token 行即写 RESULT_FILE 返回（不再每秒 grep/curl 轮询）。
-# ⚠️ 循环体在管道子 shell 里：return 只结束子 shell，调用方一律以 RESULT_FILE 非空判成功；端口标记只能写 PORT_FILE。
+# 流式跟随日志等 token：读到新打印的带 token 行即写 RESULT_FILE。
+# ⚠️ 读循环用 FIFO 留在当前 shell（见下方 TAIL_PIPE 注释）：`tail -f | while` 的子 shell 会吞掉 break，
+#    让「看见启动失败立刻退出」失效。结果与原因都经文件传回（RESULT_FILE / FAIL_FILE / PORT_FILE）。
 _tmp_dir="${TMPDIR:-$HOME/.cache}"
 RESULT_FILE="$_tmp_dir/dsh_start_url.$$"
 if ! : > "$RESULT_FILE" 2>/dev/null; then
   RESULT_FILE="$BASE/storage/.dsh_start_url.$$"
   : > "$RESULT_FILE" 2>/dev/null || RESULT_FILE="/dev/null"
 fi
-# 管道结束后才探一次端口：端口有响应=服务起了但没给 token（降级裸 URL），没响应=服务没起来。
+# 端口标记：等 token 结束后才探一次端口（有响应=服务起了但没给 token，没响应=服务没起来）。
 PORT_FILE="${RESULT_FILE}.port"
-trap 'rm -f "$RESULT_FILE" "$PORT_FILE"' EXIT INT TERM HUP
+# 启动失败标记：日志里出现 dsh 的 startup failed 报告时立刻写它，免得白等满 READY_TIMEOUT。
+FAIL_FILE="${RESULT_FILE}.fail"
+# 流式跟随日志用的 FIFO：
+# ⚠️ 读循环必须留在当前 shell。用 `tail -f | while ...` 时循环在子 shell 里，break 只结束子 shell、
+#    tail 仍被 timeout 挂着，脚本照样等满 READY_TIMEOUT（实测 dsh 已报 startup failed 却还要空等 90s）。
+TAIL_PIPE="${RESULT_FILE}.pipe"
+TAIL_PID=""
+# 要盯的 dsh pid（已运行的或本次拉起的）：交给 `tail --pid`，进程死掉就结束等待。
+WATCH_PID=""
+cleanup_tmp() {
+  [ -n "$TAIL_PID" ] && kill "$TAIL_PID" 2>/dev/null
+  rm -f "$RESULT_FILE" "$PORT_FILE" "$FAIL_FILE" "$TAIL_PIPE"
+}
+trap cleanup_tmp EXIT INT TERM HUP
 
 wait_for_token() {
   _seen=0
+  _url=""
+  if ! command -v mkfifo >/dev/null 2>&1 || ! mkfifo "$TAIL_PIPE" 2>/dev/null; then
+    TAIL_PIPE=""
+    return 1
+  fi
+# `tail --pid` 是 GNU coreutils 的扩展（Termux 自带）：dsh 进程一死 tail 立刻退出，
+# 读循环随即 EOF，于是「启动到一半就崩（YAML 错、原生绑定缺失…）」不用白等满 READY_TIMEOUT。
+  _pid_arg=""
+  if [ -n "$WATCH_PID" ] && tail --help 2>/dev/null | grep -q -- '--pid'; then
+    _pid_arg="--pid=$WATCH_PID"
+  fi
   if command -v timeout >/dev/null 2>&1; then
-    timeout "$READY_TIMEOUT" tail -n 0 -f "$LOG_FILE" 2>/dev/null
+    timeout "$READY_TIMEOUT" tail -n 0 -f $_pid_arg "$LOG_FILE" 2>/dev/null >"$TAIL_PIPE" &
   else
-    tail -n 0 -f "$LOG_FILE" 2>/dev/null
-  fi | while IFS= read -r _line; do
+    tail -n 0 -f $_pid_arg "$LOG_FILE" 2>/dev/null >"$TAIL_PIPE" &
+  fi
+  TAIL_PID=$!
+# 等 token → 打开；返回 0 表示拿到带 token URL，3 表示 dsh 自己报了启动失败。
+# 「startup failed」那行只是开头：继续读到 dsh 打印的 "Full diagnostics:" 才算错误块收完。
+  while IFS= read -r _line; do
     _seen=$((_seen + 1))
-# 等 token → 打开；返回 0 表示已处理（带 token 或降级裸 URL），1 表示服务没起来。
-    case "$_line" in *token=*) ;; *) continue ;; esac
+    case "$_line" in
+      *token=*)
 # 同一行可能带 " (LAN: <url>)" 后缀：只取第一个 URL（loopback 部署下 LAN 地址不该交给浏览器）。
-    _url="$(printf '%s\n' "$_line" | grep -oE 'https?://[^/[:space:]]*/\?token=[A-Za-z0-9_-]+' 2>/dev/null | head -1)"
-    [ -n "$_url" ] || continue
-    if check_url "$_url"; then
-      printf '%s' "$_url" > "$RESULT_FILE"
-      return 0
-    fi
-  done
-# 拉起新进程：--no-open 不让 dsh 自己 open，由本脚本拿带 token URL 交给浏览器。
-# 主流程：A 复用已在运行的服务 → B 进程活着就跟随日志等 token → C 没有进程则拉起新进程。
+        _url="$(printf '%s\n' "$_line" | grep -oE 'https?://[^/[:space:]]*/\?token=[A-Za-z0-9_-]+' 2>/dev/null | head -1)"
+        if [ -n "$_url" ] && check_url "$_url"; then
+          printf '%s' "$_url" > "$RESULT_FILE"
+          break
+        fi
+        ;;
+      *"startup failed"*|*"could not write startup diagnostics"*|*"Full diagnostics:"*)
+        [ -s "$FAIL_FILE" ] || printf '%s' "$_line" > "$FAIL_FILE"
+        case "$_line" in
+          *"Full diagnostics:"*|*"could not write startup diagnostics"*) break ;;
+        esac
+        ;;
+    esac
+  done < "$TAIL_PIPE"
+  kill "$TAIL_PID" 2>/dev/null || true
+  TAIL_PID=""
+  [ -n "$TAIL_PIPE" ] && rm -f "$TAIL_PIPE"
+  TAIL_PIPE=""
   [ -s "$RESULT_FILE" ] && return 0
+# 进程已经在给出 token 前退出：崩了，而不是「还在冷启动」——拿日志末尾当原因报出去。
+  if [ ! -s "$FAIL_FILE" ] && [ -n "$WATCH_PID" ] && ! kill -0 "$WATCH_PID" 2>/dev/null; then
+    printf 'dsh 进程（pid %s）在给出带 token 的 URL 之前就退出了' "$WATCH_PID" > "$FAIL_FILE"
+  fi
+  [ -s "$FAIL_FILE" ] && return 3
   if port_up; then printf 'up' > "$PORT_FILE"; fi
   [ -s "$PORT_FILE" ] && return 2
   return 1
@@ -236,6 +295,14 @@ wait_and_open() {
     open_gui
     return 0
   fi
+  if [ "$_rc" = "3" ]; then
+    echo "[dsh] dsh web 没有启动成功（进程已退出或在日志里报了失败），不再空等 ${READY_TIMEOUT}s。" >&2
+    echo "[dsh] 失败原因：$(cat "$FAIL_FILE" 2>/dev/null || true)" >&2
+    echo "[dsh] 最近日志（$LOG_FILE）：" >&2
+    tail_log_since 30 >&2
+    echo "[dsh] 完整诊断见 ~/.dsh/logs/startup-*.log" >&2
+    return 1
+  fi
   return 1
 }
 
@@ -243,10 +310,27 @@ wait_and_open() {
 # ⚠️ 必须把端口显式传给 dsh：dsh 不读 DSH_PORT / PORT 环境变量，只认 `--port`。
 #    不传的话「脚本盯 DSH_PORT、服务却绑 3080」，会打印/打开一个没人监听的 URL（夹具用例 1 守着）。
 launch() {
+  mark_log_offset
   nohup dsh web --no-open --port "$PORT" >>"$LOG_FILE" 2>&1 &
   NEW_PID=$!
+  WATCH_PID=$NEW_PID
   echo "$NEW_PID" > "$PID_FILE"
   echo "[dsh] 启动中 (pid $NEW_PID)... 日志: $LOG_FILE"
+}
+
+# 端口已被占用、但本机看不到对应的 dsh 进程：再拉起一个只会 EADDRINUSE 失败（实测 dsh 报
+# "startup failed ... address already in use"），还要白等一轮冷启动。直接说清现状与可选做法。
+explain_busy_port() {
+  _who="一个 dsh web 实例"
+  if command -v curl >/dev/null 2>&1 && ! curl -s --max-time 2 "$URL" 2>/dev/null | grep -q 'dsh web authentication required'; then
+    _who="某个进程"
+  fi
+  echo "[dsh] 端口 $PORT 已被${_who}占用，但本机看不到它的进程（可能属于另一个用户/应用、root/su，或另一个终端会话）。" >&2
+  echo "[dsh] 未启动新实例：再起一个只会因 EADDRINUSE 启动失败，还要白等一轮冷启动。" >&2
+  echo "[dsh] 可以这样做：" >&2
+  echo "[dsh]   1) 到启动它的窗口结束它，再重跑：bash ~/dsh/start_dsh.sh" >&2
+  echo "[dsh]   2) 换端口另起一个：DSH_PORT=3081 bash ~/dsh/start_dsh.sh" >&2
+  echo "[dsh]   3) 浏览器已登录（有 cookie）时，直接打开 http://${OPEN_HOST}:${PORT}/ 仍可用" >&2
 }
 
 # 有进程在跑但没等到 token：自动重启（旧进程可能没把 URL 写进当前日志）。
@@ -255,17 +339,25 @@ if open_if_auth_ready; then
 fi
 
 # B: 进程活着但 3080 没响应/没有新 token：不是本次日志写的 URL，跟随日志等它打印
-if is_running; then
+if [ -n "$(running_pid)" ]; then
+  WATCH_PID="$(running_pid)"
+  mark_log_offset
   if wait_and_open; then exit 0; fi
   echo "[dsh] 现有 dsh 进程未在限定时间内就绪，自动重启"
   bash "$BASE/stop_dsh.sh" >/dev/null 2>&1 || true
 fi
 
-# C: 没有进程在跑（或刚被停掉）→ 拉起新进程
+# C: 没有本机可见的 dsh 进程。端口若有响应，说明占着它的是「看不到的」实例或别的服务。
+if port_up; then
+  explain_busy_port
+  exit 1
+fi
+
+# C2: 端口空闲 → 拉起新进程
 launch
 if wait_and_open; then exit 0; fi
 
 echo "[dsh] 启动超时，最近日志："
-tail -20 "$LOG_FILE"
+tail_log_since 20
 echo "[dsh] 若提示缺少模型密钥，请在 Web UI 的 Models 页面配置 DeepSeek API Key"
 exit 1

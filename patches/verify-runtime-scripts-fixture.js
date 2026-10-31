@@ -83,7 +83,7 @@ function cleanupStale() {
 			continue;
 		}
 		if (!cmd.includes("dsh-runtime-fixture-")) continue;
-		if (!/fake-dsh\.js|\/dsh\/(start|stop|restart)_dsh|restart_dsh_now/.test(cmd)) continue;
+		if (!/fake-dsh\.js|\/dsh\/(start|stop|restart)_dsh|restart_dsh_now|-e /.test(cmd)) continue;
 		try {
 			process.kill(pid, "SIGKILL");
 			killed++;
@@ -159,6 +159,18 @@ process.on("unhandledRejection", (e) => { noteErr("unhandled", e); process.exit(
 const token = process.env.FAKE_TOKEN || "FAKETOKEN123";
 const line = "dsh web: http://127.0.0.1:" + port + "/?token=" + token;
 if (mode === "idle") { setTimeout(() => {}, 60000); return; }
+// 模拟 dsh 自己报启动失败（如 3080 被占用）：两行关键标记（startup failed / Full diagnostics）都要有。
+if (mode === "startup-fail") {
+  console.error("dsh: startup failed: 2 required plugins did not activate");
+  console.error("");
+  console.error("Failed plugins (1):");
+  console.error("  webserver (required)");
+  console.error("    Package: @deepseek-ai/dsh-host-webserver");
+  console.error("    Error: listen EADDRINUSE: address already in use 127.0.0.1:" + port);
+  console.error("");
+  console.error("Full diagnostics: /tmp/fake-startup.log");
+  process.exit(1);
+}
 const srv = http.createServer((req, res) => {
   if (req.url && req.url.includes("token=" + token)) {
     res.writeHead(303, { Location: "/", "Set-Cookie": "sid=1; HttpOnly; SameSite=Strict" });
@@ -226,6 +238,36 @@ function run(h, script, args = [], { port, timeoutMs = 30000, extraEnv = {} } = 
 		console.log(`  --- [debug] fake-stderr: ${fs.existsSync(fakeErr) ? fs.readFileSync(fakeErr, "utf8").trim() : "(none)"}`);
 	}
 	return r;
+}
+
+/** 起一个**不匹配 PATTERN** 的占位 HTTP 服务（模拟「本会话看不到的实例」或别的进程）。
+ *  cmdline 是 `node -e ...`，start/stop 的 pgrep 永远找不到它；代码里带上临时 HOME 注释，
+ *  以便 killOwnProcesses / cleanupStale 能按「夹具命名空间」认出并清掉它。 */
+function spawnSquatter(home, port, body) {
+	const code = `/* ${home} */ require("node:http").createServer((q,s)=>{s.writeHead(401);s.end(${JSON.stringify(body || "")})}).listen(${port},"127.0.0.1")`;
+	const p = spawn(process.execPath, ["-e", code], { detached: true, stdio: "ignore" });
+	p.unref();
+	spawnedPids.add(p.pid);
+	return p;
+}
+
+/** 等占位服务真的开始监听（比固定 sleep 稳，机器负载高时不会假红）。 */
+async function waitForPort(port, ms = 8000) {
+	const t0 = Date.now();
+	while (Date.now() - t0 < ms) {
+		const ok = await new Promise((res) => {
+			const s = net.connect(port, "127.0.0.1");
+			const done = (v) => {
+				s.destroy();
+				res(v);
+			};
+			s.once("connect", () => done(true));
+			s.once("error", () => done(false));
+		});
+		if (ok) return true;
+		await new Promise((r2) => setTimeout(r2, 100));
+	}
+	return false;
 }
 
 const alive = (pattern) => {
@@ -335,8 +377,63 @@ async function main() {
 		check("点明 curl=000", (r.stdout || "").includes("curl=000"), (r.stdout || "").trim().split("\n").pop());
 	}
 
-	if (pass < 21) {
-		console.log(`  [FAIL] 断言数不足：PASS=${pass} < 21（有断言被删除或提前跳过）`);
+	// ---- 场景 8：端口被「看不到的」实例占着 → 不得再拉起一个（那必然 EADDRINUSE）----
+	{
+		const port = await freePort();
+		console.log("\n用例 8：端口已被看不到的 dsh 实例占用 → 不拉起新进程，直接给出可执行建议（退 1）");
+		const h = makeHome();
+		spawnSquatter(h.home, port, "dsh web authentication required; reopen the URL printed by dsh web.");
+		await waitForPort(port);
+		const r = run(h, SCRIPTS.start, ["--no-open"], { port, timeoutMs: 20000, extraEnv: { DSH_READY_TIMEOUT: "3" } });
+		check("退 1（没能给出可用 token）", r.status === 1, `rc=${r.status}`);
+		check("没有再拉起一个 dsh（否则必然 EADDRINUSE）", !fs.existsSync(h.argvFile), "argv 文件存在 = 又 launch 了一次");
+		check("点明端口被 dsh 实例占用", (r.stderr || "").includes("已被一个 dsh web 实例占用"), (r.stderr || "").trim());
+		check("给出换端口/结束旧实例的做法", (r.stderr || "").includes("DSH_PORT=3081"), (r.stderr || "").trim());
+		check("不再走「等满超时再降级」的老路", !/启动超时/.test((r.stdout || "") + (r.stderr || "")), (r.stdout || "").trim());
+	}
+
+	// ---- 场景 9：启动到一半就失败 → 立刻报错退出，不等满 READY_TIMEOUT / 不降级 ----
+	{
+		const port = await freePort();
+		console.log("\n用例 9：dsh 自己报 startup failed → 立即退出（不空等 READY_TIMEOUT、不降级裸 URL）");
+		const h = makeHome();
+		const t0 = Date.now();
+		const r = run(h, SCRIPTS.start, ["--no-open"], { port, timeoutMs: 45000, extraEnv: { FAKE_MODE: "startup-fail", DSH_READY_TIMEOUT: "30" } });
+		const elapsed = Date.now() - t0;
+		check("退 1", r.status === 1, `rc=${r.status}`);
+		check("报出真实失败原因", /startup failed/.test((r.stderr || "")), (r.stderr || "").trim().slice(0, 200));
+		check("没有降级打开裸 URL", !(r.stdout || "").includes("降级打开裸 URL"), (r.stdout || "").trim());
+		check("远早于 READY_TIMEOUT 返回", elapsed < 20000, `elapsed=${elapsed}ms`);
+	}
+
+	// ---- 场景 10：日志里只有旧 token（校验 401）→ 降级原因必须是 HTTP 401，不能误报 no-token ----
+	{
+		const port = await freePort();
+		console.log("\n用例 10：日志里的 token 已失效（401）→ 降级原因报 HTTP 401（不误报 no-token）");
+		const h = makeHome();
+		fs.writeFileSync(path.join(h.base, "storage", "dsh.log"), `dsh web: http://127.0.0.1:${port}/?token=STALETOKEN\n`);
+		const r = run(h, SCRIPTS.start, ["--no-open"], { port, timeoutMs: 40000, extraEnv: { FAKE_MODE: "no-token", DSH_READY_TIMEOUT: "3" } });
+		check("退 0（降级按设计成功）", r.status === 0, `rc=${r.status}`);
+		check("原因报 HTTP 401", (r.stdout || "").includes("HTTP 401"), (r.stdout || "").trim().split("\n").pop());
+		check("不再误报 no-token", !(r.stdout || "").includes("no-token"), (r.stdout || "").trim());
+		run(h, SCRIPTS.stop, [], { port });
+	}
+
+	// ---- 场景 11：没有可见进程、端口仍被占 → stop 必须提示「管不了它」----
+	{
+		const port = await freePort();
+		console.log("\n用例 11：端口被看不到的进程占着时 stop → 退 0（幂等）但必须在 stderr 说明停不掉");
+		const h = makeHome();
+		spawnSquatter(h.home, port, "dsh web authentication required");
+		await waitForPort(port);
+		const r = run(h, SCRIPTS.stop, [], { port, timeoutMs: 20000 });
+		check("退 0（没有可停的 dsh 算幂等成功）", r.status === 0, `rc=${r.status}`);
+		check("仍报「未发现运行中的 dsh」", (r.stdout || "").includes("未发现运行中的 dsh"), (r.stdout || "").trim());
+		check("stderr 点明端口仍被占、本脚本停不掉", (r.stderr || "").includes("仍有响应") && (r.stderr || "").includes("不受本脚本管理"), (r.stderr || "").trim());
+	}
+
+	if (pass < 36) {
+		console.log(`  [FAIL] 断言数不足：PASS=${pass} < 36（有断言被删除或提前跳过）`);
 		fail++;
 	}
 	console.log(`\n==== 夹具自检：PASS=${pass} FAIL=${fail} ====`);

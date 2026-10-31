@@ -94,6 +94,9 @@ bash setup.sh                 # 升级 dsh 或 Node 后必须重跑
 > [!WARNING]
 > **不要直接打开 `http://127.0.0.1:3080`**：新版 dsh 需要**带 token 的启动 URL** 换取登录 cookie，直接打开会 401。请始终用 `start_dsh.sh`，它会从日志里取当前进程的 token、用 `curl` 验证返回 303 之后才交给浏览器。
 
+> [!NOTE]
+> 直接跑 `dsh web` 时报 `dsh: startup failed: … listen EADDRINUSE: address already in use 127.0.0.1:3080`，含义是**端口上已经有一个 dsh web 实例**（token 是进程级的，起第二个必然失败）。`start_dsh.sh` 会复用正在跑的实例；若占用端口的进程本会话看不到（另一个用户/应用、`su` 启动、别的终端会话），它会在 1 秒内说明情况并给出「结束旧实例 / `DSH_PORT=3081` 换端口」的做法，**不会再白拉起一个必然 EADDRINUSE 的实例、也不空等到超时**。
+
 ## ⚙️ 用法与配置
 
 ### 安装方式：npm
@@ -274,6 +277,8 @@ setup.sh                安装 + 打补丁 + 生成脚本
 - **等 token 用流式读日志**（`tail -f`），token 一出现立即返回，不再每秒 `grep`+`curl` 轮询；
 - token 用 `curl` 校验必须返回 **303/302** 才交给浏览器，避免日志残留旧进程 token 导致 401；
 - 拿不到有效 token 时降级打开裸 URL，并打印**具体原因**（`no-token` 或实际 HTTP 码）；
+- **拉起前先探端口**：端口已有响应但本机看不到 dsh 进程（另一个用户/应用、`su`、别的会话）→ **不启动必败的第二个实例**，直接说明占用情况并给出「结束旧实例 / `DSH_PORT=3081` 换端口」；
+- **启动失败立即报**：日志出现 `startup failed` 或进程在给出 token 前退出时，立刻打印原因与日志末尾（不再空等 `DSH_READY_TIMEOUT`，也不把 401 裸地址当成功）；
 - 复用已在运行的服务约 **0.2s**，冷启动脚本侧开销约 **9.1s**（其中约 9s 是 dsh 自身 plugin loader settle，非脚本可消除）。
 
 ## 📁 仓库结构
@@ -300,10 +305,10 @@ deepseek-harness-android/
 │   ├── verify-patch-guards-fixture.js # link/flock 守护条件夹具自检（11 用例 / 39 断言，只写临时目录）
 │   ├── verify-profile-patch-fixture.js # 权限层补丁夹具自检（11 用例 / 41 断言，只写临时目录）
 │   ├── verify-js-patches-fixture.js # apply-js-patches.sh 夹具（21 断言：反向上游→正向打→幂等→破坏退 1）
-│   ├── verify-runtime-scripts-fixture.js # start/stop/restart 夹具（21 断言：假 dsh + 隔离 HOME，不碰 3080）
+│   ├── verify-runtime-scripts-fixture.js # start/stop/restart 夹具（36 断言：假 dsh + 隔离 HOME，不碰 3080）
 │   ├── verify-pnpm-provision-fixture.js # pnpm 运行时供给夹具（76 断言：离线、临时 HOME/PIN/WRAPPER）
-│   ├── verify-setup-static-check.sh # setup.sh / 运行期脚本静态契约（25 条，只读）
-│   ├── verify-test-effectiveness.js # 变异测试：往副本注入 9 个已知回归，对应套件必须变红
+│   ├── verify-setup-static-check.sh # setup.sh / 运行期脚本静态契约（27 条，只读）
+│   ├── verify-test-effectiveness.js # 变异测试：往副本注入 10 个已知回归，对应套件必须变红
 │   └── verify-all-checks.sh         # 一条命令跑完全部脚本级检查（--full 追加变异测试）
 ├── docs/
 │   └── index.html               # 说明文档站
@@ -354,7 +359,7 @@ node patches/verify-js-patches-fixture.js
 node patches/verify-runtime-scripts-fixture.js
 node patches/verify-pnpm-provision-fixture.js
 
-# 一条命令跑完全部脚本级检查（语法 + setup 静态契约 25 条 + 6 个夹具 227 条断言；全绿输出 套件 PASS=8，加 --full 为 PASS=9）
+# 一条命令跑完全部脚本级检查（语法 + setup 静态契约 27 条 + 6 个夹具 242 条断言；全绿输出 套件 PASS=8，加 --full 为 PASS=9）
 bash patches/verify-all-checks.sh            # 摘要
 bash patches/verify-all-checks.sh --verbose  # 全量输出
 bash patches/verify-all-checks.sh --full     # 再跑变异测试（约 5 分钟，证明套件抓得住回归）
@@ -377,6 +382,9 @@ bash patches/verify-all-checks.sh --full     # 再跑变异测试（约 5 分钟
 
 - **页面白屏 / 打不开**：确认在 Termux 里跑；看 `~/dsh/storage/dsh.log`。
 - **直接开 `127.0.0.1:3080` 显示 401**：正常，新版需要带 token URL，用 `bash ~/dsh/start_dsh.sh`。
+- **`dsh web` 报 `dsh: startup failed: … listen EADDRINUSE: address already in use 127.0.0.1:3080`**：3080 上已经有 dsh web 在跑（token 是进程级的，再起一个只会失败）。日常用 `bash ~/dsh/start_dsh.sh`：能复用就复用；占用端口的进程如果本会话看不到（另一个用户/应用、`su` 启动、别的终端会话），脚本会立刻打印「端口 3080 已被 … 占用」+ 三条做法，不会再白拉起一个实例、也不空等 90s 后打开一个 401 页面。想并行跑第二个就换端口：`DSH_PORT=3081 bash ~/dsh/start_dsh.sh`。
+- **`dsh web` 起来后很快退出 / 日志里有 `startup failed` / profile YAML 报 `YAMLException`**：`start_dsh.sh` 会在进程退出或日志出现 `startup failed` 时**立刻**报出原因（不再等满 `DSH_READY_TIMEOUT`），并打印日志末尾与 `~/.dsh/logs/startup-*.log` 路径。
+- **`stop_dsh.sh` 说「已停止」，但浏览器还能打开 3080**：停止只杀本会话可见的进程；若端口仍有响应，脚本会在 stderr 提醒「占用它的进程本机看不到、不受本脚本管理」，需要到启动它的窗口结束它（或换 `DSH_PORT`）。
 - **浏览器落在了裸地址**：多半是 PWA 劫持，试 `DSH_ORIGIN=localhost`；`DSH_HINTS=1 bash ~/dsh/start_dsh.sh` 会打印三条排查办法。
 - **没有用 Via 打开**：确认 Via 包名为 `mark.via`（不同渠道包名可能不同），可用 `DSH_VIA_APP=<包名>` 指定。
 - **模型没反应**：检查 Models 页的 API Key 与 `~/.dsh/.credentials.yaml`。
@@ -489,6 +497,9 @@ bash setup.sh                 # must re-run after upgrading dsh or Node
 
 > [!WARNING]
 > **Do not open `http://127.0.0.1:3080` directly**: recent dsh versions require the **tokenized launch URL** to exchange for the auth cookie — the bare URL returns 401. Always use `start_dsh.sh`, which reads the current process's token from the log and only hands it to the browser after verifying it returns 303.
+
+> [!NOTE]
+> Running `dsh web` directly and getting `dsh: startup failed: … listen EADDRINUSE: address already in use 127.0.0.1:3080` means **another dsh web instance already owns the port** (tokens are per-process, so a second instance can only fail). `start_dsh.sh` reuses the running instance; if the process holding the port is invisible to this session (another user/app, started under `su`, another terminal session) it explains that within a second and offers "stop the old instance" / `DSH_PORT=3081` instead of spawning a doomed duplicate and sitting out the full timeout.
 
 ## ⚙️ Usage & configuration
 
@@ -670,6 +681,8 @@ Key behaviours of `start_dsh.sh`:
 - **Waits by streaming the log** (`tail -f`): returns the moment the token appears, with no per-second `grep`+`curl` polling;
 - the token must return **303/302** from `curl` before it is handed to the browser, so a stale token from a previous process can never cause a 401;
 - if no valid token arrives, it falls back to the bare URL and prints the **specific reason** (`no-token` or the actual HTTP code);
+- **probes the port before launching**: if it is already answering but no dsh process is visible (another user/app, `su`, another session), it **never spawns a doomed second instance** — it reports who holds the port and offers "stop the old one / `DSH_PORT=3081`";
+- **reports boot failures immediately**: when the log says `startup failed` or the process exits before printing a token, it prints the reason and the log tail right away (no more waiting out `DSH_READY_TIMEOUT` or handing out a 401 bare URL as success);
 - reusing a running service takes ~**0.2s**; a cold start costs ~**9.1s** script-side, of which ~9s is dsh's own plugin-loader settle (not removable from the script).
 
 ## 📁 Repository layout
@@ -696,10 +709,10 @@ deepseek-harness-android/
 │   ├── verify-patch-guards-fixture.js # link/flock guard fixture self-test (11 cases / 39 assertions, temp dir only)
 │   ├── verify-profile-patch-fixture.js # permission-layer fixture self-test (11 cases / 41 assertions, temp dir only)
 │   ├── verify-js-patches-fixture.js # apply-js-patches.sh fixture (21 assertions: rebuild upstream → forward → idempotent → corrupt ⇒ rc 1)
-│   ├── verify-runtime-scripts-fixture.js # start/stop/restart fixture (21 assertions: fake dsh + isolated HOME, never touches 3080)
+│   ├── verify-runtime-scripts-fixture.js # start/stop/restart fixture (36 assertions: fake dsh + isolated HOME, never touches 3080)
 │   ├── verify-pnpm-provision-fixture.js # pnpm runtime provisioning fixture (76 assertions: offline, temp HOME/PIN/WRAPPER)
-│   ├── verify-setup-static-check.sh # static contracts of setup.sh / runtime scripts (25 checks, read-only)
-│   ├── verify-test-effectiveness.js # mutation testing: inject 9 known regressions into copies, suites must turn red
+│   ├── verify-setup-static-check.sh # static contracts of setup.sh / runtime scripts (27 checks, read-only)
+│   ├── verify-test-effectiveness.js # mutation testing: inject 10 known regressions into copies, suites must turn red
 │   └── verify-all-checks.sh         # one command for every script-level check (--full adds mutation testing)
 ├── docs/
 │   └── index.html               # documentation site
@@ -748,7 +761,7 @@ node patches/verify-js-patches-fixture.js
 node patches/verify-runtime-scripts-fixture.js
 node patches/verify-pnpm-provision-fixture.js
 
-# one command for every script-level check (syntax + 25 setup static contracts + 7 fixtures / 250 assertions)
+# one command for every script-level check (syntax + 27 setup static contracts + 6 fixtures / 242 assertions)
 bash patches/verify-all-checks.sh            # summary
 bash patches/verify-all-checks.sh --verbose  # full output
 bash patches/verify-all-checks.sh --full     # also run mutation testing (~5 min, proves the suites bite)
@@ -771,6 +784,9 @@ All patch scripts are **idempotent**: run them twice and the second run reports 
 
 - **Blank page / cannot open**: make sure you are inside Termux; check `~/dsh/storage/dsh.log`.
 - **Opening `127.0.0.1:3080` directly shows 401**: expected — the new auth needs the tokenized URL; use `bash ~/dsh/start_dsh.sh`.
+- **`dsh web` prints `dsh: startup failed: … listen EADDRINUSE: address already in use 127.0.0.1:3080`**: another dsh web instance already owns 3080 (tokens are per-process, so a second instance can only fail). Use `bash ~/dsh/start_dsh.sh`: it reuses the running instance; if the process holding the port is invisible to this session (another user/app, started under `su`, another terminal session) it immediately prints "port 3080 is held by …" plus three remedies, instead of spawning a doomed instance and waiting out the timeout before opening a 401 page. To run a second instance in parallel, use another port: `DSH_PORT=3081 bash ~/dsh/start_dsh.sh`.
+- **`dsh web` exits shortly after starting / the log says `startup failed` / a profile YAML raises `YAMLException`**: `start_dsh.sh` reports the reason **immediately** when the process exits or the log shows `startup failed` (no longer waiting out `DSH_READY_TIMEOUT`), and prints the log tail plus the `~/.dsh/logs/startup-*.log` path.
+- **`stop_dsh.sh` says "stopped" but the browser still opens 3080**: stop can only kill processes visible to this session; if the port still responds, the script warns on stderr that the holder is invisible and unmanaged — end it in the window that started it, or use another `DSH_PORT`.
 - **The browser lands on the bare URL**: most likely PWA hijacking; try `DSH_ORIGIN=localhost`, or `DSH_HINTS=1 bash ~/dsh/start_dsh.sh` to print the three workarounds.
 - **It did not open in Via**: verify Via's package is `mark.via` (it can differ per distribution channel) and set `DSH_VIA_APP=<pkg>` if needed.
 - **Model not responding**: check the API key on the Models page and `~/.dsh/.credentials.yaml`.

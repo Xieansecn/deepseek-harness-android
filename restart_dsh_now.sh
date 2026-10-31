@@ -14,14 +14,19 @@ umask 077
 cd "$BASE" || exit 1
 
 echo "$(date '+%F %T') restart begin" >> "$RESTART_LOG"
+# 记下本次重启开始时的日志长度：失败时只贴「本次」start 的输出，不把上一轮的旧 token/旧报错一起搬出来。
+_off="$(wc -c < "$RESTART_LOG" 2>/dev/null | tr -d ' ')"
+case "$_off" in ''|*[!0-9]*) _off=0 ;; esac
 
 # 先停旧进程（含 pid 身份二次确认）；stop 会把 pid 文件删掉
 bash "$BASE/stop_dsh.sh" >/dev/null 2>&1 || true
 rm -f "$PID_FILE"
 
 if ! bash "$BASE/start_dsh.sh" --no-open >>"$RESTART_LOG" 2>&1; then
-  echo "$(date '+%F %T') restart FAILED: start_dsh.sh 未能在限定时间内取到带 token URL" >> "$RESTART_LOG"
-  echo "[dsh] 重启失败：服务未就绪，详见 $RESTART_LOG"
+  echo "$(date '+%F %T') restart FAILED: start_dsh.sh 未能启动服务（端口被占/startup failed/超时，详见上方输出）" >> "$RESTART_LOG"
+  echo "[dsh] 重启失败：start_dsh.sh 未能启动服务，详见 $RESTART_LOG"
+# start_dsh.sh 的失败原因（端口被占、startup failed …）就在重启日志里，只贴本次新增的那段。
+  tail -c "+$((_off + 1))" "$RESTART_LOG" 2>/dev/null | tail -12 >&2
   exit 1
 fi
 

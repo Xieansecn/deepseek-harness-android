@@ -74,6 +74,8 @@ done
 # dsh 只认 --port，不读 DSH_PORT：launch 必须显式传端口，否则会打印没人监听的 URL（夹具用例 1 守着）。
 grep -q 'nohup dsh web --no-open --port "\$PORT"' "$REPO/start_dsh.sh" && chk 1 "start_dsh.sh 把 DSH_PORT 作为 --port 传给 dsh" || chk 0 "start_dsh.sh 把 DSH_PORT 作为 --port 传给 dsh"
 grep -q 'no-token（日志里还没有带 token 的 URL）' "$REPO/start_dsh.sh" && chk 1 "降级裸 URL 会打印具体原因 no-token" || chk 0 "降级裸 URL 会打印具体原因 no-token"
+grep -q 'explain_busy_port' "$REPO/start_dsh.sh" && grep -q 'if port_up; then' "$REPO/start_dsh.sh" && chk 1 "start 拉起前先探端口（端口被占不再白拉一个）" || chk 0 "start 拉起前先探端口（端口被占不再白拉一个）"
+grep -q 'startup failed' "$REPO/start_dsh.sh" && grep -q 'FAIL_FILE' "$REPO/start_dsh.sh" && chk 1 "start 看到 dsh 的启动失败会提前退出" || chk 0 "start 看到 dsh 的启动失败会提前退出"
 grep -q '\[ "\$_code" = "000" \]' "$REPO/restart_dsh_now.sh" && chk 1 "restart 把 curl=000 也当失败" || chk 0 "restart 把 curl=000 也当失败"
 grep -q '仍在：\$(list_pids' "$REPO/stop_dsh.sh" && grep -q 'exit 1' "$REPO/stop_dsh.sh" && chk 1 "stop 在进程/端口仍在时退 1" || chk 0 "stop 在进程/端口仍在时退 1"
 grep -q '>&2' "$REPO/stop_dsh.sh" && chk 1 "stop 的失败信息走 stderr" || chk 0 "stop 的失败信息走 stderr"

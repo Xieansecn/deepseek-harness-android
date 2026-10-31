@@ -62,6 +62,12 @@ if [ -z "$TARGETS" ]; then
   [ -n "$PIDFILE_PID" ] && echo "[dsh] pid 文件里的进程（pid=$PIDFILE_PID）不是 dsh web，已忽略"
   rm -f "$PID_FILE"
   echo "[dsh] 未发现运行中的 dsh"
+# 端口仍在响应但本机看不到进程：多半是另一个用户/应用、root/su 或别的会话拉起的实例。
+# 本脚本管不了它（stop 只能杀本机可见的进程），先说清，否则「已停止」会误导成服务已经下线。
+  if command -v curl >/dev/null 2>&1 && curl -s -o /dev/null --max-time 1 "$URL" 2>/dev/null; then
+    echo "[dsh] 注意：端口 $PORT 仍有响应，但本机看不到对应的 dsh 进程（可能属于另一个用户/应用、root/su，或另一个终端会话）。" >&2
+    echo "[dsh] 它不受本脚本管理；请到启动它的窗口结束它，或换端口：DSH_PORT=3081 bash ~/dsh/start_dsh.sh" >&2
+  fi
   exit 0
 fi
 
