@@ -71,14 +71,18 @@ bash setup.sh</pre>
 
     <h2>三、使用</h2>
     <pre>bash ~/dsh/start_dsh.sh   # 启动并自动拉起浏览器
-bash ~/dsh/stop_dsh.sh    # 停止</pre>
+bash ~/dsh/stop_dsh.sh    # 停止
+bash setup.sh             # 升级 dsh / Node 后重跑
+bash npm_android.sh -g update  # 如需手动全局更新，别直接 npm -g update</pre>
+    <p><b>⚠️ 不要直接运行 <code>npm -g update</code></b>：它不经过 <code>setup.sh</code>，不会注入 <code>CFLAGS/CXXFLAGS=-target aarch64-linux-android30</code>，koffi 3.1.1 的回退编译会在默认 android24 target 下因 <code>statx()</code> 未声明而失败。手动 npm 操作请用 <code>bash npm_android.sh …</code>；升级 dsh 仍推荐 <code>bash setup.sh</code>。</p>
+    <p><code>setup.sh</code> 现在会把 dsh <b>hold 住</b>：3/9 先安装到临时 prefix，成功后整树移到 <code>~/.local/share/dsh-android/dsh</code>，再把全局 <code>@deepseek-ai/dsh</code> 换成指向它的 symlink。npm 的 <code>update -g</code> 把 symlink 全局包当作 <code>file:</code> 依赖，因此<b>不会升级或覆盖 dsh</b>；只有重新运行 <code>bash setup.sh</code> 才会安装新版本并原子切换。普通 <code>npm -g update</code> 仍可更新其他全局包，但 dsh 的补丁、node-pty 与包装脚本保持不动。hold 包的 <code>package.json</code> 会删掉 <code>bin</code> 字段，避免 npm 重建 bin link 时与 <code>setup.sh</code> 自带的 <code>/usr/bin/dsh</code> 包装冲突（<code>EEXIST</code>）。</p>
     <p>打开 <code>http://127.0.0.1:3080</code>，在 <b>Models</b> 页面填入你的 <b>DeepSeek API Key</b>（存于 <code>~/.dsh/.credentials.yaml</code>，0600 权限），即可开始。</p>
 
     <h2>四、setup.sh 自动修复的 Android 兼容问题</h2>
     <table>
       <tr><th>问题</th><th>现象</th><th>修复</th></tr>
       <tr><td>node-pty 无法编译</td><td><code>Undefined variable android_ndk_path</code></td><td>修补 node-gyp 缓存 <code>common.gypi</code></td></tr>
-      <tr><td>koffi 无法编译</td><td><code>statx</code> 相关 <code>__u32</code> 编译错误</td><td><code>-target aarch64-linux-android30</code></td></tr>
+      <tr><td>koffi 无法编译</td><td><code>statx</code> 相关 <code>__u32</code>/<code>const char *</code> 编译错误</td><td><code>CFLAGS/CXXFLAGS=-target aarch64-linux-android30</code>（<code>setup.sh</code> 内联设置；手动 npm 用 <code>npm_android.sh</code>）</td></tr>
       <tr><td><b>koffi 原生模块不可用</b></td><td>0.2.0-rc.2 起 koffi 精确钉在 <code>3.1.1</code>，而 <code>@koromix/koffi-android-arm64</code> 从 3.2.1 才有；3.1.1 的 install 脚本会回退到本地编译（历史上必死在 bionic 的 <code>statx</code> 差异）</td><td>仍不进 <code>--allow-scripts</code> 白名单（<code>SKIP_SCRIPTS</code>）：npm 12 里白名单脚本失败会让整次安装退 1，白名单外只警告并跳过。<b>本机修正</b>：设备 npm 11.21.1 的 <code>--allow-scripts</code> 是<b>建议性</b>的（未列出的脚本仍执行、只警告），所以 koffi 的 install 脚本在此设备<b>实际执行并编译成功</b>——旧说法「构建必然失败」不复现；koffi 调用点全是懒加载 + win32，运行期用不到</td></tr>
       <tr><td>npm 构建脚本审批语义随版本不同</td><td>npm 11（本机 11.21.1）的 <code>--allow-scripts</code> 只是建议；npm 12 才强制白名单</td><td><code>setup.sh</code> 只把能在 Android 构建成功的包放白名单、koffi 放 <code>SKIP_SCRIPTS</code>；若你手动设 <code>strict-allow-scripts=true</code>，安装预检会按冲突提示后退出</td></tr>
       <tr><td><code>link()</code> 被禁（SELinux）</td><td>会话/附件保存、历史会话迁移、write 工具新建文件报 <code>EACCES</code></td><td>会话日志直接发布改 <code>rename()</code>；no-replace 路径回退「O_EXCL 占位 + rename」</td></tr>
@@ -110,11 +114,12 @@ bash ~/dsh/stop_dsh.sh    # 停止</pre>
       <li><b><code>stop_dsh.sh</code> 说「已停止」但 3080 还能打开</b>：停止只能杀本会话可见的进程；端口仍有响应时脚本会在 stderr 提醒「占用它的进程本机看不到、不受本脚本管理」，需到启动它的窗口结束它或换 <code>DSH_PORT</code>。</li>
       <li><b>模型没反应</b>：检查 Models 页 API Key 与 <code>~/.dsh/.credentials.yaml</code>。</li>
       <li><b>手机上排版难受 / 软键盘挡住输入框 / 某些按钮点不动</b>：上游 Web UI 按桌面排版所致，本方案不再注入前端代码；见「八、手机界面适配（可选）」。</li>
+      <li><b>直接 <code>npm -g update</code> 时 koffi 报 <code>statx</code> / <code>__u32</code> / <code>const char *</code> 编译错误</b>：命令绕过了 <code>setup.sh</code> 的 Android target 参数；改用 <code>bash npm_android.sh -g update</code>，或直接 <code>bash setup.sh</code>。当前 koffi 可加载性用 <code>cd "$(npm root -g)/@deepseek-ai/dsh/node_modules/koffi" &amp;&amp; node -e "require('koffi')"</code> 检查。</li>
       <li><b>换机/重装</b>：重跑 <code>bash setup.sh</code>。</li>
       <li><b>升级到 0.2.1 后首次启动，profile 里少了一个 bundle / 日志提到迁移</b>：0.2.1 的 <code>RETIRED_BUNDLES</code> 迁移会自动把 <code>dsh-experimental-schedule-bundle</code> 从旧 profile 摘除——<b>正常行为，不是错误</b>，不用手动加回。</li>
       <li><b><code>dsh plugin …</code> / 插件市场报找不到 pnpm，或 pnpm 报 <code>ERR_PNPM_STORE_DIR_ACQUIRE_OPERATION_LOCK</code></b>：dsh ≥0.2.1 的插件功能运行期会从 PATH 调用 pnpm，而 pnpm 12 在 Android 上不可用。先 <code>command -v pnpm &amp;&amp; pnpm --version</code> 确认解析到 11.x；需要时 <code>npm install -g pnpm@11</code>，或让 <code>~/bin/pnpm</code> 的 11.x 包装在 PATH 中优先。</li>
       <li><b><code>bash setup.sh --pnpm</code> 报「参数已废弃」</b>：pnpm 安装方式已移除，安装方式只有 <code>npm install -g</code>；直接跑 <code>bash setup.sh</code>（钉版本用 <code>DSH_VERSION=&lt;ver&gt; bash setup.sh</code>）。</li>
-      <li><b>想验证「脚本本身」是否正确（不是看设备能不能用）</b>：<code>bash patches/verify-all-checks.sh</code> —— 语法 + setup 静态契约 27 条 + 6 个夹具（js-patches 21 / runtime 36 / guards 39 / require-builtin 29 / profile 41 / pnpm-provision 76 断言 = 242），<b>只读或只写临时目录</b>，不跑 setup.sh、不碰 3080、不改安装树。想改端口就设 <code>DSH_PORT</code>——<code>start_dsh.sh</code> 会把它作为 <code>--port</code> 传给 dsh。</li>
+      <li><b>想验证「脚本本身」是否正确（不是看设备能不能用）</b>：<code>bash patches/verify-all-checks.sh</code> —— 语法 + setup 静态契约 37 条 + 6 个夹具（js-patches 21 / runtime 36 / guards 39 / require-builtin 29 / profile 41 / pnpm-provision 76 断言 = 242），<b>只读或只写临时目录</b>，不跑 setup.sh、不碰 3080、不改安装树。想改端口就设 <code>DSH_PORT</code>——<code>start_dsh.sh</code> 会把它作为 <code>--port</code> 传给 dsh。</li>
       <li><b>单独重跑补丁脚本报 <code>--root</code> 相关错误</b>：<code>--root</code> 是硬契约——显式给出却定位不到就退 1，不会回落到别的安装树（避免误写生产树）；不传它才自动定位。链接类补丁要 <code>--root "$DSH_DIR/node_modules/@deepseek-ai"</code>，平台包补丁要 <code>--root "$DSH_DIR"</code>。</li>
     </ul>
 
@@ -181,14 +186,18 @@ bash setup.sh</pre>
 
     <h2>3. Usage</h2>
     <pre>bash ~/dsh/start_dsh.sh   # start & auto-open browser
-bash ~/dsh/stop_dsh.sh    # stop</pre>
+bash ~/dsh/stop_dsh.sh    # stop
+bash setup.sh             # re-run after upgrading dsh / Node
+bash npm_android.sh -g update  # for manual global updates; never run npm -g update bare</pre>
+    <p><b>⚠️ Do not run <code>npm -g update</code> directly</b>: it bypasses <code>setup.sh</code>, so <code>CFLAGS/CXXFLAGS=-target aarch64-linux-android30</code> is not injected and koffi 3.1.1's fallback build fails because <code>statx()</code> is undeclared under the default android24 target. Use <code>bash npm_android.sh …</code> for manual npm operations; <code>bash setup.sh</code> remains the canonical upgrade path.</p>
+    <p><code>setup.sh</code> now <b>holds dsh</b>: 3/9 installs into a temporary prefix, then moves the tree to <code>~/.local/share/dsh-android/dsh</code> and replaces the global <code>@deepseek-ai/dsh</code> with a symlink to it. npm's <code>update -g</code> treats a symlinked global package as a <code>file:</code> dependency, so it <b>will not upgrade or overwrite dsh</b>; only re-running <code>bash setup.sh</code> installs a new version and atomically swaps it. A normal <code>npm -g update</code> can still update other global packages while dsh's patches, node-pty and wrapper stay untouched. The hold package's <code>bin</code> field is removed so npm does not recreate the bin link and collide (<code>EEXIST</code>) with <code>setup.sh</code>'s own <code>/usr/bin/dsh</code> wrapper.</p>
     <p>Open <code>http://127.0.0.1:3080</code>, enter your <b>DeepSeek API Key</b> in the <b>Models</b> page (stored at <code>~/.dsh/.credentials.yaml</code>, mode 0600), and start chatting.</p>
 
     <h2>4. Android issues auto-fixed by setup.sh</h2>
     <table>
       <tr><th>Issue</th><th>Symptom</th><th>Fix</th></tr>
       <tr><td>node-pty fails to build</td><td><code>Undefined variable android_ndk_path</code></td><td>patch node-gyp cache <code>common.gypi</code></td></tr>
-      <tr><td>koffi fails to build</td><td><code>statx</code> <code>__u32</code> compile error</td><td><code>-target aarch64-linux-android30</code></td></tr>
+      <tr><td>koffi fails to build</td><td><code>statx</code> <code>__u32</code>/<code>const char *</code> compile error</td><td><code>CFLAGS/CXXFLAGS=-target aarch64-linux-android30</code> (set inline by <code>setup.sh</code>; use <code>npm_android.sh</code> for manual npm)</td></tr>
       <tr><td><b>koffi native module unavailable</b></td><td>since 0.2.0-rc.2 koffi is pinned to exactly <code>3.1.1</code> while <code>@koromix/koffi-android-arm64</code> starts at 3.2.1; 3.1.1's install script falls back to a local build (historically dying on the bionic <code>statx</code> mismatch)</td><td>kept out of <code>--allow-scripts</code> on purpose (<code>SKIP_SCRIPTS</code>): under npm 12 a failing allowlisted script aborts the install, a blocked one only warns. <b>Correction from this device</b>: npm 11.21.1 treats <code>--allow-scripts</code> as <b>advisory</b> (unlisted scripts still run, with a warning), so koffi's install script <b>actually runs and compiles</b> here — the old "it always fails" claim does not reproduce; koffi call sites are lazy + win32-gated, so runtime never needs it</td></tr>
       <tr><td>npm build-script approval differs by version</td><td>npm 11 (11.21.1 here) only advises via <code>--allow-scripts</code>; npm 12 enforces the list</td><td><code>setup.sh</code> allowlists only packages that can build on Android and keeps koffi in <code>SKIP_SCRIPTS</code>; if you set <code>strict-allow-scripts=true</code> yourself, the installer's preflight reports a conflict and exits</td></tr>
       <tr><td><code>link()</code> blocked (SELinux)</td><td><code>EACCES</code> saving sessions/attachments, migrating sessions, creating files via the <code>write</code> tool</td><td>direct session-log publish uses <code>rename()</code>; no-replace paths fall back to "O_EXCL reserve + rename"</td></tr>

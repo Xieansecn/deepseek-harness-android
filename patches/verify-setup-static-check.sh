@@ -36,6 +36,21 @@ grep -q 'NPM_CMD=(node "\$NPM_REAL")' "$REPO/setup.sh" && chk 1 "npm 走 node �
 BARE_NPM="$(grep -cE '^[^#"'"'"']*npm (install|i )' "$REPO/setup.sh")"
 chk "$([ "$BARE_NPM" = 0 ] && echo 1 || echo 0)" "没有裸 npm 调用（$BARE_NPM 处）"
 
+# 2b) 手动 npm 调用的 Android 编译包装：`npm -g update` 不经过 setup.sh，
+#     若没有 -target aarch64-linux-android30，koffi 会在 statx 处编译失败。
+chk "$([ -x "$REPO/npm_android.sh" ] && echo 1 || echo 0)" "npm_android.sh 存在且可执行"
+grep -q -- '-target aarch64-linux-android30' "$REPO/npm_android.sh" && chk 1 "npm_android.sh 注入 android30 target" || chk 0 "npm_android.sh 注入 android30 target"
+grep -q 'android_compile_flags' "$REPO/npm_android.sh" && grep -q 'CXXFLAGS=' "$REPO/npm_android.sh" && chk 1 "npm_android.sh 同时包装 CFLAGS/CXXFLAGS" || chk 0 "npm_android.sh 同时包装 CFLAGS/CXXFLAGS"
+
+# 2c) dsh hold/pin：3/9 必须暂存安装，成功后把全局 dsh 换成 hold symlink。
+grep -q 'DSH_HOLD_DIR=' "$REPO/setup.sh" && chk 1 "setup.sh 定义 dsh hold 目录" || chk 0 "setup.sh 定义 dsh hold 目录"
+grep -q -- '--prefix "\$DSH_STAGE_PREFIX"' "$REPO/setup.sh" && chk 1 "setup.sh 使用暂存 prefix 安装 dsh" || chk 0 "setup.sh 使用暂存 prefix 安装 dsh"
+grep -q 'dsh_hold_pin "\$DSH_STAGE_INSTALL"' "$REPO/setup.sh" && chk 1 "setup.sh 安装成功后切 hold symlink" || chk 0 "setup.sh 安装成功后切 hold symlink"
+grep -q 'ln -s "\$DSH_HOLD_DIR" "\$DSH_DIR"' "$REPO/setup.sh" && chk 1 "全局 dsh 路径指向 hold 目录" || chk 0 "全局 dsh 路径指向 hold 目录"
+grep -q 'delete pkg.bin' "$REPO/setup.sh" && chk 1 "hold 包移除 bin 字段（避免 npm update EEXIST）" || chk 0 "hold 包移除 bin 字段（避免 npm update EEXIST）"
+grep -q -- '--ignore-scripts=false' "$REPO/setup.sh" && chk 1 "setup.sh 在 dsh 安装上显式恢复脚本执行" || chk 0 "setup.sh 在 dsh 安装上显式恢复脚本执行"
+grep -q -- '--allow-scripts="\$ALLOW_SCRIPTS"' "$REPO/setup.sh" && chk 1 "恢复脚本执行仍受 --allow-scripts 白名单约束" || chk 0 "恢复脚本执行仍受 --allow-scripts 白名单约束"
+
 # 3) dsh 命令文件必须原子替换（临时文件 + mv -f），绝不 cat > 覆盖符号链接、也绝不先 rm。
 grep -q 'mv -f "\$DSH_TMP" "\$DSH_CMD"' "$REPO/setup.sh" && chk 1 "dsh 包装脚本用 mv -f 原子替换" || chk 0 "dsh 包装脚本用 mv -f 原子替换"
 grep -qE 'cat *> *"\$DSH_CMD"' "$REPO/setup.sh" && chk 0 "没有 cat > 覆盖 dsh 命令文件" || chk 1 "没有 cat > 覆盖 dsh 命令文件"

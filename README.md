@@ -89,7 +89,13 @@ bash ~/dsh/start_dsh.sh       # 启动 / 复用服务，并打开浏览器
 bash ~/dsh/stop_dsh.sh        # 停止服务
 bash ~/dsh/restart_dsh_now.sh # 重启服务（不打开浏览器）
 bash setup.sh                 # 升级 dsh 或 Node 后必须重跑
+bash npm_android.sh -g update # 如需手动全局更新：注入 Android target，别直接 npm -g update
 ```
+
+> [!IMPORTANT]
+> **不要在本项目环境里直接运行 `npm -g update`**：它不经过 `setup.sh`，不会设置 `CFLAGS/CXXFLAGS=-target aarch64-linux-android30`。dsh 依赖的 koffi 3.1.1 回退本地编译时会因 bionic 的 `statx()` 只在 API 30 头文件里声明而报 `__u32`/`const char *` 错误。必须手动操作 npm 时统一走 `bash npm_android.sh <npm 参数…>`；升级 dsh 的完整流程仍推荐 `bash setup.sh`。
+>
+> `setup.sh` 现在会把 dsh **hold 住**：3/9 先安装到临时 prefix，成功后整树移到 `~/.local/share/dsh-android/dsh`，再把全局 `@deepseek-ai/dsh` 换成指向它的 symlink。npm 的 `update -g` 将 symlink 全局包视为 `file:` 依赖，因此**不会升级或覆盖 dsh**；只有重新运行 `bash setup.sh` 才会安装新版本并原子切换。普通 `npm -g update` 可以继续更新其他全局包，但 dsh 的补丁、node-pty 与包装脚本保持不动。实现上还会从 hold 包的 `package.json` 删除 `bin` 字段，避免 npm 更新时重建 bin link 与 `setup.sh` 自带的 `/usr/bin/dsh` 包装冲突（`EEXIST`）。
 
 > [!WARNING]
 > **不要直接打开 `http://127.0.0.1:3080`**：新版 dsh 需要**带 token 的启动 URL** 换取登录 cookie，直接打开会 401。请始终用 `start_dsh.sh`，它会从日志里取当前进程的 token、用 `curl` 验证返回 303 之后才交给浏览器。
@@ -150,6 +156,7 @@ dsh ≥0.2.1 的插件管理器（`dsh plugin …` / 插件市场）运行期会
 | `DSH_PORT` | `3080` | 服务端口（`start_dsh.sh` 会把它作为 `--port` 显式传给 dsh——dsh 本身不读这个变量） |
 | `NO_COLOR` | 空 | 非空则关闭彩色输出 |
 | `DSH_VERSION` | 空（跟随 npm `latest`） | **仅**灰度/回退时钉版本：`DSH_VERSION=<ver> bash setup.sh`，`<ver>` 从 `npm view @deepseek-ai/dsh versions` 取。默认留空——写死版本号会让升级永远跟不上 |
+| `DSH_HOLD_DIR` | `~/.local/share/dsh-android/dsh` | dsh 的 hold/pin 安装树；全局 `@deepseek-ai/dsh` 是指向它的 symlink，`npm -g update` 不会升级它。只有 `setup.sh` 会切换 |
 | `DSH_PNPM_PIN_DIR` | `~/.local/share/pnpm-pin` | `2.5/9` 把 pnpm 11（JS build）装到这个目录（`npm --prefix`） |
 | `DSH_PNPM_WRAPPER_DIR` | `~/bin` | `2.5/9` 写 `pnpm`/`pn`/`pnpx`/`pnx` 包装脚本的目录；**必须在 PATH 上**，dsh 子进程才找得到 |
 | `DSH_PNPM_VERSION` | `11.27.1` | `2.5/9` **需要下载时**安装的 pnpm 版本（探测到本机已有可用 11.x 时会直接复用）；**别升到 12.x**（Android 不可用） |
@@ -213,7 +220,7 @@ bash ~/dsh/restart_dsh_now.sh
 | 问题 | 现象 | 修复方式 |
 |---|---|---|
 | node-pty 编译失败 | `Undefined variable android_ndk_path` | 修补 node-gyp 缓存里的 `common.gypi` |
-| **koffi 原生模块不可用** | 0.2.0-rc.2 起 `koffi` 被**精确钉在 3.1.1**；`@koromix/koffi-android-arm64` 从 3.2.1 才有预编译包，3.1.1 的 install 脚本会自愈式回退到本地编译（历史上会死在 bionic 与 glibc 的 `statx` 原型差异上） | 仍**不进 `--allow-scripts` 白名单**（`setup.sh` 的 `SKIP_SCRIPTS`）：npm 12 里白名单内脚本**失败会让整次安装退 1**，白名单外只警告并跳过。⚠️ **本机实测修正**：设备上的 npm 是 **11.21.1**，它的 `--allow-scripts=<list>` 是**建议性**的（未列出的包脚本仍会执行，只打警告；只有 `strict-allow-scripts` 才硬失败），所以这里 koffi 的 install 脚本**实际执行且编译成功**（`koffi.load('libc.so')` 可加载）——旧文档「构建必然失败」在这台设备上**不复现**。无论编不编得过，dsh 的 koffi 调用点全是懒加载且 `platform === "win32"` 才走，Android 运行期都用不到 |
+| **koffi 原生模块不可用** | 0.2.0-rc.2 起 `koffi` 被**精确钉在 3.1.1**；`@koromix/koffi-android-arm64` 从 3.2.1 才有预编译包，3.1.1 的 install 脚本会自愈式回退到本地编译（历史上会死在 bionic 与 glibc 的 `statx` 原型差异上） | 仍**不进 `--allow-scripts` 白名单**（`setup.sh` 的 `SKIP_SCRIPTS`）：npm 12 里白名单内脚本**失败会让整次安装退 1**，白名单外只警告并跳过。⚠️ **本机实测修正**：设备上的 npm 是 **11.21.1**，它的 `--allow-scripts=<list>` 是**建议性**的（未列出的包脚本仍会执行，只打警告；只有 `strict-allow-scripts` 才硬失败），所以这里 koffi 的 install 脚本**实际执行且编译成功**（`koffi.load('libc.so')` 可加载）——旧文档「构建必然失败」在这台设备上**不复现**。无论编不编得过，dsh 的 koffi 调用点全是懒加载且 `platform === "win32"` 才走，Android 运行期都用不到。⚠️ dsh 现在被 `setup.sh` hold 住（全局路径是 symlink），`npm -g update` 不会碰到 dsh 依赖；需要重编/升级 dsh 时仍应跑 `bash setup.sh`（若单独手动安装其他包，可用 `bash npm_android.sh …` 注入 Android target） |
 | npm 构建脚本审批随版本不同 | 同一份白名单在 npm 11 与 npm 12 行为不同：npm 11（本机 11.21.1）的 `--allow-scripts` 只**建议**要不要执行、未列出的脚本仍执行并警告；npm 12 才把白名单变成**强制** | `setup.sh` 仍只把**能在 Android 构建成功**的包放 `--allow-scripts`、把 koffi 放 `SKIP_SCRIPTS`：这样在 npm 12 上不会被 koffi 拖死整次安装，在 npm 11 上也不影响结果（koffi 编得过但没有运行期调用点）。若你手动在 npm 配置里设了 `strict-allow-scripts=true`，白名单外的脚本会变成硬错误——`setup.sh` 的安装预检会把它当成安装冲突，打印处置建议后提前退出 |
 | `link()` 被 SELinux 禁用 | 会话/附件保存、会话迁移、`write` 新建文件报 `EACCES` | 会话日志直接发布改 `rename()`；no-replace 场景回退「O_EXCL 占位 + rename」；附件遍历/清理容忍 `EACCES`/`ENOENT` |
 | `flock` 在 Android 不可用 | 发消息报 `flock is not supported on android-arm64` | 用 clang 把 `node-addon-system` 自带 `src/flock.c` 编成本机 `system.node`，并让 `lib/flock.js` 在 android 下加载它（含真实加锁自检） |
@@ -307,9 +314,10 @@ deepseek-harness-android/
 │   ├── verify-js-patches-fixture.js # apply-js-patches.sh 夹具（21 断言：反向上游→正向打→幂等→破坏退 1）
 │   ├── verify-runtime-scripts-fixture.js # start/stop/restart 夹具（36 断言：假 dsh + 隔离 HOME，不碰 3080）
 │   ├── verify-pnpm-provision-fixture.js # pnpm 运行时供给夹具（76 断言：离线、临时 HOME/PIN/WRAPPER）
-│   ├── verify-setup-static-check.sh # setup.sh / 运行期脚本静态契约（27 条，只读）
+│   ├── verify-setup-static-check.sh # setup.sh / 运行期脚本静态契约（30 条，只读）
 │   ├── verify-test-effectiveness.js # 变异测试：往副本注入 10 个已知回归，对应套件必须变红
 │   └── verify-all-checks.sh         # 一条命令跑完全部脚本级检查（--full 追加变异测试）
+├── npm_android.sh               # Termux npm 包装：注入 android30 编译参数（手动 npm update 必用）
 ├── docs/
 │   └── index.html               # 说明文档站
 ├── AGENTS.md                    # 维护者约定与踩坑记录（给 AI/协作者）
@@ -327,6 +335,7 @@ deepseek-harness-android/
     ├── dsh.pid          # 当前进程 pid
     └── dsh_restart.log  # 重启记录
 
+~/.local/share/dsh-android/dsh/   # dsh hold/pin 安装树（全局 @deepseek-ai/dsh symlink 指向这里）
 ~/.local/share/pnpm-pin/          # 2.5/9 安装的 pnpm 11（JS build；dsh 插件功能的运行期依赖）
 ~/bin/{pnpm,pn,pnpx,pnx}           # 2.5/9 写的 pnpm 11 包装（必须在 PATH 上）
 
@@ -359,7 +368,7 @@ node patches/verify-js-patches-fixture.js
 node patches/verify-runtime-scripts-fixture.js
 node patches/verify-pnpm-provision-fixture.js
 
-# 一条命令跑完全部脚本级检查（语法 + setup 静态契约 27 条 + 6 个夹具 242 条断言；全绿输出 套件 PASS=8，加 --full 为 PASS=9）
+# 一条命令跑完全部脚本级检查（语法 + setup 静态契约 37 条 + 6 个夹具 242 条断言；全绿输出 套件 PASS=8，加 --full 为 PASS=9）
 bash patches/verify-all-checks.sh            # 摘要
 bash patches/verify-all-checks.sh --verbose  # 全量输出
 bash patches/verify-all-checks.sh --full     # 再跑变异测试（约 5 分钟，证明套件抓得住回归）
@@ -394,6 +403,7 @@ bash patches/verify-all-checks.sh --full     # 再跑变异测试（约 5 分钟
 - **`dsh plugin …` / 插件市场报找不到 pnpm，或 pnpm 报 `ERR_PNPM_STORE_DIR_ACQUIRE_OPERATION_LOCK`**：dsh ≥0.2.1 的插件功能运行期会从 PATH 调用 pnpm，而 pnpm 12 在 Android 上不可用。先 `command -v pnpm && pnpm --version` 确认解析到的是 **11.x**；需要时用 `npm install -g pnpm@11`，或让 `~/bin/pnpm` 的 11.x 包装在 PATH 中优先（见「pnpm 运行时（插件功能依赖）」）。
 - **`bash setup.sh --pnpm` 报「参数已废弃」**：pnpm 安装方式已移除，安装方式只有 `npm install -g`；直接跑 `bash setup.sh`（要钉版本用 `DSH_VERSION=<ver> bash setup.sh`）。
 - **`bad interpreter: /usr/bin/env` / `npm: not found`**：Termux 的 `/usr/bin` 不可解析，而 npm 的 shebang 是 `#!/usr/bin/env node`。`setup.sh` 已自动改用 `node npm-cli.js` 调用；若你自己敲 `npm` 报这个错，用 `node "$(readlink -f "$(command -v npm)")" …` 代替。
+- **直接 `npm -g update` 时 koffi 报 `statx` / `__u32` / `const char *` 编译错误**：旧的非 hold 布局会绕过 `setup.sh` 的 `CFLAGS/CXXFLAGS=-target aarch64-linux-android30`。现在 dsh 已被 hold 为 symlink，`npm -g update` 不会再重编它；若旧安装已被破坏，重跑 `bash setup.sh` 即可恢复。
 - **升级 dsh / Node 后异常**：重跑 `bash setup.sh`。
 - **换机 / 重装**：重跑 `bash setup.sh` 即可。
 
@@ -407,7 +417,7 @@ bash patches/verify-all-checks.sh --full     # 再跑变异测试（约 5 分钟
   - `0.2.1-rc.5` 复核（本机实跑）：锚点仍**零改动**，`chokidar 5.0.0` / `openai 7.19.0` 与上面一致，`koffi`/`node-pty`/`sharp`/addon 家族版本全部不变；权限层两条仍与 `permission` 预设匹配（启动零告警）。
   - 上游 0.2.1 启动时会通过 `RETIRED_BUNDLES` 迁移**自动从旧 profile 摘除 `dsh-experimental-schedule-bundle`**——这是正常的迁移，不是错误。
   - 潜伏风险（默认不触发）：`sherpa-onnx-node`（语音输入，需手动启用实验性 bundle）与 `libreoffice-kit`（没有 android 平台包，office→pdf 可能不可用）。
-- **升级方式**：`cd` 到仓库 → `bash setup.sh`（安装方式只有 npm，见「安装方式：npm」）→ `bash ~/dsh/restart_dsh_now.sh` 重启 GUI。脚本默认跟随 npm `latest`，要钉版本用 `DSH_VERSION=0.2.1-rc.5 bash setup.sh`。
+- **升级方式**：`cd` 到仓库 → `bash setup.sh`（安装方式只有 npm，见「安装方式：npm」）→ `bash ~/dsh/restart_dsh_now.sh` 重启 GUI。脚本默认跟随 npm `latest`，要钉版本用 `DSH_VERSION=0.2.1-rc.5 bash setup.sh`。**dsh 已被 hold，`npm -g update` 不会升级它**；升级 dsh 必须运行 `bash setup.sh`。
 - 不同机型 / ROM 可能有差异：部分 ROM 通过 SELinux 禁用 `link()`、命名空间沙箱权限不同、bwrap/landlock 可用性不同等。
 - `setup.sh` 覆盖通用 Android 场景，个别机型可能仍需额外适配。
 
@@ -493,7 +503,13 @@ bash ~/dsh/start_dsh.sh       # start / reuse the service and open the browser
 bash ~/dsh/stop_dsh.sh        # stop
 bash ~/dsh/restart_dsh_now.sh # restart (does not open a browser)
 bash setup.sh                 # must re-run after upgrading dsh or Node
+bash npm_android.sh -g update # for manual global updates: injects the Android target; never run npm -g update bare
 ```
+
+> [!IMPORTANT]
+> **Never run `npm -g update` directly in this environment**: it bypasses `setup.sh` and therefore does not set `CFLAGS/CXXFLAGS=-target aarch64-linux-android30`. When dsh's koffi 3.1.1 falls back to a local build, bionic only declares `statx()` for API 30, so the compiler reports `__u32` / `const char *` errors. Use `bash npm_android.sh <npm args…>` for any manual npm operation; the full dsh upgrade path should still be `bash setup.sh`.
+>
+> `setup.sh` now **holds dsh**: 3/9 installs into a temporary prefix, then moves the tree to `~/.local/share/dsh-android/dsh` and replaces the global `@deepseek-ai/dsh` with a symlink to it. npm's `update -g` treats a symlinked global package as a `file:` dependency, so it **will not upgrade or overwrite dsh**; only re-running `bash setup.sh` installs a new version and atomically swaps the hold directory. A normal `npm -g update` can still update other global packages while dsh's patches, node-pty and wrapper stay untouched. The hold package's `bin` field is removed so npm does not try to recreate the bin link and collide (`EEXIST`) with `setup.sh`'s own `/usr/bin/dsh` wrapper.
 
 > [!WARNING]
 > **Do not open `http://127.0.0.1:3080` directly**: recent dsh versions require the **tokenized launch URL** to exchange for the auth cookie — the bare URL returns 401. Always use `start_dsh.sh`, which reads the current process's token from the log and only hands it to the browser after verifying it returns 303.
@@ -554,6 +570,7 @@ The preflight **hardcodes neither a pnpm path nor a version**: it probes **every
 | `DSH_PORT` | `3080` | Service port (`start_dsh.sh` passes it to dsh as `--port`; dsh itself does not read this env var) |
 | `NO_COLOR` | empty | Non-empty disables colored output |
 | `DSH_VERSION` | empty (npm `latest`) | Pin **only** for canary/rollback: `DSH_VERSION=<ver> bash setup.sh`, with `<ver>` from `npm view @deepseek-ai/dsh versions`. Leave it empty by default — hardcoding a version blocks upgrades |
+| `DSH_HOLD_DIR` | `~/.local/share/dsh-android/dsh` | The held/pinned dsh install tree; the global `@deepseek-ai/dsh` is a symlink to it, so `npm -g update` cannot upgrade it. Only `setup.sh` swaps it |
 | `DSH_PNPM_PIN_DIR` | `~/.local/share/pnpm-pin` | Where `2.5/9` installs pnpm 11 (JS build) via `npm --prefix` |
 | `DSH_PNPM_WRAPPER_DIR` | `~/bin` | Where `2.5/9` writes the `pnpm`/`pn`/`pnpx`/`pnx` wrappers; **must be on PATH** so dsh's child process can find them |
 | `DSH_PNPM_VERSION` | `11.27.1` | pnpm version `2.5/9` installs **when a download is needed** (an existing usable 11.x is reused instead); **do not raise to 12.x** (broken on Android) |
@@ -617,7 +634,7 @@ Upstream `@deepseek-ai/dsh` ships linux/darwin prebuilds only and assumes a full
 | Issue | Symptom | Fix |
 |---|---|---|
 | node-pty build fails | `Undefined variable android_ndk_path` | patch node-gyp cache `common.gypi` |
-| **koffi native module unavailable** | since 0.2.0-rc.2 `koffi` is pinned to **exactly 3.1.1**; `@koromix/koffi-android-arm64` only exists from 3.2.1, and 3.1.1's install script self-heals into a local build (which historically died on the bionic-vs-glibc `statx` prototype mismatch) | still **kept out of `--allow-scripts`** (`setup.sh`'s `SKIP_SCRIPTS`): under npm 12 a *failing allowlisted* script aborts the whole install, while a blocked one is only warned about and skipped. ⚠️ **Measured correction on this device**: its npm is **11.21.1**, whose `--allow-scripts=<list>` is **advisory** (unlisted package scripts still run, only a warning is printed; only `strict-allow-scripts` is a hard error), so koffi's install script **actually runs and compiles successfully** here (`koffi.load('libc.so')` loads) — the old "the build always fails" claim does **not** reproduce on this device. Either way, every koffi call site in dsh is lazy and gated on `platform === "win32"`, so Android never needs it at runtime |
+| **koffi native module unavailable** | since 0.2.0-rc.2 `koffi` is pinned to **exactly 3.1.1**; `@koromix/koffi-android-arm64` only exists from 3.2.1, and 3.1.1's install script self-heals into a local build (which historically died on the bionic-vs-glibc `statx` prototype mismatch) | still **kept out of `--allow-scripts`** (`setup.sh`'s `SKIP_SCRIPTS`): under npm 12 a *failing allowlisted* script aborts the whole install, while a blocked one is only warned about and skipped. ⚠️ **Measured correction on this device**: its npm is **11.21.1**, whose `--allow-scripts=<list>` is **advisory** (unlisted package scripts still run, only a warning is printed; only `strict-allow-scripts` is a hard error), so koffi's install script **actually runs and compiles successfully** here (`koffi.load('libc.so')` loads) — the old "the build always fails" claim does **not** reproduce on this device. Either way, every koffi call site in dsh is lazy and gated on `platform === "win32"`, so Android never needs it at runtime. ⚠️ dsh is now **held** by `setup.sh` (the global path is a symlink), so `npm -g update` does not touch dsh dependencies; use `bash setup.sh` whenever dsh itself must be rebuilt/upgraded (use `bash npm_android.sh …` for other manual installs that need the Android target) |
 | npm build-script approval differs by version | the same allowlist behaves differently on npm 11 vs 12: npm 11 (11.21.1 here) treats `--allow-scripts` as **advisory** (unlisted scripts still run, with a warning), while npm 12 enforces the list | `setup.sh` still allowlists only packages whose build **can** succeed on Android and keeps koffi in `SKIP_SCRIPTS`: on npm 12 koffi can no longer kill the whole install, and on npm 11 the result is the same (koffi may build, but there is no runtime call site). If you set `strict-allow-scripts=true` yourself, unlisted scripts become hard errors — the installer's preflight treats that as an install conflict, prints remediation and exits early |
 | `link()` blocked by SELinux | `EACCES` saving sessions/attachments, migrating sessions, and when the `write` tool creates a file | session-log publish uses `rename()`; no-replace paths fall back to "O_EXCL reserve + rename"; attachment walks/cleanup tolerate `EACCES`/`ENOENT` |
 | `flock` unavailable | `flock is not supported on android-arm64` when sending a message | compile `node-addon-system`'s bundled `src/flock.c` with clang into a local `system.node` and load it from `lib/flock.js` on android (with a real lock self-test) |
@@ -711,9 +728,10 @@ deepseek-harness-android/
 │   ├── verify-js-patches-fixture.js # apply-js-patches.sh fixture (21 assertions: rebuild upstream → forward → idempotent → corrupt ⇒ rc 1)
 │   ├── verify-runtime-scripts-fixture.js # start/stop/restart fixture (36 assertions: fake dsh + isolated HOME, never touches 3080)
 │   ├── verify-pnpm-provision-fixture.js # pnpm runtime provisioning fixture (76 assertions: offline, temp HOME/PIN/WRAPPER)
-│   ├── verify-setup-static-check.sh # static contracts of setup.sh / runtime scripts (27 checks, read-only)
+│   ├── verify-setup-static-check.sh # static contracts of setup.sh / runtime scripts (30 checks, read-only)
 │   ├── verify-test-effectiveness.js # mutation testing: inject 10 known regressions into copies, suites must turn red
 │   └── verify-all-checks.sh         # one command for every script-level check (--full adds mutation testing)
+├── npm_android.sh               # Termux npm wrapper: injects android30 compile flags (use for manual npm updates)
 ├── docs/
 │   └── index.html               # documentation site
 ├── AGENTS.md                    # maintainer conventions & pitfalls (for AI/collaborators)
@@ -731,6 +749,7 @@ deepseek-harness-android/
     ├── dsh.pid          # current pid
     └── dsh_restart.log  # restart history
 
+~/.local/share/dsh-android/dsh/   # held/pinned dsh install tree (global @deepseek-ai/dsh symlink target)
 ~/.local/share/pnpm-pin/          # pnpm 11 installed by 2.5/9 (JS build; runtime dependency of dsh plugins)
 ~/bin/{pnpm,pn,pnpx,pnx}           # pnpm 11 wrappers written by 2.5/9 (must be on PATH)
 
@@ -761,7 +780,7 @@ node patches/verify-js-patches-fixture.js
 node patches/verify-runtime-scripts-fixture.js
 node patches/verify-pnpm-provision-fixture.js
 
-# one command for every script-level check (syntax + 27 setup static contracts + 6 fixtures / 242 assertions)
+# one command for every script-level check (syntax + 37 setup static contracts + 6 fixtures / 242 assertions)
 bash patches/verify-all-checks.sh            # summary
 bash patches/verify-all-checks.sh --verbose  # full output
 bash patches/verify-all-checks.sh --full     # also run mutation testing (~5 min, proves the suites bite)
@@ -796,19 +815,8 @@ All patch scripts are **idempotent**: run them twice and the second run reports 
 - **`dsh plugin …` / plugin market cannot find pnpm, or pnpm reports `ERR_PNPM_STORE_DIR_ACQUIRE_OPERATION_LOCK`**: since 0.2.1 the plugin features shell out to `pnpm` from PATH, and pnpm 12 does not work on Android. First check `command -v pnpm && pnpm --version` resolves to **11.x**; install/pin it with `npm install -g pnpm@11`, or make the 11.x wrapper at `~/bin/pnpm` take precedence in PATH (see "pnpm runtime (plugin dependency)").
 - **`bash setup.sh --pnpm` reports "deprecated flag"**: the pnpm install backend is gone — npm (`npm install -g`) is the only backend. Just run `bash setup.sh` (pin a version with `DSH_VERSION=<ver> bash setup.sh`).
 - **`bad interpreter: /usr/bin/env` / `npm: not found`**: on Termux `/usr/bin` is not resolvable while npm's shebang is `#!/usr/bin/env node`. `setup.sh` already calls npm as `node npm-cli.js`; if you hit this typing `npm` yourself, use `node "$(readlink -f "$(command -v npm)")" …` instead.
-- **Broken after upgrading dsh / Node**: re-run `bash setup.sh`.
-- **New device / reinstall**: just re-run `bash setup.sh`.
-
-## 🧪 Compatibility
-
-- **Author's setup**: Huawei Mate 60 (ALN-AL80), HarmonyOS 4.2.0 (build 4.2.0.186), **no root**, Termux (Node v26, aarch64), deepseek-harness **`0.2.1-rc.5`** (real `bash setup.sh` run: 3m18s, npm reported `added 3 / removed 4 / changed 605 packages`, every patch applies with no anchor changes, 13.9s cold start, 303→cookie→200, zero warn/error; at the time of writing). The `0.2.0-rc.2` and `0.1.7-rc.2` lines pass too (rollback verified).
-- **What changed in 0.2.1 vs 0.2.0** (checked; impact on patches/config):
-  - dependency closure **532 → 604 packages** (as of rc.2; rc.5 measures ~605 locally, the delta being this project's self-added packages), direct deps **+10/−6**; new: 11 experimental bundles, `dsh-plugin-manager`, `dsh-plugin-market*`, `dsh-tool-schedule/terminal/session-query`, `dsh-session-query-sqlite` (uses `node:sqlite`, fine on Node 26), etc.; removed: `dsh-webhook(-github)`, `dsh-hooks-codex/claude-code`, `dsh-tool-ralph`, `dsh-experimental-schedule-bundle`, `dsh-client-store/ui-primitives/ui-slots`, `dsh-invariants`, `dsh-hook-protocol`, `dsh-subagent-in-process-driver`.
-  - `OPTIONAL_BUNDLES` **4 → 12** (as of rc.2, all experimental and off by default; not re-audited for rc.5); the default web bundles are unchanged; **every existing patch anchor still applies — no changes needed**.
-  - Version-sensitive: `cordis` 4.0.5, `chokidar` 5 (needs Node ≥20.19; Node 26 is fine), `openai` 7.x, `pi-ai` 1.3; unchanged: `koffi` 3.1.1, `node-pty` 1.2.0-beta.15, `sharp` 0.35.5, `node-addon-system` 0.1.2, `node-addon-require-builtin`/`native-custom-loader` 0.1.9.
-  - On first boot, 0.2.1's `RETIRED_BUNDLES` migration **auto-removes `dsh-experimental-schedule-bundle` from existing profiles** — that is a normal migration, not an error.
-  - Latent risks (not triggered by default): `sherpa-onnx-node` (voice input; needs an experimental bundle enabled manually) and `libreoffice-kit` (no android platform package, so office→pdf may be unavailable).
-- **How to upgrade**: `cd` into the repo → `bash setup.sh` (npm is the only backend, see "Install backend: npm") → `bash ~/dsh/restart_dsh_now.sh` to restart the GUI. The script follows npm `latest`; pin a version with `DSH_VERSION=0.2.1-rc.5 bash setup.sh`.
+- **`npm -g update` fails building koffi with `statx` / `__u32` / `const char *` errors**: the old non-held layout bypassed `setup.sh`'s `CFLAGS/CXXFLAGS=-target aarch64-linux-android30`. dsh is now held as a symlink, so `npm -g update` will not rebuild it; if an old installation was damaged, re-run `bash setup.sh` to restore.
+- **How to upgrade**: `cd` into the repo → `bash setup.sh` (npm is the only backend, see "Install backend: npm") → `bash ~/dsh/restart_dsh_now.sh` to restart the GUI. The script follows npm `latest`; pin a version with `DSH_VERSION=0.2.1-rc.5 bash setup.sh`. **dsh is now held, so `npm -g update` will not upgrade it**; use `bash setup.sh` for dsh upgrades.
 - Phones/ROMs differ: some block the `link()` syscall via SELinux, namespace-sandbox permissions vary, and bwrap/landlock availability differs.
 - `setup.sh` covers the common Android cases; specific devices may still need extra tweaks.
 

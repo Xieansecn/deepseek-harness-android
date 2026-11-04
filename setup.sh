@@ -172,6 +172,7 @@ run_hidden_spinner() {
 
 # 包装脚本临时文件：交给 on_exit 统一清理，这里不再注册 EXIT trap（会覆盖 on_exit、吞掉失败日志）。
 DSH_TMP=""
+DSH_STAGE_PREFIX=""
 # 全脚本唯一的 EXIT trap：擦状态行 → 清理临时文件 → 失败时打印日志尾部。
 # ⚠️ 必须写 tail -25 "$SETUP_LOG" >&2：重定向从左到右生效，2>/dev/null >&2 会把日志整个吞掉。
 on_exit() {
@@ -179,6 +180,7 @@ on_exit() {
   status_stop                 # 先擦掉常驻状态行，否则失败日志会叠在它上面
   if [ -n "$STATUS_FILE" ]; then rm -f "$STATUS_FILE" 2>/dev/null || true; fi
   if [ -n "$DSH_TMP" ]; then rm -f "$DSH_TMP" 2>/dev/null || true; fi
+  if [ -n "$DSH_STAGE_PREFIX" ]; then rm -rf "$DSH_STAGE_PREFIX" 2>/dev/null || true; fi
   if [ "$rc" -ne 0 ]; then
     printf '\n%s[x]%s 安装失败（退出码 %s）。最近日志：\n' "$C_RED" "$C_RST" "$rc" >&2
     if [ -s "$SETUP_LOG" ]; then tail -25 "$SETUP_LOG" >&2; fi
@@ -197,6 +199,11 @@ else
 fi
 DSH_DIR="/data/data/com.termux/files/usr/lib/node_modules/@deepseek-ai/dsh"
 INSTALL_DIR="$HOME/dsh"
+# dsh 版本 hold 目录：3/9 先安装到暂存前缀，再移到这里，并把全局 DSH_DIR 变成指向它的
+# symlink。npm 的 `update -g` 把全局 symlink 包当作 `file:` 依赖，因此不会再从 registry
+# 升级/覆盖 dsh；只有重新运行 setup.sh 才会安装新版本并原子切换 hold 目录。
+DSH_HOLD_ROOT="${DSH_HOLD_ROOT:-$HOME/.local/share/dsh-android}"
+DSH_HOLD_DIR="${DSH_HOLD_DIR:-$DSH_HOLD_ROOT/dsh}"
 
 # ⚠️ npm 包装（Termux 必踩）：`/usr/bin` 在 Termux 的挂载命名空间里不可解析，而
 # npm-cli.js 的 shebang 写死 `#!/usr/bin/env node`，于是直接执行 `npm` 会报
@@ -218,8 +225,53 @@ PREFIX_BIN="/data/data/com.termux/files/usr/bin"
 if [ -n "${DSH_SETUP_PREFIX:-}" ]; then
   PREFIX_BIN="$DSH_SETUP_PREFIX/bin"
   DSH_DIR="$DSH_SETUP_PREFIX/lib/node_modules/@deepseek-ai/dsh"
+  DSH_HOLD_ROOT="$DSH_SETUP_PREFIX/.dsh-hold"
+  DSH_HOLD_DIR="$DSH_HOLD_ROOT/dsh"
 fi
 DSH_CMD="$PREFIX_BIN/dsh"
+
+# 把暂存安装树原子地切为全局 dsh 的 symlink：npm -g update 此后只认 file: 依赖，不会升级/覆盖。
+dsh_hold_pin() {
+  local src="$1"
+  local prev="$DSH_DIR.prehold.$$"
+  local old="$DSH_HOLD_DIR.old.$$"
+
+  [ -d "$src" ] || { error "  dsh 暂存安装目录不存在：$src"; exit 1; }
+  mkdir -p "$DSH_HOLD_ROOT" "$(dirname "$DSH_DIR")"
+
+  if [ -e "$DSH_HOLD_DIR" ] || [ -L "$DSH_HOLD_DIR" ]; then
+    mv "$DSH_HOLD_DIR" "$old" || { error "  无法备份旧 dsh hold 目录：$DSH_HOLD_DIR"; exit 1; }
+  fi
+  if ! mv "$src" "$DSH_HOLD_DIR"; then
+    if [ -e "$old" ] || [ -L "$old" ]; then mv "$old" "$DSH_HOLD_DIR" 2>/dev/null || true; fi
+    error "  无法把新 dsh 安装树移动到 hold 目录：$DSH_HOLD_DIR"
+    exit 1
+  fi
+
+  # 关键：移除 hold 包的 bin 字段。setup.sh 会自己写 /usr/bin/dsh 包装脚本来带
+  # --expose-internals；如果 package.json 仍有 bin，npm -g update 重建 bin link 时会
+  # 与这个包装文件冲突（EEXIST），即使 dsh 本身已是 symlink/file: 依赖。
+  node - "$DSH_HOLD_DIR/package.json" <<'JS' || { error "  无法更新 hold 包的 package.json（移除 bin 字段）"; exit 1; }
+const fs = require("node:fs");
+const path = process.argv[2];
+const pkg = JSON.parse(fs.readFileSync(path, "utf8"));
+delete pkg.bin;
+pkg.dshAndroidHold = true;
+fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + "\n");
+JS
+
+  if [ -e "$DSH_DIR" ] || [ -L "$DSH_DIR" ]; then
+    mv "$DSH_DIR" "$prev" || { error "  无法移开旧全局 dsh 路径：$DSH_DIR"; exit 1; }
+  fi
+  if ! ln -s "$DSH_HOLD_DIR" "$DSH_DIR"; then
+    if [ -e "$prev" ] || [ -L "$prev" ]; then mv "$prev" "$DSH_DIR" 2>/dev/null || true; fi
+    error "  无法创建 dsh hold symlink：$DSH_DIR -> $DSH_HOLD_DIR"
+    exit 1
+  fi
+
+  rm -rf "$prev" "$old"
+  ok "  dsh 已 hold：$DSH_DIR -> $DSH_HOLD_DIR（npm -g update 不会升级 dsh；升级只走 setup.sh）"
+}
 
 # ---------------------------------------- pnpm 运行时供给（dsh ≥0.2.1 插件功能的运行期依赖）
 # 为什么需要：dsh 0.2.1 的 plugin-manager / `dsh plugin …` 会 execa("pnpm") 从 PATH 找 pnpm——
@@ -857,6 +909,8 @@ pnpm_runtime_provision
 step "3/9 安装 dsh（预计耗时 5～15 分钟）"
 # android30 仅是安全 no-op；绝不可加 --sysroot=$PREFIX 或切 -target aarch64-linux-gnu 上 glibc（会头/库/ABI 混用）。
 # 真正需要编译的只有 node-pty（无 android-arm64 预编译），koffi 3.x 走预编译包。
+# ⚠️ 手动 `npm -g update` 不经过本脚本，会丢掉这里的 CFLAGS/CXXFLAGS；koffi 3.1.1
+# 回退本地编译会因 bionic 只在 API30 声明 statx() 而失败。手动 npm 请走 npm_android.sh。
 PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
 EXTRA_FLAGS="-target aarch64-linux-android30 -I$PREFIX/include"
 # --allow-scripts 的语义**随 npm 版本不同**（2.5/9 会探测并打印当前策略）：
@@ -868,6 +922,10 @@ EXTRA_FLAGS="-target aarch64-linux-android30 -I$PREFIX/include"
 # 否则 npm 12 下原生产物静默缺失、npm 11 下则会有未审批脚本被静默执行——下方的自检负责发现。
 # ⚠️ SKIP_SCRIPTS 仍然保留：npm 12 下把 koffi 放进白名单会拖死整次安装；本机 npm 11 虽能编译，
 #    但运行期 koffi 只在 win32 分支懒加载，Android 用不到。
+# dsh 自身采用「hold + 暂存安装」：本节只把新版本装进临时 prefix，成功后整树移到
+# $DSH_HOLD_DIR，并把全局 $DSH_DIR 换成 symlink。npm `update -g` 会把它当 file: 依赖，
+# 因此不会升级/覆盖 dsh；升级只发生在重新运行 setup.sh 时。若用户另设了
+# `ignore-scripts=true`，这里仍显式 `--ignore-scripts=false` 以完成 node-pty 构建。
 ALLOW_SCRIPTS="@deepseek-ai/dsh-subprocess-local,node-pty,@google/genai,protobufjs"
 # 按设计不进白名单的包（脚本必然失败或纯属多余，宁可让它退化成「npm 警告 + 跳过」）：
 #   koffi —— 0.2.0-rc.2 起上游把它【精确钉在 3.1.1】，而 @koromix/koffi-android-arm64 从 3.2.1 才有；
@@ -883,10 +941,23 @@ case "${NPM_STRICT_ALLOW_SCRIPTS:-unknown}" in
   *)     info "  npm allow-scripts 策略：${NPM_STRICT_ALLOW_SCRIPTS:-未探测到}（按 npm 默认 advisory 处理）。" ;;
 esac
 info "  安装目标：${DSH_NPM}（安装脚本白名单：${ALLOW_SCRIPTS}）"
+DSH_STAGE_PREFIX="$DSH_HOLD_ROOT/.stage.$$"
+rm -rf "$DSH_STAGE_PREFIX"
+mkdir -p "$DSH_STAGE_PREFIX"
+info "  暂存安装：$DSH_STAGE_PREFIX（成功后切换为 hold symlink，失败不影响现有 dsh）"
 run_hidden_spinner "  正在安装 dsh 并编译原生模块（预计耗时 5～15 分钟）……" \
   env CFLAGS="$EXTRA_FLAGS" CXXFLAGS="$EXTRA_FLAGS" \
-  "${NPM_CMD[@]}" install -g --no-audit --no-fund --loglevel=error \
-  --allow-scripts="$ALLOW_SCRIPTS" "$DSH_NPM"
+  "${NPM_CMD[@]}" install -g --prefix "$DSH_STAGE_PREFIX" --no-audit --no-fund --loglevel=error \
+  --ignore-scripts=false --allow-scripts="$ALLOW_SCRIPTS" "$DSH_NPM"
+
+DSH_STAGE_INSTALL="$DSH_STAGE_PREFIX/lib/node_modules/@deepseek-ai/dsh"
+if [ ! -d "$DSH_STAGE_INSTALL" ]; then
+  error "  暂存安装完成但未找到 dsh 安装树：$DSH_STAGE_INSTALL"
+  exit 1
+fi
+dsh_hold_pin "$DSH_STAGE_INSTALL"
+rm -rf "$DSH_STAGE_PREFIX"
+DSH_STAGE_PREFIX=""
 
 if [ -f "$DSH_DIR/node_modules/node-pty/build/Release/pty.node" ]; then
   ok "  node-pty 编译产物已就绪（build/Release/pty.node）"
