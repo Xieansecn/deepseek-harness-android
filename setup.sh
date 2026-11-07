@@ -172,7 +172,9 @@ run_hidden_spinner() {
 
 # 包装脚本临时文件：交给 on_exit 统一清理，这里不再注册 EXIT trap（会覆盖 on_exit、吞掉失败日志）。
 DSH_TMP=""
-DSH_STAGE_PREFIX=""
+# 安装前被临时移开的 dsh 包装脚本（npm 重建 bin link 时不能与它共存，见 3/9）：
+# 安装/重建成功后在 6/9 删除；安装失败则由 on_exit 还原，避免 dsh 命令缺失。
+DSH_CMD_PREINSTALL_BAK=""
 # 全脚本唯一的 EXIT trap：擦状态行 → 清理临时文件 → 失败时打印日志尾部。
 # ⚠️ 必须写 tail -25 "$SETUP_LOG" >&2：重定向从左到右生效，2>/dev/null >&2 会把日志整个吞掉。
 on_exit() {
@@ -180,7 +182,14 @@ on_exit() {
   status_stop                 # 先擦掉常驻状态行，否则失败日志会叠在它上面
   if [ -n "$STATUS_FILE" ]; then rm -f "$STATUS_FILE" 2>/dev/null || true; fi
   if [ -n "$DSH_TMP" ]; then rm -f "$DSH_TMP" 2>/dev/null || true; fi
-  if [ -n "$DSH_STAGE_PREFIX" ]; then rm -rf "$DSH_STAGE_PREFIX" 2>/dev/null || true; fi
+  if [ -n "${DSH_CMD_PREINSTALL_BAK:-}" ]; then
+    # 6/9 重建成功时会删除备份并清空变量；走到这里说明安装/重建没有完成 →
+    # 把安装前移开的旧包装原子还原（即使 npm 已经建了一个 bin link，也以旧包装为准；
+    # 它指向同一个 $DSH_DIR/lib/bin.js，只是多带 --expose-internals）。
+    if ! mv -f "$DSH_CMD_PREINSTALL_BAK" "${DSH_CMD:-}" 2>/dev/null; then
+      rm -f "$DSH_CMD_PREINSTALL_BAK" 2>/dev/null || true
+    fi
+  fi
   if [ "$rc" -ne 0 ]; then
     printf '\n%s[x]%s 安装失败（退出码 %s）。最近日志：\n' "$C_RED" "$C_RST" "$rc" >&2
     if [ -s "$SETUP_LOG" ]; then tail -25 "$SETUP_LOG" >&2; fi
@@ -199,11 +208,9 @@ else
 fi
 DSH_DIR="/data/data/com.termux/files/usr/lib/node_modules/@deepseek-ai/dsh"
 INSTALL_DIR="$HOME/dsh"
-# dsh 版本 hold 目录：3/9 先安装到暂存前缀，再移到这里，并把全局 DSH_DIR 变成指向它的
-# symlink。npm 的 `update -g` 把全局 symlink 包当作 `file:` 依赖，因此不会再从 registry
-# 升级/覆盖 dsh；只有重新运行 setup.sh 才会安装新版本并原子切换 hold 目录。
-DSH_HOLD_ROOT="${DSH_HOLD_ROOT:-$HOME/.local/share/dsh-android}"
-DSH_HOLD_DIR="${DSH_HOLD_DIR:-$DSH_HOLD_ROOT/dsh}"
+# 安装布局：dsh 直接安装在 npm 默认全局目录（$PREFIX/lib/node_modules/@deepseek-ai/dsh），
+# 是真实目录、不是 symlink。升级 dsh 只能重新运行 setup.sh：`npm -g update` 会绕过这里的
+# Android 编译参数与安装后补丁，把 dsh 覆盖成未修补的上游版本（补丁与包装脚本随之丢失）。
 
 # ⚠️ npm 包装（Termux 必踩）：`/usr/bin` 在 Termux 的挂载命名空间里不可解析，而
 # npm-cli.js 的 shebang 写死 `#!/usr/bin/env node`，于是直接执行 `npm` 会报
@@ -225,53 +232,12 @@ PREFIX_BIN="/data/data/com.termux/files/usr/bin"
 if [ -n "${DSH_SETUP_PREFIX:-}" ]; then
   PREFIX_BIN="$DSH_SETUP_PREFIX/bin"
   DSH_DIR="$DSH_SETUP_PREFIX/lib/node_modules/@deepseek-ai/dsh"
-  DSH_HOLD_ROOT="$DSH_SETUP_PREFIX/.dsh-hold"
-  DSH_HOLD_DIR="$DSH_HOLD_ROOT/dsh"
 fi
 DSH_CMD="$PREFIX_BIN/dsh"
 
-# 把暂存安装树原子地切为全局 dsh 的 symlink：npm -g update 此后只认 file: 依赖，不会升级/覆盖。
-dsh_hold_pin() {
-  local src="$1"
-  local prev="$DSH_DIR.prehold.$$"
-  local old="$DSH_HOLD_DIR.old.$$"
-
-  [ -d "$src" ] || { error "  dsh 暂存安装目录不存在：$src"; exit 1; }
-  mkdir -p "$DSH_HOLD_ROOT" "$(dirname "$DSH_DIR")"
-
-  if [ -e "$DSH_HOLD_DIR" ] || [ -L "$DSH_HOLD_DIR" ]; then
-    mv "$DSH_HOLD_DIR" "$old" || { error "  无法备份旧 dsh hold 目录：$DSH_HOLD_DIR"; exit 1; }
-  fi
-  if ! mv "$src" "$DSH_HOLD_DIR"; then
-    if [ -e "$old" ] || [ -L "$old" ]; then mv "$old" "$DSH_HOLD_DIR" 2>/dev/null || true; fi
-    error "  无法把新 dsh 安装树移动到 hold 目录：$DSH_HOLD_DIR"
-    exit 1
-  fi
-
-  # 关键：移除 hold 包的 bin 字段。setup.sh 会自己写 /usr/bin/dsh 包装脚本来带
-  # --expose-internals；如果 package.json 仍有 bin，npm -g update 重建 bin link 时会
-  # 与这个包装文件冲突（EEXIST），即使 dsh 本身已是 symlink/file: 依赖。
-  node - "$DSH_HOLD_DIR/package.json" <<'JS' || { error "  无法更新 hold 包的 package.json（移除 bin 字段）"; exit 1; }
-const fs = require("node:fs");
-const path = process.argv[2];
-const pkg = JSON.parse(fs.readFileSync(path, "utf8"));
-delete pkg.bin;
-pkg.dshAndroidHold = true;
-fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + "\n");
-JS
-
-  if [ -e "$DSH_DIR" ] || [ -L "$DSH_DIR" ]; then
-    mv "$DSH_DIR" "$prev" || { error "  无法移开旧全局 dsh 路径：$DSH_DIR"; exit 1; }
-  fi
-  if ! ln -s "$DSH_HOLD_DIR" "$DSH_DIR"; then
-    if [ -e "$prev" ] || [ -L "$prev" ]; then mv "$prev" "$DSH_DIR" 2>/dev/null || true; fi
-    error "  无法创建 dsh hold symlink：$DSH_DIR -> $DSH_HOLD_DIR"
-    exit 1
-  fi
-
-  rm -rf "$prev" "$old"
-  ok "  dsh 已 hold：$DSH_DIR -> $DSH_HOLD_DIR（npm -g update 不会升级 dsh；升级只走 setup.sh）"
-}
+# ---------------------------------------- dsh 安装布局（原生 npm 全局目录）
+# 3/9 直接 `npm install -g` 到 $DSH_DIR（真实目录）。旧版 setup.sh 留下的 hold symlink
+# 会在安装前摘除；安装前还会临时移开 dsh 包装脚本（npm 重建 bin link 时会 EEXIST）。
 
 # ---------------------------------------- pnpm 运行时供给（dsh ≥0.2.1 插件功能的运行期依赖）
 # 为什么需要：dsh 0.2.1 的 plugin-manager / `dsh plugin …` 会 execa("pnpm") 从 PATH 找 pnpm——
@@ -874,15 +840,21 @@ fi
 
 # ------------------------------------------------------- 2/9 准备 gyp 补丁
 step "2/9 准备 Node headers"
-# node-gyp 缓存的 common.gypi 引用了 android_ndk_path，Termux 无 NDK 必须补空定义，否则 node-pty 构建失败。
-run_hidden_spinner "  正在下载 Node headers（约 1 分钟）……" timeout 300 npx --yes node-gyp install || true
-
+# node-gyp 的 common.gypi 历史上引用 android_ndk_path，Termux 无 NDK 必须补空定义，否则 node-pty 构建失败。
+# 但 node-gyp 未显式给 --nodedir 时会直接用 process.config.variables.node_prefix（= $PREFIX）下的
+# 自带 headers；Termux 的 nodejs 包带 $PREFIX/include/node，Node 26 的 common.gypi 也已不再引用
+# android_ndk_path → 有自带 headers 时无需下载缓存（也避开 npmmirror 缺 SHASUMS256.txt 的失败）。
+# ⚠️ 本段提示文本里绝不能用反引号包命令：旧版写 ... `npm i -g @deepseek-ai/dsh` ...，
+#    bash 会把它当命令替换**真的执行**，安装中途偷偷重装一次未打补丁的 dsh（实测 2/9 直接报 EEXIST）。
+SYS_GIPI="${PREFIX:-/data/data/com.termux/files/usr}/include/node/common.gypi"
 GYP_GIPI="$HOME/.cache/node-gyp/$NODE_VER/include/node/common.gypi"
-if [ -f "$GYP_GIPI" ]; then
+
+# 幂等补齐 android_ndk_path 空定义；$1 = common.gypi 路径。
+patch_common_gypi() {
   info "检查 common.gypi：Termux 无 NDK，需要补充 android_ndk_path 空定义，否则 node-pty 构建将失败。"
   # python 自己往终端打印，擦行字节必须由它一并写出（SP_CLEAR 已 export）：python3 启动约 40ms，
   # ticker 每 0.15s 重画一次，"先 status_clear 再 python 打印"会有约 1/4 概率把正文叠到状态行上。
-  python3 - "$GYP_GIPI" <<'PY'
+  python3 - "$1" <<'PY'
 import os, sys
 CLR = os.environ.get("SP_CLEAR", "")
 ECLR = CLR if sys.stderr.isatty() else ""   # stderr 被重定向时不往里写光标控制码
@@ -897,8 +869,22 @@ else:
     open(p, 'w', encoding='utf-8').write(s.replace(ANCHOR, "'variables': {\n    'android_ndk_path%': '',", 1))
     print(CLR + "  patched common.gypi")
 PY
+}
+
+if [ -f "$SYS_GIPI" ]; then
+  info "使用 Termux 自带 Node headers：$SYS_GIPI（node-gyp 直接采用，跳过缓存下载）。"
+  if grep -q 'android_ndk_path' "$SYS_GIPI" 2>/dev/null && ! grep -q "'android_ndk_path%': ''" "$SYS_GIPI" 2>/dev/null; then
+    patch_common_gypi "$SYS_GIPI"
+  fi
 else
-  warn "未检测到 $GYP_GIPI，请确认 node 已安装；可先手动执行一次 `npm i -g @deepseek-ai/dsh` 填充缓存。"
+  run_hidden_spinner "  正在下载 Node headers（约 1 分钟）……" timeout 300 npx --yes node-gyp install || true
+  if [ -f "$GYP_GIPI" ]; then
+    patch_common_gypi "$GYP_GIPI"
+  else
+    warn "Node headers 不在 Termux 自带目录（$SYS_GIPI），也没下载到 node-gyp 缓存（$GYP_GIPI）。"
+    warn "  下载失败常见原因是镜像缺 SHASUMS256.txt；可手动重试：npx --yes node-gyp install --dist-url=https://nodejs.org/download/release"
+    warn "  node-pty 若因此构建失败，3/9 校验产物时会中断并提示，不会静默装出一个不能用的 dsh。"
+  fi
 fi
 
 # ------------------------------------------------- 2.5/9 pnpm 运行时供给
@@ -922,10 +908,8 @@ EXTRA_FLAGS="-target aarch64-linux-android30 -I$PREFIX/include"
 # 否则 npm 12 下原生产物静默缺失、npm 11 下则会有未审批脚本被静默执行——下方的自检负责发现。
 # ⚠️ SKIP_SCRIPTS 仍然保留：npm 12 下把 koffi 放进白名单会拖死整次安装；本机 npm 11 虽能编译，
 #    但运行期 koffi 只在 win32 分支懒加载，Android 用不到。
-# dsh 自身采用「hold + 暂存安装」：本节只把新版本装进临时 prefix，成功后整树移到
-# $DSH_HOLD_DIR，并把全局 $DSH_DIR 换成 symlink。npm `update -g` 会把它当 file: 依赖，
-# 因此不会升级/覆盖 dsh；升级只发生在重新运行 setup.sh 时。若用户另设了
-# `ignore-scripts=true`，这里仍显式 `--ignore-scripts=false` 以完成 node-pty 构建。
+# dsh 直接安装到 npm 默认全局目录（原生布局，真实目录）：安装期补丁直接改这棵树，升级只能重跑本脚本。
+# 若用户另设了 `ignore-scripts=true`，这里仍显式 `--ignore-scripts=false` 以完成 node-pty 构建。
 ALLOW_SCRIPTS="@deepseek-ai/dsh-subprocess-local,node-pty,@google/genai,protobufjs"
 # 按设计不进白名单的包（脚本必然失败或纯属多余，宁可让它退化成「npm 警告 + 跳过」）：
 #   koffi —— 0.2.0-rc.2 起上游把它【精确钉在 3.1.1】，而 @koromix/koffi-android-arm64 从 3.2.1 才有；
@@ -941,23 +925,49 @@ case "${NPM_STRICT_ALLOW_SCRIPTS:-unknown}" in
   *)     info "  npm allow-scripts 策略：${NPM_STRICT_ALLOW_SCRIPTS:-未探测到}（按 npm 默认 advisory 处理）。" ;;
 esac
 info "  安装目标：${DSH_NPM}（安装脚本白名单：${ALLOW_SCRIPTS}）"
-DSH_STAGE_PREFIX="$DSH_HOLD_ROOT/.stage.$$"
-rm -rf "$DSH_STAGE_PREFIX"
-mkdir -p "$DSH_STAGE_PREFIX"
-info "  暂存安装：$DSH_STAGE_PREFIX（成功后切换为 hold symlink，失败不影响现有 dsh）"
+
+# npm 重建 bin link 时会与 setup.sh 自己写的 dsh 包装脚本冲突（EEXIST，实测 npm 12 即如此，
+# `--no-bin-links` 也挡不住旧链清理）。安装前把旧包装脚本原子移开：失败由 on_exit 还原，
+# 成功由 6/9 重建。绝不能先 rm（会制造 dsh 命令缺失窗口）。
+# 放在摘除旧 symlink 之前：包装移开失败时旧布局仍完整可用。
+if [ -e "$DSH_CMD" ] || [ -L "$DSH_CMD" ]; then
+  DSH_CMD_PREINSTALL_BAK="$PREFIX_BIN/.dsh.preinstall.$$"
+  if ! mv -f "$DSH_CMD" "$DSH_CMD_PREINSTALL_BAK"; then
+    DSH_CMD_PREINSTALL_BAK=""
+    error "  无法移开旧 dsh 包装脚本：$DSH_CMD"
+    exit 1
+  fi
+fi
+
+# 旧版 setup.sh 的 hold 布局迁移：历史上 dsh 被移到 ~/.local/share/dsh-android/dsh，
+# 全局 $DSH_DIR 只是一个 symlink。原生布局必须是真实目录 → 安装前摘除这个 symlink。
+# 只删链接本身，旧安装树不动；6/9 验证新 dsh 可用后会提示如何清理旧树（其中可能还有进程在跑）。
+LEGACY_HOLD_DIR=""
+if [ -L "$DSH_DIR" ]; then
+  LEGACY_HOLD_DIR="$(readlink -f "$DSH_DIR" 2>/dev/null || true)"
+  info "  检测到旧版 hold symlink：$DSH_DIR -> ${LEGACY_HOLD_DIR:-?}，改为原生全局安装"
+  rm -f "$DSH_DIR" || { error "  无法摘除旧 hold symlink：$DSH_DIR"; exit 1; }
+fi
+
+# DSH_SETUP_PREFIX 是测试夹具钩子：此时把 npm 的全局前缀也指到临时目录，保持隔离。
+NPM_INSTALL_PREFIX_ARGS=()
+if [ -n "${DSH_SETUP_PREFIX:-}" ]; then
+  NPM_INSTALL_PREFIX_ARGS=(--prefix "$DSH_SETUP_PREFIX")
+fi
+info "  安装到 npm 默认全局目录：$DSH_DIR"
 run_hidden_spinner "  正在安装 dsh 并编译原生模块（预计耗时 5～15 分钟）……" \
   env CFLAGS="$EXTRA_FLAGS" CXXFLAGS="$EXTRA_FLAGS" \
-  "${NPM_CMD[@]}" install -g --prefix "$DSH_STAGE_PREFIX" --no-audit --no-fund --loglevel=error \
+  "${NPM_CMD[@]}" install -g --no-audit --no-fund --loglevel=error "${NPM_INSTALL_PREFIX_ARGS[@]}" \
   --ignore-scripts=false --allow-scripts="$ALLOW_SCRIPTS" "$DSH_NPM"
 
-DSH_STAGE_INSTALL="$DSH_STAGE_PREFIX/lib/node_modules/@deepseek-ai/dsh"
-if [ ! -d "$DSH_STAGE_INSTALL" ]; then
-  error "  暂存安装完成但未找到 dsh 安装树：$DSH_STAGE_INSTALL"
+if [ ! -d "$DSH_DIR" ]; then
+  error "  安装完成但未找到 dsh 安装树：$DSH_DIR"
   exit 1
 fi
-dsh_hold_pin "$DSH_STAGE_INSTALL"
-rm -rf "$DSH_STAGE_PREFIX"
-DSH_STAGE_PREFIX=""
+if [ -L "$DSH_DIR" ]; then
+  error "  安装后全局 dsh 仍是符号链接（旧 hold 布局未摘除？）：$DSH_DIR -> $(readlink "$DSH_DIR" 2>/dev/null || echo '?')"
+  exit 1
+fi
 
 if [ -f "$DSH_DIR/node_modules/node-pty/build/Release/pty.node" ]; then
   ok "  node-pty 编译产物已就绪（build/Release/pty.node）"
@@ -1257,6 +1267,15 @@ EOF
   if "$DSH_CMD" --version >/dev/null 2>&1; then
     ok "  dsh $("$DSH_CMD" --version) 可用"
     rm -f "$DSH_BACKUP"
+    # 安装前移开的旧包装已完成使命（新包装已原子就位）。
+    rm -f "$DSH_CMD_PREINSTALL_BAK" 2>/dev/null || true
+    DSH_CMD_PREINSTALL_BAK=""
+    # 旧 hold 布局迁移后的冗余安装树：只提示、不自动删（其中可能有正在运行的进程在用旧模块）。
+    if [ -n "${LEGACY_HOLD_DIR:-}" ] && [ -d "$LEGACY_HOLD_DIR" ] \
+       && grep -q '"dshAndroidHold": true' "$LEGACY_HOLD_DIR/package.json" 2>/dev/null; then
+      warn "  旧版 hold 安装树仍占用空间：$LEGACY_HOLD_DIR（迁移前的冗余副本）"
+      warn "  请先执行 bash ~/dsh/restart_dsh_now.sh 重启 dsh，确认可用后可删除：rm -rf \"$LEGACY_HOLD_DIR\""
+    fi
   else
     warn "  重建后的 dsh 不可用，已回滚旧包装。"
     if [ -e "$DSH_BACKUP" ] || [ -L "$DSH_BACKUP" ]; then
@@ -1334,6 +1353,7 @@ status_stop
 printf '%s════════════════════════════════════════%s\n' "$C_CYAN" "$C_RST"
 printf '%s  安装完成%s\n' "$C_GREEN" "$C_RST"
 printf '  耗时        ：%s\n' "$(printf '%d分%02d秒' $((ELAPSED / 60)) $((ELAPSED % 60)))"
+printf '  安装目录    ：%s（npm 全局目录，真实目录）\n' "$DSH_DIR"
 printf '  日志        ：%s\n' "$SETUP_LOG"
 printf '\n  后续操作\n'
 printf '  1. 执行 bash ~/dsh/start_dsh.sh 启动服务\n'
@@ -1344,5 +1364,5 @@ printf '\n  注意事项\n'
 printf '  - 服务仅监听 127.0.0.1（本机），不通过局域网暴露。\n'
 printf '  - API Key 存储于 ~/.dsh/.credentials.yaml（权限 0600），不会写入日志。\n'
 printf '  - danger-full-access 已关闭进程沙箱（Android 无替代方案），仅建议在个人设备使用。\n'
-printf '  - 升级 dsh 或 Node 后，需要重新运行本脚本。\n'
+printf '  - 升级 dsh / Node 后，需要重新运行本脚本（dsh 升级只走 setup.sh，不要用 npm -g update）。\n'
 printf '%s════════════════════════════════════════%s\n' "$C_CYAN" "$C_RST"

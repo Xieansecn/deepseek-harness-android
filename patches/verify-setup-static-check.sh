@@ -42,14 +42,23 @@ chk "$([ -x "$REPO/npm_android.sh" ] && echo 1 || echo 0)" "npm_android.sh 存�
 grep -q -- '-target aarch64-linux-android30' "$REPO/npm_android.sh" && chk 1 "npm_android.sh 注入 android30 target" || chk 0 "npm_android.sh 注入 android30 target"
 grep -q 'android_compile_flags' "$REPO/npm_android.sh" && grep -q 'CXXFLAGS=' "$REPO/npm_android.sh" && chk 1 "npm_android.sh 同时包装 CFLAGS/CXXFLAGS" || chk 0 "npm_android.sh 同时包装 CFLAGS/CXXFLAGS"
 
-# 2c) dsh hold/pin：3/9 必须暂存安装，成功后把全局 dsh 换成 hold symlink。
-grep -q 'DSH_HOLD_DIR=' "$REPO/setup.sh" && chk 1 "setup.sh 定义 dsh hold 目录" || chk 0 "setup.sh 定义 dsh hold 目录"
-grep -q -- '--prefix "\$DSH_STAGE_PREFIX"' "$REPO/setup.sh" && chk 1 "setup.sh 使用暂存 prefix 安装 dsh" || chk 0 "setup.sh 使用暂存 prefix 安装 dsh"
-grep -q 'dsh_hold_pin "\$DSH_STAGE_INSTALL"' "$REPO/setup.sh" && chk 1 "setup.sh 安装成功后切 hold symlink" || chk 0 "setup.sh 安装成功后切 hold symlink"
-grep -q 'ln -s "\$DSH_HOLD_DIR" "\$DSH_DIR"' "$REPO/setup.sh" && chk 1 "全局 dsh 路径指向 hold 目录" || chk 0 "全局 dsh 路径指向 hold 目录"
-grep -q 'delete pkg.bin' "$REPO/setup.sh" && chk 1 "hold 包移除 bin 字段（避免 npm update EEXIST）" || chk 0 "hold 包移除 bin 字段（避免 npm update EEXIST）"
+# 2c) 原生安装布局（2026-11 起移除 hold/pin）：dsh 必须直接装进 npm 默认全局目录（真实目录），
+#     旧版 hold symlink 在安装前摘除；npm 重建 bin link 前必须把 setup.sh 自己的包装脚本移开。
+HOLD_REFS="$(grep -cE 'DSH_HOLD|dsh_hold_pin|DSH_STAGE_PREFIX' "$REPO/setup.sh")"
+chk "$([ "$HOLD_REFS" = 0 ] && echo 1 || echo 0)" "setup.sh 已移除 hold/pin 机制（残留 $HOLD_REFS 处）"
+grep -qxF 'DSH_DIR="/data/data/com.termux/files/usr/lib/node_modules/@deepseek-ai/dsh"' "$REPO/setup.sh" && chk 1 "dsh 目标是 npm 默认全局目录" || chk 0 "dsh 目标是 npm 默认全局目录"
+grep -qF '"${NPM_CMD[@]}" install -g ' "$REPO/setup.sh" && chk 1 "3/9 直接 npm install -g（无暂存前缀）" || chk 0 "3/9 直接 npm install -g（无暂存前缀）"
+grep -qF 'if [ -L "$DSH_DIR" ]; then' "$REPO/setup.sh" && chk 1 "安装前摘除旧 hold symlink" || chk 0 "安装前摘除旧 hold symlink"
+grep -qF 'DSH_CMD_PREINSTALL_BAK=' "$REPO/setup.sh" && chk 1 "安装前移开 dsh 包装（避免 npm bin link EEXIST）" || chk 0 "安装前移开 dsh 包装（避免 npm bin link EEXIST）"
+grep -qF '仍是符号链接' "$REPO/setup.sh" && chk 1 "安装后断言全局 dsh 是真实目录" || chk 0 "安装后断言全局 dsh 是真实目录"
 grep -q -- '--ignore-scripts=false' "$REPO/setup.sh" && chk 1 "setup.sh 在 dsh 安装上显式恢复脚本执行" || chk 0 "setup.sh 在 dsh 安装上显式恢复脚本执行"
 grep -q -- '--allow-scripts="\$ALLOW_SCRIPTS"' "$REPO/setup.sh" && chk 1 "恢复脚本执行仍受 --allow-scripts 白名单约束" || chk 0 "恢复脚本执行仍受 --allow-scripts 白名单约束"
+
+# 2d) 提示文本里不得出现反引号：bash 会把双引号内的 `cmd` 当**命令替换真的执行**。
+#     历史缺陷：2/9 的 warn 写过 `npm i -g @deepseek-ai/dsh`，安装中途偷偷重装了一次未打补丁的
+#     dsh（实测报 EEXIST，且把「手动执行命令」提示变成空串）。这类回归只有真跑才暴露，必须静态钉住。
+BACKTICK_CMD="$(grep -cE '(^|[^#])(info|ok|warn|error|step) +"[^"]*`' "$REPO/setup.sh")"
+chk "$([ "$BACKTICK_CMD" = 0 ] && echo 1 || echo 0)" "提示文本里没有反引号命令替换（$BACKTICK_CMD 处）"
 
 # 3) dsh 命令文件必须原子替换（临时文件 + mv -f），绝不 cat > 覆盖符号链接、也绝不先 rm。
 grep -q 'mv -f "\$DSH_TMP" "\$DSH_CMD"' "$REPO/setup.sh" && chk 1 "dsh 包装脚本用 mv -f 原子替换" || chk 0 "dsh 包装脚本用 mv -f 原子替换"

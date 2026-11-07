@@ -1,25 +1,20 @@
 --- a/dsh-host-frontend-static/lib/index.js
 +++ b/dsh-host-frontend-static/lib/index.js
-@@ -31,6 +31,10 @@
+@@ -37,6 +37,8 @@
  	".webmanifest": "application/manifest+json",
  	".gz": "application/gzip"
  };
 +/** Build assets under /assets/ are content-hashed — cache them forever (rebuild = new name). */
-+const CACHE_IMMUTABLE = { "cache-control": "public, max-age=31536000, immutable" };
-+/** index.html and every other un-hashed response must revalidate (fresh boot manifest / revs). */
-+const CACHE_REVALIDATE = { "cache-control": "no-cache" };
++const CACHE_IMMUTABLE = "public, max-age=31536000, immutable";
  const STATIC_MISS_CODES = new Set([
  	"ENOENT",
  	"EISDIR",
-@@ -70,7 +74,10 @@
- 		res.end();
- 		return;
- 	}
--	res.writeHead(200, { "content-type": type });
-+	res.writeHead(200, {
-+		"content-type": type,
-+		...pathname.startsWith("/assets/") ? CACHE_IMMUTABLE : CACHE_REVALIDATE
-+	});
- 	res.end(body);
- }
- /**
+@@ -79,7 +81,7 @@
+ 		} else {
+ 			body = await readFile(target);
+ 			const cache = {
+-				"cache-control": "no-cache",
++				"cache-control": target.startsWith(join(distRoot, "assets") + sep) ? CACHE_IMMUTABLE : "no-cache",
+ 				etag: `W/"${createHash("sha1").update(body).digest("base64url")}"`
+ 			};
+ 			if (request.headers.get("if-none-match") === cache.etag) return new Response(null, {
