@@ -8,8 +8,8 @@
 # 套件：
 #   1. 语法：bash -n 全部 .sh、dash -n 三个运行期脚本、node --check 全部 patches/*.js
 #   2. 静态契约：setup.sh 的锚点规格/npm 包装/原子替换/白名单覆盖 + 运行期脚本端口与退出码
-#   3. 夹具：require-builtin(29) / profile(41) / guards(39) / js-patches(21) / runtime-scripts(36)
-#            / pnpm 运行时供给(76)                          ← 共 6 个夹具 / 242 条断言
+#   3. 夹具：require-builtin(29) / profile(41) / guards(39) / js-patches(21) / runtime-scripts(40)
+#            / pnpm 运行时供给(76)                          ← 共 6 个夹具 / 246 条断言
 #   4. --full 追加：变异测试（往副本注入 10 个已知回归，证明套件抓得住；约 5 分钟）
 # 退出码：0 = 全绿；1 = 有套件失败。
 set -uo pipefail
@@ -61,7 +61,7 @@ run_suite "apply-js-patches 夹具（21 断言）"            node "$HERE/verify
 run_suite "require-builtin 平台包夹具（29 断言）"        node "$HERE/verify-require-builtin-fixture.js"
 run_suite "权限层夹具（41 断言）"                        node "$HERE/verify-profile-patch-fixture.js"
 run_suite "link/flock 守护条件夹具（39 断言）"           node "$HERE/verify-patch-guards-fixture.js"
-run_suite "start/stop/restart 夹具（36 断言）"           node "$HERE/verify-runtime-scripts-fixture.js"
+run_suite "start/stop/restart 夹具（40 断言）"           node "$HERE/verify-runtime-scripts-fixture.js"
 run_suite "pnpm 运行时供给夹具（76 断言）"               node "$HERE/verify-pnpm-provision-fixture.js"
 
 if [ "$FULL" = 1 ]; then

@@ -3,6 +3,42 @@
 # 用法：bash start_dsh.sh [--no-open]；只用 POSIX sh 语法，快靠少起子进程（fork+exec 约 19ms），别在轮询里反复起 grep/curl。
 set -u
 
+# 启动计时（2 位小数）：bash 的 EPOCHREALTIME 是内建变量、零 fork；sh 上没有时退回 date +%s%N。
+# 内部统一折成微秒整数，避免浮点小数的 locale 差异；只在开头/收尾各取一次，不在轮询里。
+now_us() {
+  _sec=""
+  _frac=""
+  if [ -n "${EPOCHREALTIME:-}" ]; then
+    _ns="$EPOCHREALTIME"
+    case "$_ns" in *.*) ;; *) _ns="${_ns}.0" ;; esac
+    _sec="${_ns%%.*}"
+    _frac="${_ns#*.}"
+  else
+    _ns="$(date +%s%N 2>/dev/null || true)"
+    case "$_ns" in
+      ''|*[!0-9]*) _sec="$(date +%s 2>/dev/null || true)"; _frac="0" ;;
+      *) _sec="${_ns%?????????}"; _frac="${_ns#"$_sec"}" ;;
+    esac
+  fi
+  case "$_sec" in ''|*[!0-9]*) _sec=0 ;; esac
+  case "$_frac" in ''|*[!0-9]*) _frac=0 ;; esac
+  while [ "${#_frac}" -lt 6 ]; do _frac="${_frac}0"; done
+  _tail="${_frac#??????}"
+  _frac="${_frac%"$_tail"}"
+  printf '%s' "$(( _sec * 1000000 + 1$_frac - 1000000 ))"
+}
+elapsed_seconds() {
+  _us=$(( $(now_us) - T_START_US ))
+  [ "$_us" -ge 0 ] 2>/dev/null || _us=0
+  _cs=$(( (_us + 5000) / 10000 ))
+  printf '%d.%02d' "$(( _cs / 100 ))" "$(( _cs % 100 ))"
+}
+report_elapsed() {
+  [ -n "${T_START_US:-}" ] || return 0
+  printf '[dsh] 本次耗时 %s 秒\n' "$(elapsed_seconds)"
+}
+T_START_US="$(now_us)"
+
 PORT="${DSH_PORT:-3080}"
 URL="http://127.0.0.1:${PORT}"
 # 打开给浏览器的 origin；DSH_ORIGIN=localhost 可绕开 PWA 对 ?token= 的 scope 劫持（默认走 Via 不受影响）。
@@ -216,10 +252,18 @@ WATCH_PID=""
 cleanup_tmp() {
   [ -n "$TAIL_PID" ] && kill "$TAIL_PID" 2>/dev/null
   rm -f "$RESULT_FILE" "$PORT_FILE" "$FAIL_FILE" "$TAIL_PIPE"
+  # 计时打在 EXIT 上：成功/失败/复用/超时/中断都只打印一次，不会漏也不会重复。
+  report_elapsed
 }
 trap cleanup_tmp EXIT INT TERM HUP
 
 wait_for_token() {
+  # 同一进程里可能等两次（「现有进程没就绪 → 自动重启」分支）：上一次收尾会把 TAIL_PIPE 清成空、
+  # 标记文件也可能残留，不在这里重置就会 `mkfifo ''` 立刻失败 → 重启那条路必然打成「启动超时」。
+  TAIL_PIPE="${RESULT_FILE}.pipe"
+  : > "$RESULT_FILE" 2>/dev/null || true
+  : > "$FAIL_FILE" 2>/dev/null || true
+  : > "$PORT_FILE" 2>/dev/null || true
   _seen=0
   _url=""
   if ! command -v mkfifo >/dev/null 2>&1 || ! mkfifo "$TAIL_PIPE" 2>/dev/null; then

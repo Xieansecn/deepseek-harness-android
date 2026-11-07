@@ -432,8 +432,33 @@ async function main() {
 		check("stderr 点明端口仍被占、本脚本停不掉", (r.stderr || "").includes("仍有响应") && (r.stderr || "").includes("不受本脚本管理"), (r.stderr || "").trim());
 	}
 
-	if (pass < 36) {
-		console.log(`  [FAIL] 断言数不足：PASS=${pass} < 36（有断言被删除或提前跳过）`);
+	// ---- 场景 12：可见进程没就绪 → 自动重启 → 第二次等 token 必须仍然可用 ----
+	{
+		const port = await freePort();
+		console.log("\n用例 12：现有 dsh 进程没就绪 → 自动重启再等一次 token（TAIL_PIPE/标记文件必须重置）");
+		const h = makeHome();
+		// 匹配 PATTERN 的「假 dsh」但不监听端口、不打 token：让第一次 wait_for_token 失败（日志文件都还没有）
+		const idle = spawn(process.execPath, [h.fake, "web", "--no-open", "--port", String(port)], {
+			detached: true,
+			stdio: "ignore",
+			env: { ...process.env, FAKE_MODE: "idle", FAKE_ARGV_FILE: h.argvFile },
+		});
+		idle.unref();
+		spawnedPids.add(idle.pid);
+		fs.writeFileSync(path.join(h.base, "storage", "dsh.pid"), `${idle.pid}\n`);
+		await new Promise((r2) => setTimeout(r2, 700));
+		// 重启出来的那个走默认 serve 模式（env 里没有 FAKE_MODE=idle），会正常打 token
+		const r = run(h, SCRIPTS.start, ["--no-open"], { port, timeoutMs: 45000, extraEnv: { DSH_READY_TIMEOUT: "6" } });
+		check("退 0（自动重启后拿到 token）", r.status === 0, `rc=${r.status} out=${(r.stdout || "").trim().slice(-200)}`);
+		check("输出带 token URL", (r.stdout || "").includes("?token="), (r.stdout || "").trim().split("\n").pop());
+		check("确实重新拉起了一个 dsh", fs.existsSync(h.argvFile), "argv 文件不存在 = 没走 launch");
+		check("没有在第二次等 token 时立刻报「启动超时」", !/启动超时/.test((r.stdout || "") + (r.stderr || "")), (r.stdout || "").trim().slice(-200));
+		try { process.kill(idle.pid, "SIGKILL"); } catch {}
+		run(h, SCRIPTS.stop, [], { port });
+	}
+
+	if (pass < 40) {
+		console.log(`  [FAIL] 断言数不足：PASS=${pass} < 40（有断言被删除或提前跳过）`);
 		fail++;
 	}
 	console.log(`\n==== 夹具自检：PASS=${pass} FAIL=${fail} ====`);
