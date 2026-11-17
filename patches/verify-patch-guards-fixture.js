@@ -43,7 +43,7 @@ const FLOCK_PATCH = path.join(HERE, "patch-dsh-android-flock.js");
 const LINK_PKGS = ["dsh-session-persistence-jsonl", "dsh-attachment-local", "dsh-fs-local"];
 const FLOCK_PKG = "node-addon-system";
 /** 断言总数下限：低于它说明有人删了断言（此时 FAIL 仍可能为 0，必须显式失败）。 */
-const EXPECTED_MIN_CHECKS = 39;
+const EXPECTED_MIN_CHECKS = 57;
 
 let pass = 0;
 let fail = 0;
@@ -138,6 +138,214 @@ function main() {
 		check("退出码 0", r.status === 0, `rc=${r.status} ${r.stderr.trim()}`);
 		check("打印的作业目录 = 副本", r.stdout.includes(`dsh 包目录: ${copy.container}`), r.stdout.split("\n")[0] || "");
 		check("未出现生产路径", !r.stdout.includes(pkgsDir), r.stdout.split("\n")[0] || "");
+	}
+
+	// 3b) link 正向：0.2.2-rc.3 形状的**上游原文块**（三包）→ 全部 [PATCHED] 且可重复执行。
+	//     旧夹具只覆盖「安装树已打过补丁」；这里补「全新上游文件」的正向路径，钉住 rc.3 形状
+	//     （fs-local 的 options.createIfAbsent 块、attachment 的两处 link 发布、session 的迁移发布）。
+	const FRESH_SESSION = [
+		'import { link, rename } from "node:fs/promises";',
+		"",
+		"async function publishCurrentExclusive(staged, currentPath, internals) {",
+		"\ttry {",
+		"\t\tawait internals.fs.link(staged, currentPath);",
+		"\t} catch (error) {",
+		"\t\t/* v8 ignore else -- a non-collision filesystem error propagates unchanged. */",
+		"\t\tif (isEEXIST(error)) return false;",
+		"\t\t/* v8 ignore next -- the filesystem error is already complete. */",
+		"\t\tthrow error;",
+		"\t}",
+		"\tawait syncDirectory(dirname(currentPath), internals);",
+		"\treturn true;",
+		"}",
+		"",
+		"async function writeSessionLog(tmp, finalPath) {",
+		"\tlet linked = false;",
+		"\ttry {",
+		"\t\tawait link(tmp, finalPath);",
+		"\t\tlinked = true;",
+		"\t} finally {",
+		"\t\tif (!linked) await rm(tmp, { force: true });",
+		"\t}",
+		"}",
+		"",
+	].join("\n");
+	const FRESH_ATTACHMENT = [
+		'import { chmod, copyFile, link, rename, rm, unlink } from "node:fs/promises";',
+		'import { dirname, join, resolve } from "node:path";',
+		'import { randomUUID } from "node:crypto";',
+		"",
+		"async function ensureDurableDirectory(path, boundary) {",
+		"\tconst target = resolve(path);",
+		"\tconst stop = resolve(boundary);",
+		"\tlet level = target;",
+		"\twhile (level !== stop) {",
+		"\t\tconst parent = dirname(level);",
+		"\t\tawait syncDirectory(parent);",
+		"\t\tif (parent === level) return;",
+		"\t\tlevel = parent;",
+		"\t}",
+		"}",
+		"",
+		"async function publishImmutableAlias(root, source, target, sha256) {",
+		"\tconst parent = dirname(target);",
+		"\ttry {",
+		"\t\tawait ensureDurableDirectory(parent, await ensureDurableHome(dirname(dirname(resolve(root)))));",
+		"\t\ttry {",
+		"\t\t\tawait link(source, target);",
+		"\t\t} catch (error) {",
+		"\t\t\t/* v8 ignore next -- Private same-filesystem directories make EEXIST the only recoverable link race. */",
+		'\t\t\tif (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;',
+		'\t\t\tif (await digestFile(target) !== sha256) throw new AttachmentError("Stored attachment failed integrity verification.", "ATTACHMENT_CORRUPT");',
+		"\t\t}",
+		"\t} catch (error) {",
+		"\t\tthrow error;",
+		"\t}",
+		"}",
+		"",
+		"async function publishStagedObject(root, target, staged) {",
+		"\tconst parent = dirname(target);",
+		"\ttry {",
+		"\t\tawait ensureDurableDirectory(parent, staged.boundary);",
+		"\t\ttry {",
+		"\t\t\tawait link(staged.path, target);",
+		"\t\t} catch (error) {",
+		"\t\t\t/* v8 ignore next -- Private same-filesystem directories make EEXIST the only recoverable link race. */",
+		'\t\t\tif (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;',
+		'\t\t\tif (await digestFile(target) !== staged.sha256) throw new AttachmentError("Stored attachment failed integrity verification.", "ATTACHMENT_CORRUPT");',
+		"\t\t}",
+		"\t\tawait unlink(staged.path);",
+		"\t} catch (error) {",
+		"\t\tthrow error;",
+		"\t}",
+		"}",
+		"",
+	].join("\n");
+	const FRESH_FS_LOCAL = [
+		'import { link, lstat, open, rename, rm } from "node:fs/promises";',
+		"",
+		"function isEEXIST(error) {",
+		'\treturn error instanceof Error && "code" in error && error.code === "EEXIST";',
+		"}",
+		"function errorMessage(error) {",
+		"\treturn error instanceof Error ? error.message : String(error);",
+		"}",
+		"class FsError extends Error {",
+		"\tconstructor(message, code, options) { super(message, options); this.code = code; }",
+		"}",
+		"async function throwGuardedCreateFailure(error, absolutePath, displayPath, inspectPublicationTarget) {",
+		"\tthrow error;",
+		"}",
+		"",
+		"async function writeFileAtomic(absolutePath, content, mode, signal, internals = {}, options = {}) {",
+		'\tconst displayPath = options.displayPath ?? absolutePath;',
+		"\tconst linkFile = internals.linkFile ?? link;",
+		"\tconst inspectPublicationTarget = internals.inspectPublicationTarget ?? ((path) => lstat(path, { bigint: true }));",
+		"\ttry {",
+		"\t\tif (options.createIfAbsent) try {",
+		"\t\t\tawait linkFile(tempPath, absolutePath);",
+		"\t\t} catch (error) {",
+		"\t\t\tawait throwGuardedCreateFailure(error, absolutePath, displayPath, inspectPublicationTarget);",
+		"\t\t}",
+		"\t} catch (error) {",
+		"\t\tthrow error;",
+		"\t}",
+		"}",
+		"",
+	].join("\n");
+
+	const fresh = fs.mkdtempSync(path.join(os.tmpdir(), "dsh-guards-fresh-"));
+	cleanup.push(fresh);
+	const FRESH_PKGS = [
+		["dsh-session-persistence-jsonl", FRESH_SESSION],
+		["dsh-attachment-local", FRESH_ATTACHMENT],
+		["dsh-fs-local", FRESH_FS_LOCAL],
+	];
+	for (const [name, content] of FRESH_PKGS) {
+		const lib = path.join(fresh, name, "lib");
+		fs.mkdirSync(lib, { recursive: true });
+		fs.writeFileSync(path.join(lib, "index.js"), content);
+		fs.writeFileSync(path.join(fresh, name, "package.json"), JSON.stringify({ type: "module" }) + "\n");
+	}
+	{
+		console.log("\n用例 3b：0.2.2-rc.3 形状上游原文 → 三包全部正向 [PATCHED] + 幂等");
+		const r = run(LINK_PATCH, ["--root", fresh]);
+		check("退出码 0", r.status === 0, `rc=${r.status} ${r.stderr.trim()}`);
+		check("打印的作业目录 = 全新上游树", r.stdout.includes(`dsh 包目录: ${fresh}`), r.stdout.split("\n")[0] || "");
+		for (const name of LINK_PKGS) {
+			check(`${name} 报 [PATCHED]`, new RegExp(`\\[PATCHED \\] ${name}:`).test(r.stdout), r.stdout.split("\n").find((l) => l.includes(name)) || "");
+		}
+		const sessionSrc = fs.readFileSync(path.join(fresh, "dsh-session-persistence-jsonl", "lib", "index.js"), "utf8");
+		check("session 加了无硬链接 helpers + 迁移回退", sessionSrc.includes("function isHardLinkUnavailable(") && sessionSrc.includes("function publishNoReplaceNoHardlink(") && sessionSrc.includes("publishNoReplaceNoHardlink(staged, currentPath)"));
+		check("session 直接发布改 rename", sessionSrc.includes("await rename(tmp, finalPath);") && !sessionSrc.includes("await link(tmp, finalPath);"));
+		const attSrc = fs.readFileSync(path.join(fresh, "dsh-attachment-local", "lib", "index.js"), "utf8");
+		check("attachment 加了 helpers + 两处回退 + copyFile 导入", attSrc.includes("function isHardLinkUnavailable(") && attSrc.includes("function publishNoReplaceNoHardlink(") && /import \{[^}]*\bcopyFile\b[^}]*\} from "node:fs\/promises"/.test(attSrc));
+		check("attachment 祖先遍历容忍 EACCES", attSrc.includes("syncDirectoryTolerant(parent)") && attSrc.includes("async function syncDirectoryTolerant("));
+		const fsLocalSrc = fs.readFileSync(path.join(fresh, "dsh-fs-local", "lib", "index.js"), "utf8");
+		check("fs-local 加了 helpers + options 形状回退", fsLocalSrc.includes("function isHardLinkUnavailable(") && fsLocalSrc.includes("function publishNoReplaceNoHardlink(") && fsLocalSrc.includes("if (isHardLinkUnavailable(error)) await publishNoReplaceNoHardlink("));
+		let syntaxOk = true;
+		for (const [name] of FRESH_PKGS) {
+			const c = spawnSync(process.execPath, ["--check", path.join(fresh, name, "lib", "index.js")], { encoding: "utf8" });
+			if (c.status !== 0) syntaxOk = false;
+		}
+		check("三包打完后 node --check 通过", syntaxOk);
+		const r2 = run(LINK_PATCH, ["--root", fresh]);
+		check("二次运行退 0", r2.status === 0, `rc=${r2.status}`);
+		check("二次运行三包全部 [OK]（幂等）", (r2.stdout.match(/\[OK      \]/g) || []).length === 3, (r2.stdout.match(/\[OK      \]/g) || []).length + " 个 OK");
+	}
+
+	// 3c) <= 0.2.1 的旧形状（局部变量 createIfAbsent）→ fs-local 仍走旧分支修补。
+	{
+		console.log("\n用例 3c：<= 0.2.1 的 createIfAbsent 旧形状 → fs-local 仍能正向修补");
+		const old = fs.mkdtempSync(path.join(os.tmpdir(), "dsh-guards-oldsh-"));
+		cleanup.push(old);
+		for (const [name, content] of FRESH_PKGS) {
+			const lib = path.join(old, name, "lib");
+			fs.mkdirSync(lib, { recursive: true });
+			fs.writeFileSync(path.join(lib, "index.js"), content);
+			fs.writeFileSync(path.join(old, name, "package.json"), JSON.stringify({ type: "module" }) + "\n");
+		}
+		const OLD_FS_LOCAL = [
+			'import { link, lstat, open, rename, rm } from "node:fs/promises";',
+			"",
+			"function isEEXIST(error) {",
+			'\treturn error instanceof Error && "code" in error && error.code === "EEXIST";',
+			"}",
+			"function errorMessage(error) {",
+			"\treturn error instanceof Error ? error.message : String(error);",
+			"}",
+			"class FsError extends Error {",
+			"\tconstructor(message, code, options) { super(message, options); this.code = code; }",
+			"}",
+			"async function throwGuardedCreateFailure(error, absolutePath, displayPath, inspectPublicationTarget) {",
+			"\tthrow error;",
+			"}",
+			"",
+			"async function writeFileAtomic(absolutePath, content, mode, signal, internals = {}) {",
+			"\tconst createIfAbsent = internals.createIfAbsent;",
+			"\tconst linkFile = internals.linkFile ?? link;",
+			"\tconst inspectPublicationTarget = internals.inspectPublicationTarget ?? ((path) => lstat(path, { bigint: true }));",
+			"\ttry {",
+			"\t\tif (createIfAbsent !== void 0) try {",
+			"\t\t\tawait linkFile(tempPath, absolutePath);",
+			"\t\t} catch (error) {",
+			"\t\t\tawait throwGuardedCreateFailure(error, absolutePath, createIfAbsent.displayPath, inspectPublicationTarget);",
+			"\t\t}",
+			"\t} catch (error) {",
+			"\t\tthrow error;",
+			"\t}",
+			"}",
+			"",
+		].join("\n");
+		fs.writeFileSync(path.join(old, "dsh-fs-local", "lib", "index.js"), OLD_FS_LOCAL);
+		const r = run(LINK_PATCH, ["--root", old]);
+		check("退出码 0", r.status === 0, `rc=${r.status} ${r.stderr.trim()}`);
+		check("fs-local 报 [PATCHED]", /\[PATCHED \] dsh-fs-local:/.test(r.stdout), r.stdout.split("\n").find((l) => l.includes("dsh-fs-local")) || "");
+		check("报告识别为 <=0.2.1 createIfAbsent 形状", /<=0\.2\.1 createIfAbsent/.test(r.stdout), r.stdout.split("\n").find((l) => l.includes("createIfAbsent")) || "");
+		const patched = fs.readFileSync(path.join(old, "dsh-fs-local", "lib", "index.js"), "utf8");
+		check("旧形状产物含无硬链接回退", patched.includes("isHardLinkUnavailable") && patched.includes("publishNoReplaceNoHardlink") && patched.includes('if (createIfAbsent !== void 0) try {'));
+		const c = spawnSync(process.execPath, ["--check", path.join(old, "dsh-fs-local", "lib", "index.js")], { encoding: "utf8" });
+		check("旧形状产打完后 node --check 通过", c.status === 0, (c.stderr || "").trim().split("\n")[0] || "");
 	}
 
 	// 4) link：仅出现回退「调用」字样、没有函数定义 → 必须 WARN 而不是假 [OK]（缺陷 2 回归）

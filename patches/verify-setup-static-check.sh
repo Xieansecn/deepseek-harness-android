@@ -22,14 +22,18 @@ chk()  { if [ "$1" = 1 ]; then ok "$2"; else bad "$2" "${3:-}"; fi; }
 echo "== setup.sh 静态契约 =="
 bash -n "$REPO/setup.sh" 2>/dev/null && chk 1 "setup.sh 语法（bash -n）" || chk 0 "setup.sh 语法（bash -n）"
 
-# 1) 0/9 锚点预检：7 条规格，每条 3 个字段；link 三条必须用「打完补丁才出现」的函数定义串，
+# 1) 0/9 锚点预检：规格表 6 条，每条 3 个字段；link 三条必须用「打完补丁才出现」的函数定义串，
 #    裸标识符会被「仅含一句注释的半成品」命中（历史缺陷）。
+#    另有 3 个特殊探测块（profile-boot 通配 / require-builtin 平台包 / ripgrep 两代落点）。
 SPEC_COUNT="$(grep -cE "^ *'[^']+\|[^']+\|[^']+'( \\\\|; do)" "$REPO/setup.sh")"
-chk "$([ "$SPEC_COUNT" = 7 ] && echo 1 || echo 0)" "0/9 预检规格 7 条（实际 $SPEC_COUNT）"
+chk "$([ "$SPEC_COUNT" = 6 ] && echo 1 || echo 0)" "0/9 预检规格 6 条（实际 $SPEC_COUNT）"
 BARE_ID="$(grep -cE "^ *'dsh-(session-persistence-jsonl|attachment-local|fs-local)/lib/index\.js\|publishNoReplaceNoHardlink\|" "$REPO/setup.sh")"
 chk "$([ "$BARE_ID" = 0 ] && echo 1 || echo 0)" "link 预检 marker 不用裸标识符（裸标识符条数 $BARE_ID 应为 0）"
 FN_MARK="$(grep -cF 'lib/index.js|async function publishNoReplaceNoHardlink(|' "$REPO/setup.sh")"
 chk "$([ "$FN_MARK" = 3 ] && echo 1 || echo 0)" "link 预检 marker 用函数定义串（命中 $FN_MARK/3）"
+# rg 回退锚点在 0.2.2-rc.3 迁到新包 dsh-util-ripgrep：预检必须两代落点都探测，
+# 否则升级到 rc.3 后每次 setup 都刷一条假 warn（狼来了）。
+grep -qF 'dsh-tool-fs-search/lib/index.js' "$REPO/setup.sh" && grep -qF 'dsh-util-ripgrep/lib/index.js' "$REPO/setup.sh" && grep -qF 'resolveSystemRg' "$REPO/setup.sh" && chk 1 "rg 预检同时探测 tool-fs-search 与 util-ripgrep 两代落点" || chk 0 "rg 预检同时探测 tool-fs-search 与 util-ripgrep 两代落点"
 
 # 2) npm 必须走 node <npm-cli.js> 包装（Termux 的 /usr/bin/env 不可解析），且不出现裸 npm 调用。
 grep -q 'NPM_CMD=(node "\$NPM_REAL")' "$REPO/setup.sh" && chk 1 "npm 走 node 包装（NPM_CMD）" || chk 0 "npm 走 node 包装（NPM_CMD）"
@@ -59,6 +63,12 @@ grep -q -- '--allow-scripts="\$ALLOW_SCRIPTS"' "$REPO/setup.sh" && chk 1 "恢复
 #     dsh（实测报 EEXIST，且把「手动执行命令」提示变成空串）。这类回归只有真跑才暴露，必须静态钉住。
 BACKTICK_CMD="$(grep -cE '(^|[^#])(info|ok|warn|error|step) +"[^"]*`' "$REPO/setup.sh")"
 chk "$([ "$BACKTICK_CMD" = 0 ] && echo 1 || echo 0)" "提示文本里没有反引号命令替换（$BACKTICK_CMD 处）"
+
+# 2e) ripgrep 修复必须同时认两代 resolveRgPath 宿主（旧线 dsh-tool-fs-search /
+#     0.2.2-rc.3+ dsh-util-ripgrep），且按「文件里是否定义 function resolveRgPath」识别宿主，
+#     让只 import/再导出的消费者静默跳过（否则 rc.3 上每次刷假漂移 warn）。
+grep -qF 'dsh-tool-fs-search/lib/index.js' "$REPO/apply-rg-fix.sh" && grep -qF 'dsh-util-ripgrep/lib/index.js' "$REPO/apply-rg-fix.sh" && chk 1 "apply-rg-fix 覆盖两代 resolveRgPath 宿主" || chk 0 "apply-rg-fix 覆盖两代 resolveRgPath 宿主"
+grep -qF 'function\s+resolveRgPath\s*\(' "$REPO/apply-rg-fix.sh" && chk 1 "apply-rg-fix 按函数定义识别宿主（消费者静默跳过）" || chk 0 "apply-rg-fix 按函数定义识别宿主（消费者静默跳过）"
 
 # 3) dsh 命令文件必须原子替换（临时文件 + mv -f），绝不 cat > 覆盖符号链接、也绝不先 rm。
 grep -q 'mv -f "\$DSH_TMP" "\$DSH_CMD"' "$REPO/setup.sh" && chk 1 "dsh 包装脚本用 mv -f 原子替换" || chk 0 "dsh 包装脚本用 mv -f 原子替换"

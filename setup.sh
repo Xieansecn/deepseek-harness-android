@@ -759,7 +759,6 @@ anchor_precheck() {
   local missing=0 path spec
   for spec in \
     'dsh-client-ui-conversation/lib/client.js|dsh-android: 普通回车换行|dsh-client-ui-conversation 回车补丁标记' \
-    'dsh-tool-fs-search/lib/index.js|resolveSystemRg|dsh-tool-fs-search resolveSystemRg 回退' \
     'dsh-session-persistence-jsonl/lib/index.js|async function publishNoReplaceNoHardlink(|dsh-session-persistence 无硬链接迁移回退' \
     'dsh-attachment-local/lib/index.js|async function publishNoReplaceNoHardlink(|dsh-attachment-local 无硬链接发布回退' \
     'dsh-fs-local/lib/index.js|async function publishNoReplaceNoHardlink(|dsh-fs-local 无硬链接发布回退' \
@@ -793,6 +792,21 @@ anchor_precheck() {
     ok "  [ok]   profile-boot 双信号强退语义（停止梯子前提）"
   else
     warn "  [warn] profile-boot 未检测到 interrupt/forceExitOnce（停止操作可能退化为等待 DSH_STOP_TIMEOUT 后兜底）。"
+  fi
+  # ripgrep 回退锚点：resolveRgPath() 的宿主随上游重构搬过家，两代落点都认（不按版本号分支）——
+  # 旧线（≤0.2.2-rc.1 / 0.2.1）定义在 dsh-tool-fs-search/lib/index.js；
+  # 0.2.2-rc.3+ 拆进新包 dsh-util-ripgrep/lib/index.js（tool-fs-search 只 import 并再导出）。
+  local rg_hit=0 rgf
+  for rgf in "$DSH_DIR/node_modules/@deepseek-ai/dsh-tool-fs-search/lib/index.js" \
+             "$DSH_DIR/node_modules/@deepseek-ai/dsh-util-ripgrep/lib/index.js"; do
+    [ -f "$rgf" ] || continue
+    if grep -qF "resolveSystemRg" "$rgf" 2>/dev/null; then rg_hit=1; fi
+  done
+  if [ "$rg_hit" -eq 1 ]; then
+    ok "  [ok]   ripgrep resolveRgPath 回退（dsh-tool-fs-search / dsh-util-ripgrep）"
+  else
+    warn "  [warn] ripgrep resolveRgPath 回退未检测到（dsh-tool-fs-search 与 dsh-util-ripgrep 都没有 resolveSystemRg）。"
+    missing=$((missing+1))
   fi
   # 0.1.7 新增的原生 addon 家族：node-addon-require-builtin 靠平台可选包
   # node-addon-require-builtin-<platform>-<arch> 提供绑定，上游没有 android 版。缺它时
@@ -1144,36 +1158,84 @@ if grep -q "dsh-android: 普通回车换行" "$CB" 2>/dev/null; then
   ok "  client-ui-conversation 回车补丁已就位"
 else
   cp -f "$CB" "$CB_BAK" 2>/dev/null || true
-  if ! python3 - "$CB" <<'PY'
-import os, sys
+  if python3 - "$CB" <<'PY'
+import os, re, sys
 CLR = os.environ.get("SP_CLEAR", "")
 p = sys.argv[1]
 s = open(p, encoding='utf-8').read()
 if 'dsh-android: 普通回车换行' in s:
     print(CLR + '  already patched'); sys.exit(0)
-entry = 'if (event !== null && isComposingEvent(event, recentlyComposing)) return true;'
-if s.count(entry) != 1:
-    print(CLR + '  ERROR: 回车处理器入口锚点出现 %d 次，无法唯一配对。' % s.count(entry)); sys.exit(2)
-i = s.index(entry)
-line_end = s.index('\n', i)
-indent = s[s.rindex('\n', 0, i) + 1:i]
-if indent.strip():
-    print(CLR + '  ERROR: 入口锚点前导非空白，缩进异常。'); sys.exit(2)
-guard = (indent + '/* dsh-android: 普通回车换行，Ctrl/Cmd+Enter 发送 */\n'
-       + indent + 'if (event?.ctrlKey !== true && event?.metaKey !== true) return false;\n')
-s = s[:line_end + 1] + guard + s[line_end + 1:]
+# 按【语义形状】定位回车处理入口，上游产物两代形状都要支持（不按版本号分支）：
+#   A 多行格式化产物：if (event !== null && isComposingEvent(event, recentlyComposing)) return true;
+#   B 0.2.2-rc.3+ 压缩单行产物：if(event!==null&&isComposingEvent(event,recentlyComposing))return true;
+entry = re.compile(r'if\s*\(\s*event\s*!==\s*null\s*&&\s*isComposingEvent\s*\(\s*event\s*,\s*recentlyComposing\s*\)\s*\)\s*return\s+true\s*;')
+found = list(entry.finditer(s))
+if len(found) != 1:
+    print(CLR + '  ERROR: 回车处理器入口锚点出现 %d 次，无法唯一配对。' % len(found)); sys.exit(2)
+m = found[0]
+i = m.end()
+# 上下文确认：锚点之后必须紧跟 enter 的 arbitrate 分支（两种产物引号写法不同，统一按语义匹配）。
+if not re.search(r'handlers\.arbitrate\(\s*[`"\']enter[`"\']', s[i:i + 300]):
+    print(CLR + '  ERROR: 入口锚点后不是 enter 仲裁分支，无法确认目标。'); sys.exit(2)
+COMMENT = '/* dsh-android: 普通回车换行，Ctrl/Cmd+Enter 发送 */'
+if s[i] == '\n':
+    # A 多行格式化产物（<= 0.2.2-rc.1 / 0.2.1 线）：保持历史插入点——IME guard 之后、
+    #   菜单 arbitrate('enter') 之前，独占一行并与锚点同缩进。这是旧线设备上已在运行的行为，
+    #   不为 rc.3 的新语义改动旧线。
+    line_end = s.index('\n', m.end())
+    indent = s[s.rindex('\n', 0, m.start()) + 1:m.start()]
+    if indent.strip():
+        print(CLR + '  ERROR: 入口锚点前导非空白，缩进异常。'); sys.exit(2)
+    guard = (indent + COMMENT + '\n'
+           + indent + 'if (event?.ctrlKey !== true && event?.metaKey !== true) return false;\n')
+    s = s[:line_end + 1] + guard + s[line_end + 1:]
+else:
+    # B 压缩单行产物（0.2.2-rc.3+）：插在【菜单 arbitrate('enter') 块之后、原生 preventDefault 之前】。
+    #   rc.3 的处理顺序是：修饰键早退 → shiftKey 换行 → IME guard → 菜单仲裁（slash/@ 弹出菜单用
+    #   普通回车选中）→ preventDefault → repeat/canSubmit → submit(ctrl/meta)。若像旧线那样把 guard
+    #   插在仲裁之前，菜单回车会被我们先 return false 吞掉、菜单失效；插在仲裁之后则：普通回车先让
+    #   菜单消费，未被消费才 return false 交给 Lexical 原生换行，Ctrl/Cmd+Enter 继续走 submit。
+    seg = s[i:i + 300]
+    m2 = re.search(r'if\s*\(\s*handlers\.arbitrate\(\s*[`"\']enter[`"\']', seg)
+    if not m2:
+        print(CLR + '  ERROR: 锚点后找不到菜单 arbitrate(enter) 块，无法确定 rc.3 插入点。'); sys.exit(2)
+    open_brace = s.find('{', i + m2.start())
+    if open_brace < 0:
+        print(CLR + '  ERROR: arbitrate 块缺少左花括号。'); sys.exit(2)
+    # 花括号配对（跳过字符串/模板字面量），找到菜单仲裁块的闭合位置。
+    depth = 0; j = open_brace; n = len(s)
+    while j < n:
+        c = s[j]
+        if c in '`"\'':
+            quote = c; j += 1
+            while j < n:
+                if s[j] == '\\': j += 2; continue
+                if s[j] == quote: break
+                j += 1
+        elif c == '{': depth += 1
+        elif c == '}':
+            depth -= 1
+            if depth == 0: break
+        j += 1
+    if depth != 0:
+        print(CLR + '  ERROR: arbitrate 块花括号不配对，无法确定插入点。'); sys.exit(2)
+    if not re.match(r'\s*event\?\.preventDefault\(\)', s[j + 1:]):
+        print(CLR + '  ERROR: arbitrate 块之后不是原生 preventDefault，形状已变，请人工核对。'); sys.exit(2)
+    guard = COMMENT + 'if(event?.ctrlKey!==true&&event?.metaKey!==true)return false;'
+    s = s[:j + 1] + guard + s[j + 1:]
 open(p, 'w', encoding='utf-8').write(s)
 print(CLR + '  patched client-ui-conversation (Enter=newline, Ctrl+Enter=send)')
 PY
   then
+    # python 退出码分支：成功（0/已就位）→ 清备份并报 ok。
+    rm -f "$CB_BAK" 2>/dev/null || true   # 验证成功后才删除备份
+    ok "  client-ui-conversation 回车补丁已应用"
+  else
     rc=$?
     warn "  client-ui-conversation 回车补丁未生效（退出码 $rc），已回滚备份。"
     cp -f "$CB_BAK" "$CB" 2>/dev/null || true
     warn "  该补丁影响安卓输入法回车误发送，必须修复后方可正常使用。请人工核对锚点后重新运行 setup.sh。"
     exit 1
-  else
-    rm -f "$CB_BAK" 2>/dev/null || true   # 验证成功后才删除备份
-    ok "  client-ui-conversation 回车补丁已应用"
   fi
 fi
 
