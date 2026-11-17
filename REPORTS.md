@@ -4,7 +4,7 @@
 > 面向两类读者：**使用者**（升级前该知道什么）与**维护者**（改哪里、失败会怎样、怎么验证）。
 > 使用说明见 `README.md`；维护契约与踩坑清单见 `AGENTS.md`；静态说明页见 `docs/index.html`。
 >
-> **文档状态**：v1.2（2026-11-17，最终版）。§2 修改全景与四张图完成；§3 rc.1→rc.3 适配已按 T1/T2 确认结论补全；§4 同时记录 T3 修复前基线与**修复后最终隔离验证**（rc=0 / 9 步全绿 / Web e2e 13+运行期 e2e 33）。真实设备仍为 0.2.2-rc.1、3080 未重启（边界见 §4.3）。
+> **文档状态**：v1.3（2026-11-17，清理版）。§2 修改全景与四张图完成；§3 rc.1→rc.3 适配已按 T1/T2 确认结论补全；§4 记录隔离验证。**v1.3 清理**：删除补丁 02 与弃用围栏、link 的 ≤0.2.1 旧形状、require-builtin 的 <0.1.7 分支、rg 的三种 rc.1 前旧形状及其夹具用例；安装期修改由 22 项降为 21 项，夹具断言 334→317。真实设备仍为 0.2.2-rc.1、3080 未重启（边界见 §4.3）。
 > **事实来源**：仓库脚本与夹具的逐行审计 + 本机只读核对 + 团队 T1/T2/T3 报告。凡是推断或尚未验证的内容都显式标注「待确认」，不把未验证结论写成事实。
 
 ## 目录
@@ -41,7 +41,7 @@
 | 本机真实安装 | `0.2.2-rc.1`（npm 全局布局真实目录） | `node -p "require('<dsh>/package.json').version"` |
 | 3080 上的 live 服务 | 跑在 0.2.2-rc.1 上的 `dsh web` 进程，**本次工作未重装、未重启、未杀** | `pgrep -af 'lib/[b]in.js web'` |
 | 本机运行环境 | Node `v26.13.0` / npm `12.2.1` / pnpm `11.27.1`（`~/bin` 包装）/ ripgrep `15.2.0` | `node -v` 等只读命令 |
-| rc.3 隔离验证（修复后最终） | **rc=0 / 157s / 9 步全绿**；Web e2e **13/13**、运行期 e2e **33/33**、日志零 warn/error（修复前基线唯一硬中断 = 4d，见 §4.2.2） | T3 `~/work/e2e/final/` |
+| rc.3 隔离验证（清理后复验） | **rc=0 / 2 分 25 秒 / 9 步全绿**；Web：token URL→303→cookie→`/` 200、`/assets` immutable、日志零 warn/error；运行期：node-pty / require-builtin（napi-v9）/ flock / rg 15.2.0 / sharp PNG / link / 4c / 4d / 权限层全通过；夹具 **8 个 / 317 断言 + 静态契约 42 条**（`verify-all-checks.sh` PASS=10，`--full` PASS=11） | 本轮隔离前缀 `~/work/verify-rc3`（临时 HOME + `--port 3098`） |
 
 ### 0.2 三条必须先记住的结论
 
@@ -52,7 +52,7 @@
 
 ### 0.3 修改规模速览
 
-安装期修改共 **22 项**（§2.1 总表），按职责分 6 类；另有一批**保护性机制**（锚点预检、白名单自检、原子替换、夹具套件、弃用围栏）不算对上游的修改，单列在 §2.7。
+安装期修改共 **21 项**（§2.1 总表），按职责分 6 类；另有一批**保护性机制**（锚点预检、白名单自检、原子替换、夹具套件）不算对上游的修改，单列在 §2.7。
 
 | 类别 | 项数 | 作用 | 失败语义概貌 |
 |---|---|---|---|
@@ -63,7 +63,7 @@
 | E 权限与配置 | 1 | `danger-full-access` 权限层（两条成对） | 缺失则权限预设不激活（bash 工具受限） |
 | F 安装与运行期供给 | 8 | 让 npm / Node / pnpm / 脚本在 Termux 可用 | 视项而定：npm 包装/pnpm 供给失败为硬中断 |
 
-**rc.3 适配状态（2026-11-17）**：22 项修改中 **20 项无需改锚点**（隔离实测命中），仅 **4d 作曲栏回车** 与 **4f ripgrep** 需要适配（前者是修复前唯一硬中断，后者因上游新增 `dsh-util-ripgrep` 抽包）。修复后隔离安装 **rc=0 / 157s / 9 步全绿**，Web e2e **13/13**、运行期 e2e **33/33**、日志零 warn/error。详见 §3 与 §4.2.3。
+**rc.3 适配状态（2026-11-17）**：21 项修改中 **19 项无需改锚点**（隔离实测命中），仅 **4d 作曲栏回车** 与 **4f ripgrep** 需要适配（前者是修复前唯一硬中断，后者因上游新增 `dsh-util-ripgrep` 抽包）。清理后隔离安装 **rc=0 / 2 分 25 秒 / 9 步全绿**，Web 链路与运行期模块全部通过、日志零 warn/error。详见 §3 与 §4。
 
 ---
 
@@ -136,7 +136,7 @@
 **修改项 × 目标包 × 阶段 × 失败语义 × 验证**
 
 > 阶段指 `setup.sh` 的步骤号；「4/9(a)」表示 4/9 里的 4a 子补丁。锚点细节见 §2.2 对应条目。
-> 「夹具/静态契约」列中的数字是断言数/用例数（`bash patches/verify-all-checks.sh` 的 **8 个夹具共 334 条断言 + 42 条静态契约**；rc.3 适配后 T2 新增 composer / rg 两个夹具，见 §3.6）。
+> 「夹具/静态契约」列中的数字是断言数/用例数（`bash patches/verify-all-checks.sh` 的 **8 个夹具共 317 条断言 + 42 条静态契约**；rc.3 适配后 T2 新增 composer / rg 两个夹具，见 §3.6）。
 
 | ID | 修改项 | 目标包 / 文件（锚点） | 阶段 | 失败语义 | 验证（夹具 / 静态契约） |
 |---|---|---|---|---|---|
@@ -144,13 +144,12 @@
 | **A2** | dsh 包装脚本（`--expose-internals`） | `$PREFIX/bin/dsh`（Termux 绝对路径）；源 `<dsh>/lib/bin.js` | 3/9 移开 + 6/9 重建 | 重建后 `dsh --version` 失败 → 回滚旧包装 + **exit 1** | 静态契约 4 条（`mv -f` 原子替换 / 无 `cat >` / 不先 `rm` / 带 `--expose-internals`）；runtime-scripts 夹具 40 断言 |
 | **A3** | 权限层安全合并器 | `~/.dsh/profiles/web/cordis.patch.yml`；锚点 = 文件 4 态分类（不存在 / 空数组模板 / 真实层 / 残留裸 `[]`）+ 用 dsh 自己的 `loadOverlayPatches()` 解析校验 | 7/9 | **error + exit 1**（坏文件一个字节不动；坏 profile = dsh 起不来） | `verify-profile-patch-fixture.js`：11 用例 / **41 断言** |
 | **B1** | node-pty 构建适配 | `node-pty`（dsh 嵌套依赖）；`common.gypi` 的 `'variables': {` 后插 `android_ndk_path%: ''`（仅在没有 Termux 自带 headers 时）；3/9 用 android30 CFLAGS 编译 | 2/9 + 3/9 | 产物缺失 → **exit 1**；产物不可加载 → `warn`（PTY 不可用） | 3/9 内建校验（文件存在 + `require('node-pty')`）；e2e 终端 |
-| **B2** | `link()` 硬链接全链路回退 | `dsh-session-persistence-jsonl`、`dsh-attachment-local`、`dsh-fs-local` 的 `lib/index.js`；锚点 = helper **函数定义**（0.2.2 的 `options.createIfAbsent` 形状 + ≤0.2.1 旧形状，双形状按 `src.includes` 选择） | 4/9（4a）；验证在 5/9 之后（4a-verify） | `warn` 继续（会话保存/附件/`write` 新建文件受损）；显式 `--root` 给错 → 退 1 不写任何文件 | `verify-patch-guards-fixture.js`：**57 断言**（新增 rc.3 原文块 3b / ≤0.2.1 旧形状 3c；含假 `--root` 不回落、注释/字符串骗不过幂等判定）；`verify-android-link-fix.js` 真实临时目录运行 |
-| **B3** | `flock` 原生绑定 | `@deepseek-ai/node-addon-system`（0.2.2 起 hoist 到 `<dsh>/node_modules/@deepseek-ai/`）：clang 编译 `src/flock.c` → `bin/android-<arch>/system.node`，改 `lib/flock.js` 的 android 分支；锚点 = 剥注释后的 `platform === 'android'` 真分支 | 4/9（4b） | `warn` 继续（发消息失败：`flock is not supported on android-arm64`）；自检失败 → 非 0 → `warn` | guards 夹具 **57 断言**（新增 rc.3 原文块 3b / ≤0.2.1 旧形状 3c；含副本内真实编译）；脚本内建运行时自检（真实 `open` 两个 fd，第二次加锁 `EAGAIN`） |
+| **B2** | `link()` 硬链接全链路回退 | `dsh-session-persistence-jsonl`、`dsh-attachment-local`、`dsh-fs-local` 的 `lib/index.js`；锚点 = helper **函数定义**（0.2.2+ 的 `options.createIfAbsent` 形状；≤0.2.1 旧形状已随旧版本线删除） | 4/9（4a）；验证在 5/9 之后（4a-verify） | `warn` 继续（会话保存/附件/`write` 新建文件受损）；显式 `--root` 给错 → 退 1 不写任何文件 | `verify-patch-guards-fixture.js`：**52 断言**（rc.3 原文块 3b；含假 `--root` 不回落、注释/字符串骗不过幂等判定）；`verify-android-link-fix.js` 真实临时目录运行 |
+| **B3** | `flock` 原生绑定 | `@deepseek-ai/node-addon-system`（0.2.2 起 hoist 到 `<dsh>/node_modules/@deepseek-ai/`）：clang 编译 `src/flock.c` → `bin/android-<arch>/system.node`，改 `lib/flock.js` 的 android 分支；锚点 = 剥注释后的 `platform === 'android'` 真分支 | 4/9（4b） | `warn` 继续（发消息失败：`flock is not supported on android-arm64`）；自检失败 → 非 0 → `warn` | guards 夹具 **52 断言**（rc.3 原文块 3b；含副本内真实编译）；脚本内建运行时自检（真实 `open` 两个 fd，第二次加锁 `EAGAIN`） |
 | **B4** | subprocess 终端检测 android≡linux | `dsh-subprocess-local/lib/*.js`（锚点可能内联进内容哈希 bundle `runner-launch-*.js`，故通配扫描整个 `lib/`） | 4/9（4c） | 未命中 → 退 3 → `warn`（终端功能可能不可用） | 0/9 预检 + e2e 终端 |
 | **B5** | ripgrep 修复 | `@vscode/ripgrep-android-arm64/bin/rg` 软链到系统 `rg` + `dsh-tool-fs-search/lib/index.js` 的 `resolveRgPath()`（识别 4 种上游形态；rc.3 起解析逻辑迁到新包 `dsh-util-ripgrep`，见 §3） | 4/9（4f） | 软链 + 补丁后 fresh node **实际解析失败** → `error + exit 1`（grep/glob 全废）；仅锚点漂移 → `warn` | 脚本第 3 步 fresh node 实际解析并打印版本；0/9 预检 |
 | **B6** | sharp WASM 回退 | `<dsh>/node_modules/@img/sharp-wasm32`（版本必须等于当次 `sharp`，本机基线 0.35.5）+ `@emnapi/runtime` | 5/9 | 安装失败 → **error + exit 1**（附件模块加载失败） | 版本比对（wasm == sharp）+ 4a-verify 依赖附件模块 `import sharp` + e2e 附件 |
 | **C1** | 补丁 01：前端 immutable 缓存 | `dsh-host-frontend-static/lib/index.js`；锚点 = MIME 表尾 `.gz` 行；插 `CACHE_IMMUTABLE` 常量，只改 `/assets/` 分支 | 8/9 | `[FAIL]` → 8/9 只 `warn`（可选增强） | js-patches 夹具：**21 断言**（正向 / 反向 / 幂等 / 逐字节） |
-| **C2** | 补丁 02：客户端 combo 惰性化 | `dsh-client-modules/lib/index.js` 的 5 处（`newlineCount`、`identitySectionMap`、批量 `compose()`、`singleResponse()`、`bundleResource()` 兜底） | 8/9（**弃用围栏**） | `[deprecated]` 不计失败；`[FAIL]` 仅活跃清单才会让退出码非 0 | js-patches 21 断言 |
 | **C3** | 补丁 03：`newlineCount` 索引循环 | `dsh-client-modules/lib/index.js` 同函数；锚点跨版本稳定（版本无关兜底） | 8/9 | 同 C1 | js-patches 21 断言 |
 | **D1** | 作曲栏「回车=换行」 | `dsh-client-ui-conversation/lib/client.js`；锚点 = 入口串**恰好出现 1 次**且前导为纯空白缩进 | 4/9（4d） | 唯一性/缩进检查失败 → 回滚 `.dsh-android.bak` → **exit 1**（中断安装） | 0/9 预检规格 + 静态契约（7 条规格） |
 | **E1** | `danger-full-access` 权限层（两条） | 写入用户 profile：`sandbox-policy.mode = danger-full-access` + `approval.policy = never`；锚点 = 0.2.0 起 `permission` 预设按两者组合反查 | 7/9（内容由 A3 写入） | 缺一条 → `permission` 行不激活（日志 warning，bash 工具受限）；不中断但违背设计目标 | profile 41 断言 + e2e 日志零 warn |
@@ -168,7 +167,7 @@
 > 每项固定回答 6 个问题：为什么改、改哪个包/文件、锚点/形状、怎么改、什么阶段、失败与幂等怎么验证。
 > 更细的踩坑背景见 AGENTS.md §7；这里给的是「可审计的修改说明」。
 
-#### A1 require-builtin Android 平台包（dsh ≥0.1.7 的启动前提）
+#### A1 require-builtin Android 平台包（dsh 启动前提）
 
 - **为什么**：0.1.7 引入原生 addon 家族 `node-addon-require-builtin`，由 `node-addon-native-custom-loader` 按平台包 `<name>-<platform>-<arch>` 解析。上游只发布 darwin/linux/win32 预编译包；`runtimeSuffix()` 对未知平台回退成 `android-arm64` → 解析不到 → `dsh-app-boot` 的 `internalModules()`（无条件 require、无 JS 回退）在 host preparation 抛 `No usable native binding found`，**dsh 完全起不来**。
 - **改哪里**：**新建** `<dsh>/node_modules/node-addon-require-builtin-android-<arch>/` 平台包（manifest + 纯 JS 实现 + 自检模板）。不改 `dsh-app-boot`，也不改 loader（只满足它的导出形状契约）。
@@ -176,7 +175,7 @@
 - **怎么改**：纯 JS 实现 `require("internal/*")`（依赖 6/9 包装脚本必带的 `--expose-internals`）；`name/os/cpu` 由包名与运行时推导，不写死架构；带 `dshAndroidPatch` 归属字段。
 - **阶段**：`4/9` 的第一个子补丁（4-boot），在 link/flock 之前。
 - **失败语义**：**error + exit 1**。与「功能受损」类补丁严格区分：缺它 dsh 根本起不来，若只 warn 会出现「setup 全绿但 dsh 起不来」。
-- **幂等与验证**：三个文件与脚本模板**逐字节一致**才 `[OK]`，否则原地 `[REFRESHED]`（模板更新也能下发）；归属读 manifest 的 `dshAndroidPatch` **字段**、存在性看**目录**；外来平台包一律让路 `[SKIP]`，可用性由同一次 `verify()` 断言（通过退 0、加载不了才退 1）；dsh <0.1.7 没有该家族 → `[SKIP]` 退 0（「定位到 dsh 安装根」与「entry 包存在」解耦，否则回退分支恒不可达）。夹具 `verify-require-builtin-fixture.js`：8 用例 / 29 断言；0/9 预检另有单独探测。
+- **幂等与验证**：三个文件与脚本模板**逐字节一致**才 `[OK]`，否则原地 `[REFRESHED]`（模板更新也能下发）；归属读 manifest 的 `dshAndroidPatch` **字段**、存在性看**目录**；外来平台包一律让路 `[SKIP]`，可用性由同一次 `verify()` 断言（通过退 0、加载不了才退 1）；entry 包缺失视为安装树不完整并退 1。夹具 `verify-require-builtin-fixture.js`：7 用例 / 27 断言；0/9 预检另有单独探测。
 
 #### A2 dsh 包装脚本（`--expose-internals` + 原子替换）
 
@@ -215,7 +214,7 @@
 - **怎么改**：注入 helper `isHardLinkUnavailable` + `publishNoReplaceNoHardlink`；`ensureFsImport()` **只增不删**导入名（曾有版本删掉 `link` 但同文件仍引用 → 启动即 `ReferenceError`）。
 - **阶段**：4/9（4a）；验证 **4a-verify 必须在 5/9 sharp 回退之后**（附件模块加载时 `import sharp`，否则误报）。
 - **失败语义**：`warn` 继续（功能受损但能跑）；显式 `--root` 给错 → 退 1、不回落、不写任何文件。
-- **幂等与验证**：判定看 helper 的**函数定义**（先剥注释与字符串，注释/标记骗不过）；guards 夹具 57 断言；`verify-android-link-fix.js` 做静态检查 + 临时目录真实运行（附件保存/去重、`link()`=`EACCES` 下新建文件必须成功），不碰 `~/.dsh/sessions`。
+- **幂等与验证**：判定看 helper 的**函数定义**（先剥注释与字符串，注释/标记骗不过）；guards 夹具 52 断言；`verify-android-link-fix.js` 做静态检查 + 临时目录真实运行（附件保存/去重、`link()`=`EACCES` 下新建文件必须成功），不碰 `~/.dsh/sessions`。
 
 #### B3 `flock` 原生绑定
 
@@ -224,7 +223,7 @@
 - **锚点/形状**：`flock.js` 的 `platform === 'android'` **真分支**（逐字符状态机剥注释后判定，`label://` 之类骗不过），且 `system.node` 可加载。
 - **阶段**：4/9（4b）。
 - **失败语义**：`warn` 继续（发消息失败）；脚本自带运行时自检（真实 `open` 两个 fd：首次加锁成功、第二次竞争返回 `EAGAIN`），自检失败非 0。
-- **幂等与验证**：已含 android 真分支且产物可加载即跳过编译；`--root` 硬契约；guards 夹具 57 断言（含副本内真实编译、假 `--root` 不回落）。
+- **幂等与验证**：已含 android 真分支且产物可加载即跳过编译；`--root` 硬契约；guards 夹具 52 断言（含副本内真实编译、假 `--root` 不回落）。
 
 #### B4 subprocess 终端检测 android≡linux
 
@@ -239,7 +238,7 @@
 
 - **为什么**：`@vscode/ripgrep` 无 Android 平台包，`dsh-tool-fs-search` 的 `resolveRgPath()` 解析 `@vscode/ripgrep` 必然 reject → 报 `ripgrep launch failed`，grep/glob 全废。
 - **改哪里**：① `<dsh>/node_modules/@vscode/ripgrep-android-arm64/bin/rg` 软链到系统 `rg`（`@vscode/ripgrep` 只做 `require.resolve(<platformPkg>/bin/rg)`，不校验 package.json，软链本身就够了）；② 给 `resolveRgPath()` 加 `resolveSystemRg()` 回退（双保险）。rc.3 起该解析逻辑迁到新包 `@deepseek-ai/dsh-util-ripgrep`（见 §3）。
-- **锚点/形状**：识别 **4 种上游函数形态**（旧版、带侧车、pkg 形态、0.1.7 起的 electron `.asar` 归一化形态），逐字符构造 old/new；未识别只 `warn`。
+- **锚点/形状**：识别上游的 electron `.asar` 归一化形态（rc.1 / rc.3 同形状），逐字符构造 old/new；未识别只 `warn`。
 - **阶段**：4/9（4f）。
 - **失败语义**：锚点漂移本身**只 warn**（软链已能让解析成功）；第 3 步用 fresh node **实际解析** `resolveRgPath()` 并执行 `rg --version`，真的解析失败才非 0 → `setup.sh` `error + exit 1`（rg 不可用会让 grep/glob 全废）。
 - **幂等与验证**：`src.includes("resolveSystemRg")` → `already patched`；软链每次重建；0/9 预检覆盖 `resolveSystemRg` 或旧锚点。
@@ -260,24 +259,16 @@
 - **锚点/形状**：0.2.2-rc.1 上游整段换成 `Response` API（旧 `res.writeHead(...)` 锚点必失配）。现行补丁把 `CACHE_IMMUTABLE` 常量插在 MIME 表尾之后（以 `".gz": "application/gzip"` 为上下文），只改 `readFile` 分支里 `/assets/` 路径的 cache-control。把 `.gz` 写进上下文是为了不再靠 GNU patch 的 fuzz 侥幸命中（`-F0` / `git apply` 也必须能打）。
 - **阶段**：8/9（可选增强）。
 - **失败语义**：`[FAIL]` → 8/9 只 `warn`，不中断安装。
-- **幂等与验证**：反向 dry-run 通过 → `[skip]`；js-patches 夹具 21 断言（正向命中、反向拒绝、幂等、与安装树逐字节一致）。
-
-#### C2 补丁 02：客户端 combo 惰性化（已弃用围栏）
-
-- **为什么**：启动期间 `ClientModuleRegistry` 会因 `internal/plugin` 事件**全量重组约 10 次**，每次 `compose()` 都为每条记录预建单条 artifact；10.8MB 源码下一次 compose 约 2s，占冷启动一半以上（实测 22.6s → 12.5s）。
-- **改哪里**：`dsh-client-modules/lib/index.js` 共 5 处：`newlineCount` 索引循环、`identitySectionMap` 复用行数、批量 `compose()` 只索引单条 URL、新增 `singleResponse()` 按需构建并缓存、`bundleResource()` 加 `?? this.singleResponse(url)` 兜底。
-- **阶段**：8/9（可选增强），在**弃用围栏**里（见 §2.7）。
-- **失败语义**：0.1.7 起上游原生 `lazyBody` 实现了同一优化，锚点消失 → 报 `[deprecated]`，**不计失败**；0.1.5 线上仍能命中。
-- **幂等与验证**：已应用 → `[skip]`；⚠️ **执行顺序即语义**：02 与 03 改同一段 `newlineCount`，02 必须先于 03（互换会让 02 在老线上也失配）；围栏只改报告与退出码、不改顺序。
+- **幂等与验证**：反向 dry-run 通过 → `[skip]`；js-patches 夹具 19 断言（正向命中、反向拒绝、幂等、与安装树逐字节一致）。
 
 #### C3 补丁 03：`newlineCount` 索引循环（版本无关兜底）
 
 - **为什么**：`newlineCount()` 用 `for (const char of value)` 扫描 10.8MB bundle，实测 302ms；改成 `charCodeAt` 索引循环后 60ms。语义完全等价。
 - **改哪里**：`dsh-client-modules/lib/index.js` 的 `newlineCount()`。
-- **锚点/形状**：跨 0.1.5 / 0.1.7+ 稳定，是**版本无关**的兜底性能补丁；02 已应用时 03 会因同一处已改而 `[skip]`，不冲突。
+- **锚点/形状**：跨 rc.1 / rc.3 稳定，是**版本无关**的兜底性能补丁。
 - **阶段**：8/9。
 - **失败语义**：同 C1（可选增强）。
-- **幂等与验证**：js-patches 夹具 21 断言。
+- **幂等与验证**：js-patches 夹具 19 断言。
 
 #### D1 作曲栏「回车=换行、Ctrl/Cmd+Enter=发送」
 
@@ -389,7 +380,7 @@ flowchart TD
         S7B["7/9 权限层安全合并<br/>坏 YAML 即中断"]
     end
     subgraph PERF["性能层（可选增强）"]
-        S8["8/9 JS 补丁 01 / 02 / 03<br/>失败只 warn"]
+        S8["8/9 JS 补丁 01 / 03<br/>失败只 warn"]
     end
     S9["9/9 完成汇总"]
     A0 -.-> S1
@@ -419,7 +410,6 @@ flowchart TD
 flowchart LR
     subgraph SRC["安装期修改"]
         P01["8/9 补丁 01 缓存头"]
-        P02["8/9 补丁 02 combo 惰性"]
         P03["8/9 补丁 03 newlineCount"]
         PL["4a link 回退"]
         PF["4b flock 绑定"]
@@ -448,7 +438,6 @@ flowchart LR
         TAPP["dsh-app-boot（只读消费方）<br/>internalModules() / loadOverlayPatches()"]
     end
     P01 --> T01
-    P02 --> T02
     P03 --> T02
     PL --> TL
     PF --> TF
@@ -526,7 +515,6 @@ quadrantChart
     "B5 ripgrep": [0.80, 0.80]
     "B6 sharp wasm": [0.60, 0.35]
     "C1 补丁 01 缓存头": [0.25, 0.85]
-    "C2 补丁 02 combo": [0.15, 0.95]
     "C3 补丁 03 newline": [0.20, 0.20]
     "D1 作曲栏回车": [0.45, 0.85]
     "E1 权限两条": [0.70, 0.50]
@@ -539,7 +527,7 @@ quadrantChart
 | 象限 | 含义 | 代表项 | 升级时怎么处理 |
 |---|---|---|---|
 | 右上（Q1） | 失效影响大 **且** 依赖上游代码形状 | link 回退、ripgrep、权限层合并器、require-builtin | 每次 dsh 升级**第一优先**跑对应夹具 + 真启动一次 |
-| 左上（Q2） | 影响偏体验，但锚点随上游漂移 | 补丁 01/02、作曲栏 | 允许 `[FAIL]` 不中断的时间很短；出现 `[FAIL]` 立即重锚或移入围栏 |
+| 左上（Q2） | 影响偏体验，但锚点随上游漂移 | 补丁 01、作曲栏 | 出现 `[FAIL]` 立即重锚；目标版本线已不支持则删除 |
 | 左下（Q3） | 影响小且锚点稳定 | 补丁 03 | 夹具守住即可 |
 | 右下（Q4） | 影响大但依赖的契约稳定 | dsh 包装脚本、sharp 版本对齐、安装布局 | 靠静态契约/版本比对即可 |
 
@@ -554,7 +542,7 @@ quadrantChart
 | 补丁已应用 | 反向 `patch --dry-run` 通过（js 补丁）；函数定义/内容逐字节比对（link/flock/require-builtin）；特征串 + 版本比对（sharp/rg/权限层） | `[skip]` / `[OK]`，不写文件 |
 | 内容变化（模板更新、manifest 修正、entry 版本变化） | require-builtin 逐字节比对 → 不一致 | `[REFRESHED]` 原地刷新 |
 | 目标已是「别人的东西」 | require-builtin 读 manifest 归属字段；pnpm 包装比对语义 | 让路 `[SKIP]` / 认领不覆盖；可用性交给后续验证 |
-| 锚点失效 | 正向 dry-run 失败 / 锚点串找不到 | 活跃清单 → `[FAIL]`（8/9 只 warn）；围栏 → `[deprecated]`（不计失败） |
+| 锚点失效 | 正向 dry-run 失败 / 锚点串找不到 | `[FAIL]`（8/9 只 warn）；目标版本线已不支持则删除补丁与夹具 |
 | 文件损坏/半成品 | 分类后定点修复（权限层 `[]` → `[REPAIRED]`） | 先断言确实解析不了再修，修前备份、坏文件一字节不动 |
 
 **通用约定**：所有能改生产树的脚本都要求 `--root` 是**硬契约**（显式给错不回落、不写任何文件）；幂等判定要**比语义/内容**，不能比子串标记（历史上「仅含一句注释的半成品」被假成功掩盖）。
@@ -565,17 +553,9 @@ quadrantChart
 |---|---|---|---|
 | **硬阻断** | 不装好 dsh 就不能用；安装必须中断 | A1、A2、A3、B1（pty 产物）、B5（实际解析失败）、B6、D1、F1（npm 执行失败）、F2（白名单脚本失败）、F3（pnpm 供给失败）、F4（迁移失败） | `error` + `exit 1`，`on_exit` 打印 `setup.log` 尾部 |
 | **警告继续** | 功能受损但 dsh 能跑 | B2、B3、B4、E1（内容缺失）、F2（UNCOVERED 自检）、F7 | `warn`，安装继续，日志留痕 |
-| **可选增强** | 不影响正确性，可失败 | C1、C2、C3、F5 | 8/9 只 `warn`；`[deprecated]` 不计数 |
-| **弃用围栏** | 锚点已失效但为旧版本线保留 | C2（02） | 能命中照打并标「弃用围栏：在目标版本上仍然有效」；命中不了只报 `[deprecated]`、不计失败 |
+| **可选增强** | 不影响正确性，可失败 | C1、C3、F5 | 8/9 只 `warn` |
 
 > ⚠️ **硬阻断与只 warn 必须严格区分**：混成一种语义会出现「setup 全绿但 dsh 根本起不来」或「一个可选功能缺失就中断安装」。历史三次「跑不起来」级事故分别是：0.1.7 的 require-builtin 平台包缺失、权限层追加到 `[]` 之后、0.2.0 权限预设两条缺一（不留心还会漏掉第四类：包装脚本缺 `--expose-internals` 导致 HMR 崩）。
-
-#### 2.7.3 弃用围栏（deprecated fence）规则
-
-- 锚点一旦失效，**移出活跃清单、进围栏**，不要留在活跃清单里每次刷 `[FAIL]`（久了就是「狼来了」，真失配被淹没）。
-- 围栏补丁**仍在原顺序位置执行**（顺序即语义：02 必须先于 03，两者改同一段 `newlineCount`）；围栏只改报告与退出码，**不得改执行顺序**。
-- 每个围栏补丁必须在 `deprecated_reason()` 写清「为什么失效」与「什么条件下复活」。
-- 当前围栏只有 `02-client-modules-lazy-compose`：0.1.7 起上游原生 `lazyBody` 实现了同一优化，锚点消失；0.1.5 线仍可命中，故保留而不删。
 
 #### 2.7.4 已移除 / 不再存在的历史改动（避免按旧文档操作）
 
@@ -587,10 +567,10 @@ quadrantChart
 | 历史性能补丁（apiproxy history slim、增量重连、连接 schema、插件 bundle 缓存等） | **已删除** | 宿主模块已被上游移除或原生实现 |
 | `DSH_PM` / `DSH_PNPM_BIN` / `DSH_PM_CONFLICT_OVERRIDE` 等安装后端变量 | **已移除** | 随 pnpm 安装后端一起删除；只剩 pnpm **运行时**的 `DSH_PNPM_*` 供给开关 |
 
-#### 2.7.5 保护性机制与测试套件（不在 22 项修改内，但决定可维护性）
+#### 2.7.5 保护性机制与测试套件（不在 21 项修改内，但决定可维护性）
 
 - **`setup.sh` 工程约束**：全脚本唯一 `on_exit` EXIT trap（擦状态行、清临时文件、失败打印日志尾部、还原被移开的旧包装）；dsh 包装脚本必须「临时文件 + `mv -f` 原子替换」，绝不 `cat >` follow 符号链接、绝不先 `rm`；提示文本里禁止反引号命令替换（bash 会真的执行）；`/usr/bin` 路径禁止使用，一律 Termux 绝对路径。
-- **脚本级测试**：`bash patches/verify-all-checks.sh [--verbose] [--full]` = 语法 + 静态契约 42 条 + **8 个夹具 / 334 条断言**（js-patches 21、runtime-scripts 40、guards **57**、require-builtin 29、profile 41、pnpm-provision 76、composer **29**、rg **41**）→ 全绿输出 `套件 PASS=10 FAIL=0`；`--full` 追加变异测试（10 个注入回归必须变红 + 4 个对照组为绿，实测 14/14）。
+- **脚本级测试**：`bash patches/verify-all-checks.sh [--verbose] [--full]` = 语法 + 静态契约 42 条 + **8 个夹具 / 317 条断言**（js-patches 19、runtime-scripts 40、guards **52**、require-builtin 27、profile 41、pnpm-provision 76、composer **29**、rg **33**）→ 全绿输出 `套件 PASS=10 FAIL=0`；`--full` 追加变异测试（10 个注入回归必须变红 + 4 个对照组为绿，实测 14/14）。
 - **只读或只写临时目录**：夹具不跑 `setup.sh`、不碰 3080、不写 `~/.dsh`；这是「在测试环境复现问题、不拿正在跑的服务当实验场」约定的落地。
 - **幂等复验**：连跑两次修补，第二次应全部 `[OK]` / `[skip]`。
 
@@ -604,9 +584,9 @@ quadrantChart
 
 | 结论 | 明细 |
 |---|---|
-| T1 锚点矩阵（12 项） | **10 项原锚点全部命中**（01、03、link×3、flock、require-builtin、4c、profile-boot、权限层）、**1 项预期弃用**（02）、**1 项必须重锚**（4d）、**1 项目标搬家**（4f，软链兜底仍 PASS）。与 T3 修复前隔离基线「唯一硬中断 = 4d」一致 |
+| T1 锚点矩阵 | **原锚点全部命中**（01、03、link×3、flock、require-builtin、4c、profile-boot、权限层）、**1 项必须重锚**（4d）、**1 项目标搬家**（4f，软链兜底仍 PASS）。与 T3 修复前隔离基线「唯一硬中断 = 4d」一致 |
 | 需要重锚/适配的只有 **2 项** | ① **4d 作曲栏回车**：rc.3 把 `client.js` 压成单行产物，旧锚点 0 次命中 → 修复前**唯一硬中断**；② **4f ripgrep**：上游把 `resolveRgPath()` 抽到新包 `dsh-util-ripgrep` |
-| **无需改锚点**的项（T1 正向实打 + T3 隔离实测） | require-builtin 平台包（loader 契约 byte-identical）、link（3 个包，块内容全同 rc.1）、flock（`node-addon-system` 0.1.2 唯一版本）、4c 终端检测（新内容哈希 bundle 名 `runner-launch-CKTiL8M8.js` 被通配覆盖）、01 前端缓存（2 hunk `-F0` 命中）、03 newlineCount（逐字节同 rc.1）、权限层合并（预设/模板/解析器全同）、dsh 包装脚本、sharp 回退、pnpm 运行时、原生安装布局；02 仍按预期 `[deprecated]` |
+| **无需改锚点**的项（T1 正向实打 + T3 隔离实测） | require-builtin 平台包（loader 契约 byte-identical）、link（3 个包，块内容全同 rc.1）、flock（`node-addon-system` 0.1.2 唯一版本）、4c 终端检测（新内容哈希 bundle 名 `runner-launch-CKTiL8M8.js` 被通配覆盖）、01 前端缓存（2 hunk `-F0` 命中）、03 newlineCount（逐字节同 rc.1）、权限层合并（预设/模板/解析器全同）、dsh 包装脚本、sharp 回退、pnpm 运行时、原生安装布局 |
 | 0/9 锚点预检 | rc.3 未打补丁时会有 **2 条非致命告警**：client.js 的中文 marker（4d 重锚后自然命中）、`dsh-tool-fs-search` 的 `resolveSystemRg`（已搬去 `dsh-util-ripgrep`）。T2 已把第 2 条改为「两代宿主任一存在 `resolveSystemRg`」 |
 | 依赖闭包 | 隔离安装实测 `added 664 packages`（约 2m）；顶层 `@deepseek-ai/*` 包 **336** 个；带安装脚本的包仍 **5** 个（4 个 allowed + koffi skipped，与 rc.1 一致）→ `ALLOW_SCRIPTS` / `SKIP_SCRIPTS` 无需调整 |
 | **安装体积（新风险）** | rc.3 安装树 **1.2 GB / 93,932 文件**（rc.1：722 MB / 69,398 文件）：`@deepseek-ai/libreoffice-kit-wasm` 从 0.1.5（`os:["linux"]`，Android 跳过）升到 0.2.3（**无 os/cpu 限制**）→ Android 上开始安装约 **146 MB**；根包 `files` 新增 `src`/`*.js.map`/`docs`（unpacked 76 KB → 6.2 MB / 20 → 532 文件）。**升级前要留足存储与临时空间** |
@@ -659,7 +639,7 @@ quadrantChart
 
 ### 3.5 仍不兼容 / 遗留
 
-- **4d / 4f 修复后已复验通过**：修复后隔离全流程 **rc=0 / 157s / 9 步全绿**、Web e2e **13/13**、运行期 e2e **33/33**（§4.2.3）；修复前基线是 13/13 + 29/30（唯一 FAIL=4d，§4.2.2）。
+- **4d / 4f 修复后已复验通过**：修复后隔离全流程 **rc=0 / 157s / 9 步全绿**、Web e2e **13/13**、运行期 e2e **33/33**（§4.2.3，T3 记录；清理后本轮复验为 rc=0 / 2 分 25 秒 + Web 链路/运行期模块全通过，见 §0.1）；修复前基线是 13/13 + 29/30（唯一 FAIL=4d，§4.2.2）。
 - **koffi 按设计跳过**：Android 运行期不涉及（非缺陷，详见 §2.2 F2 / §5.3）。
 - **`libreoffice-kit-wasm` 现在是「默认安装、未知可用」**：rc.3 起它取消 os/cpu 限制 → Android 默认安装约 **146 MB**（详见 §5.3）；但 office→pdf 转换在 Android 上**是否能真正跑通尚未验证**（T1 只确认「装上了」）。
 - **`sherpa-onnx-node` 等平台可选包**：只有 darwin/linux/win 平台包，默认不启用语音实验 bundle，不影响基础功能。
@@ -673,7 +653,7 @@ quadrantChart
 | `setup.sh` | 修改 | ① 0/9 的 rg 预检从「7 条规格表」移到**特殊探测块**（规格表 7→6 条；与 profile-boot、require-builtin 并列为 3 个特殊探测），两个宿主（`dsh-tool-fs-search` / `dsh-util-ripgrep`）都探；② 4/9 的 4d：双形状语义锚点 + **按产物形状选插入点**（见 §3.3） |
 | `apply-rg-fix.sh` | 修改 | `TARGET_LIBS` 收两代落点并逐个幂等修补；只 import/再导出的「消费者」文件**静默跳过**（不再刷假 warn）；验证落点 = 搜索工具**实际 import** 的宿主（rc.3 → util-ripgrep）；平台软链路径不变 |
 | `patches/verify-setup-static-check.sh` | 修改 | 静态契约 **39 → 42**：预检规格数 7→6 + rg 两代落点都探 + apply-rg-fix 覆盖两代宿主 + 按函数定义识别宿主 |
-| `patches/verify-patch-guards-fixture.js` | 修改 | 断言 **39 → 57**：新增 3b（用 rc.3 上游原文块三包正向打 link 补丁 + 幂等 + `node --check`）、3c（≤0.2.1 的 `createIfAbsent !== void 0` 旧形状仍命中） |
+| `patches/verify-patch-guards-fixture.js` | 修改 | 断言 **39 → 52**：新增 3b（用 rc.3 上游原文块三包正向打 link 补丁 + 幂等 + `node --check`）；原 3c（≤0.2.1 旧形状）已于 2026-11-17 随旧版本线删除 |
 | `patches/verify-all-checks.sh` | 修改 | 接入 2 个新夹具；全绿输出 **`套件 PASS=10 FAIL=0`**（语法 + 静态 + 8 夹具）；`--full` 11 |
 | `patches/verify-composer-enter-fixture.js` | **新增** | 4d 夹具 **29 断言**：从 `setup.sh` **原样抽取**嵌入 python 逻辑，覆盖两代形状的插入点、幂等、歧义/缺失/上下文不符拒绝且零改写、`node --check`、硬阻断语义 |
 | `patches/verify-rg-fix-fixture.js` | **新增** | 4f 夹具 **41 断言**：从 `apply-rg-fix.sh` 原样抽取形状常量；覆盖 rc.3 布局（只修 util-ripgrep、消费者静默跳过）、旧线三形状、平台包缺失时源码兜底、漂移+软链兜底 rc0、漂移无兜底 rc1 |
@@ -700,7 +680,7 @@ quadrantChart
 | 1/9–9/9 | 全绿；js 补丁 `01[skip] 02[deprecated] 03[skip]`；权限层 `OK` | 同上 |
 | 端到端（临时 `DSH_HOME` + `--port 3098`） | 冷启动到 token **13.9s**；token → **303**；cookie 后 `/` → **200**；日志**零 warn/error** | 同上 |
 | 产物 | sharp / `@img/sharp-wasm32` 均 0.35.5；rg 软链指向系统 rg；`bin/android-arm64/system.node` 可加载（导出 `tryLock`）；profile 两条齐备且无裸 `[]` | 同上 |
-| 脚本级检查 | 当时为 6 夹具 / 246 断言 + 静态契约 39 条全绿；`--full` 变异 14/14。（当前仓库在 rc.3 适配后已扩到 **8 夹具 / 334 断言 + 42 条静态契约**，见 §3.6） | `patches/verify-all-checks.sh` |
+| 脚本级检查 | 当时为 6 夹具 / 246 断言 + 静态契约 39 条全绿；`--full` 变异 14/14。（当前仓库在清理后为 **8 夹具 / 317 断言 + 42 条静态契约**，见 §3.6） | `patches/verify-all-checks.sh` |
 
 > 历史数字用于**对比基线**，不代表 rc.3 已验证；rc.3 的结论只看 §4.2（修复前基线）与 §4.2.3（修复后复验）。
 
@@ -736,14 +716,14 @@ quadrantChart
 | 项目 | 结果 |
 |---|---|
 | 隔离环境 | 仓库快照 `~/work/repo-adapted`（HEAD `0d6b5ff` + T2 工作树改动，diff sha256 `8cd458e5…`）；`HOME=~/work/e2e/final-home`、`PREFIX=~/work/e2e/final-prefix`、`DSH_VERSION=0.2.2-rc.3`、web 端口 **3098**；真实全局 dsh / 3080 / 真实 `~/.dsh` 未动 |
-| **完整 `setup.sh`** | **rc=0，耗时 157s（2 分 37 秒），9/9 步全绿**（修复前基线：rc=1 / 154s） |
+| **完整 `setup.sh`** | **rc=0，耗时 157s（2 分 37 秒），9/9 步全绿**（T3 记录；清理后本轮复验 2 分 25 秒，见 §0.1） |
 | 4/9 逐项 | require-builtin 平台包 OK；link 三包 OK；flock OK；4c patched；**4d patched（不再中断）**；**4f ripgrep 修复完成**：step2 `patched OK` 指向 `dsh-util-ripgrep/lib/index.js`，step3 resolved 系统 `rg 15.2.0` |
 | 8/9 + 3/9 | js `01[ok] 03[ok] 02[deprecated]`；node-pty 产物 OK；koffi skipped（设计预期）；白名单 **4 allowed + 1 skipped、无 UNCOVERED**；stderr 为空（stdout 仅一条「pnpm 12 被遮蔽」的良性提醒） |
 | **Web e2e** | **PASS=13 FAIL=0**：冷启动到 token **18s**；token→**303** + `Set-Cookie`；无 cookie `/`→401；带 cookie→**200**（首页 41184 B）；`/assets` immutable 头；日志**零 warn/error**；SIGTERM 后 1s 退出 |
 | **运行期 e2e** | **PASS=33 FAIL=0 INFO=1**（INFO 仅打印 `resolveRgPath` 定义位置）：wrapper `0.2.2-rc.3` / `--expose-internals`；node-pty；koffi 按设计不可加载；require-builtin 形状 + 幂等；flock 真实加锁；rg 新宿主 `resolveSystemRg` + 软链 + 实测搜索；sharp=wasm=0.35.5 且实测生成 PNG；link 真实 EACCES 回退；4c 就位；**4d guard 位置断言 `arbitrate(620256) < guard(620370) < preventDefault(620438)`**（菜单仲裁之后、原生 preventDefault 之前）+ `node --check` 通过；权限层两条且无裸 `[]` |
 | 安装审计 | 顶层 `@deepseek-ai` 包 336；带安装脚本包 5 个（4 allowed + koffi skipped）；68 个平台可选包不可解析**全部为非 android 平台**（良性）；npm 无平台错误/404 |
 | 幂等 | **完整 `setup.sh` 二次复跑（同前缀同 HOME）：rc=0 / 154s**——npm 对全局树 reify（`removed 4 / changed 664 packages`）会重置安装树，故 4/9+8/9 重新应用补丁（既有语义：升级/重装后必须重跑 setup.sh）；0/9 锚点预检 **8 项全 `[ok]`**；权限层 `[OK]` 未改动。组件级幂等单测：4d 已打补丁文件再跑「already patched」+ sha256 不变；4f「already patched, skipping」；js `01[skip] 02[deprecated] 03[skip]`；require-builtin/flock/link/profile 复跑全 `[OK]` |
-| 脚本级检查 | Lead 独立复跑 `bash patches/verify-all-checks.sh` → **PASS=10 FAIL=0**（8 夹具 / 334 断言 + 静态契约 42 条）；T4 交叉复核同为 PASS=10。**本轮 `--full` 复核：PASS=11 / FAIL=0（10 变异 + 4 对照组 = 变异 14/14，证据 `~/work/e2e/final/verify-all-checks-full.txt`）** |
+| 脚本级检查 | Lead 独立复跑 `bash patches/verify-all-checks.sh` → **PASS=10 FAIL=0**（8 夹具 / 317 断言 + 静态契约 42 条）；T4 交叉复核同为 PASS=10。**本轮 `--full` 复核：PASS=11 / FAIL=0（10 变异 + 4 对照组 = 变异 14/14，证据 `~/work/e2e/final/verify-all-checks-full.txt`）** |
 
 > **结论**：rc.3 上完成两处适配（4d 作曲栏双形状、4f 双宿主）后，**隔离安装全流程 rc=0、9/9 步全绿、Web 13/13 + 运行期 33/33、日志零 warn/error**。
 > **边界**：以上全部是**隔离前缀 + 临时 HOME + 临时端口**的验证结果；真实设备仍是 0.2.2-rc.1、3080 未重启、真实 `~/.dsh` 未写。隔离验证 ≠ 设备已升级——升级需用户显式执行（§4.3 / §5.2）。
@@ -821,14 +801,13 @@ bash patches/verify-all-checks.sh --full     # 追加变异测试
 node patches/verify-js-patches-fixture.js      # 21 断言
 node patches/verify-require-builtin-fixture.js # 29 断言
 node patches/verify-profile-patch-fixture.js   # 41 断言
-node patches/verify-patch-guards-fixture.js    # 57 断言（含 rc.3 原文块 / 旧形状）
+node patches/verify-patch-guards-fixture.js    # 52 断言（含 rc.3 原文块）
 node patches/verify-runtime-scripts-fixture.js # 40 断言
 node patches/verify-pnpm-provision-fixture.js  # 76 断言
 node patches/verify-composer-enter-fixture.js  # 29 断言（4d 两代形状）
 node patches/verify-rg-fix-fixture.js          # 41 断言（4f 两代落点）
 
 # 补丁 02 自检（--port 0 临时实例，不打扰正在跑的服务）
-node patches/verify-client-modules-lazy.js
 
 # 版本核对（不写死版本号）
 node -p "require('/data/data/com.termux/files/usr/lib/node_modules/@deepseek-ai/dsh/package.json').version"
@@ -857,7 +836,6 @@ node "$(readlink -f "$(command -v npm)")" view @deepseek-ai/dsh dist-tags
 | **生成物** | 不来自 npm 的产物：require-builtin 平台包、`$PREFIX/bin/dsh`、pnpm 包装、profile 权限层 |
 | **锚点（anchor）** | 补丁用于定位上游代码的特征串/函数定义/代码形状；升级后失配即补丁不命中 |
 | **硬契约（`--root`）** | 显式给错目标就不回落、不写任何文件，避免「夹具验证」实际写生产树 |
-| **弃用围栏** | 保留但降级的补丁区：命中照打、不命中只报 `[deprecated]`、不计失败 |
 | **独占发布（no-replace）** | 目标已存在时不覆盖的发布语义；无硬链接时用 `O_CREAT\|O_EXCL` 占位 + `rename` 填充 |
 | **token 链路** | 进程级 launch token → `?token=` URL 返回 303 + 签名 cookie → 之后 `/`/`/api` 走 cookie |
 

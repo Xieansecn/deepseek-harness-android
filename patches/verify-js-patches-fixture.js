@@ -7,10 +7,10 @@
  *
  * 覆盖：
  *   1. 重建的纯净树确实是上游形态（不含 `CACHE_IMMUTABLE`、`newlineCount` 仍是 for-of）；
- *   2. 全新树：`01[ok] 02[deprecated] 03[ok]` + 退 0，且产物与真实安装树**逐字节一致**；
- *   3. 幂等：再跑一次 → `01[skip] 02[deprecated] 03[skip]` + 退 0；
+ *   2. 全新树：`01[ok] 03[ok]` + 退 0，且产物与真实安装树**逐字节一致**；
+ *   3. 幂等：再跑一次 → `01[skip] 03[skip]` + 退 0；
  *   4. 目标被破坏（删掉 01 打进去的那行）→ `01[FAIL]` + **退 1**；
- *   5. 静态契约：`PATCHES` 顺序里 02 在 03 之前（顺序即语义）、02 在弃用围栏里、退出码只看 failed。
+ *   5. 静态契约：`PATCHES` 只含 01/03、退出码只看 failed。
  *
  * 用法：node patches/verify-js-patches-fixture.js
  * 退出码：0 = 全部通过；1 = 有断言失败。
@@ -84,9 +84,8 @@ function main() {
 	const r1 = runApply(work);
 	check("全新树退 0", r1.status === 0, `rc=${r1.status} stderr=${(r1.stderr || "").trim()}`);
 	check("报 01[ok]", /\[ok\]\s+01-frontend-static-cache/.test(r1.stdout || ""), (r1.stdout || "").trim().split("\n").find((l) => l.includes("01-")) || "");
-	check("报 02[deprecated]", /\[deprecated\]\s+02-client-modules-lazy-compose/.test(r1.stdout || ""), (r1.stdout || "").trim().split("\n").find((l) => l.includes("02-")) || "");
 	check("报 03[ok]", /\[ok\]\s+03-client-modules-newline-count/.test(r1.stdout || ""), (r1.stdout || "").trim().split("\n").find((l) => l.includes("03-")) || "");
-	check("汇总行「失败 0，弃用 1」", /失败 0，弃用 1/.test(r1.stdout || ""), (r1.stdout || "").trim().split("\n").pop());
+	check("汇总行「失败 0」", /完成：应用 2，跳过 0，失败 0/.test(r1.stdout || ""), (r1.stdout || "").trim().split("\n").pop());
 
 	// 3) 产物必须与真实安装树逐字节一致（脚本 ↔ 设备状态闭环）
 	for (const rel of PKG_FILES) {
@@ -100,9 +99,8 @@ function main() {
 	check("二次运行退 0", r2.status === 0, `rc=${r2.status}`);
 	check("01 报 [skip]", /\[skip\]\s+01-frontend-static-cache/.test(r2.stdout || ""), (r2.stdout || "").trim());
 	check("03 报 [skip]", /\[skip\]\s+03-client-modules-newline-count/.test(r2.stdout || ""), (r2.stdout || "").trim());
-	check("02 仍只报 [deprecated]（不计失败）", /\[deprecated\]/.test(r2.stdout || "") && !/\[FAIL\]/.test(r2.stdout || ""), (r2.stdout || "").trim());
 
-	// 5) 破坏目标 → 必须 [FAIL] + 退 1（且 02 的 deprecated 不该把退出码拉起来）
+	// 5) 破坏目标 → 必须 [FAIL] + 退 1
 	const hostFile = path.join(work, PKG_FILES[0]);
 	fs.writeFileSync(hostFile, fs.readFileSync(hostFile, "utf8").replace(/^\/\*\* Build assets under \/assets\/.*\n/m, ""));
 	const r3 = runApply(work);
@@ -113,13 +111,12 @@ function main() {
 	// 6) 静态契约（PATCHES 顺序即语义）
 	const scriptText = fs.readFileSync(APPLY, "utf8");
 	const patchesLine = (scriptText.match(/^PATCHES=\(([^)]*)\)/m) || [])[1] || "";
-	const deprecatedLine = (scriptText.match(/^DEPRECATED_PATCHES=\(([^)]*)\)/m) || [])[1] || "";
-	check("PATCHES 里 02 在 03 之前（顺序即语义）", patchesLine.indexOf("02-") !== -1 && patchesLine.indexOf("02-") < patchesLine.indexOf("03-"), patchesLine.trim());
-	check("02 登记在 DEPRECATED_PATCHES", deprecatedLine.includes("02-client-modules-lazy-compose"), deprecatedLine.trim());
+	check("PATCHES 只含 01/03（02 已删除）", patchesLine.includes("01-frontend-static-cache") && patchesLine.includes("03-client-modules-newline-count") && !patchesLine.includes("02-"), patchesLine.trim());
+	check("不再有 DEPRECATED_PATCHES 围栏", !/DEPRECATED_PATCHES/.test(scriptText));
 	check("退出码只看 failed（`[ \"$failed\" -eq 0 ]`）", /\[\s*"\$failed"\s*-eq\s*0\s*\]/.test(scriptText));
 
-	if (pass < 21) {
-		console.log(`  [FAIL] 断言数不足：PASS=${pass} < 21（有断言被删除或提前跳过）`);
+	if (pass < 17) {
+		console.log(`  [FAIL] 断言数不足：PASS=${pass} < 17（有断言被删除或提前跳过）`);
 		fail++;
 	}
 	console.log(`\n==== 夹具自检：PASS=${pass} FAIL=${fail} ====`);

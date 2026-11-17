@@ -794,7 +794,7 @@ anchor_precheck() {
     warn "  [warn] profile-boot 未检测到 interrupt/forceExitOnce（停止操作可能退化为等待 DSH_STOP_TIMEOUT 后兜底）。"
   fi
   # ripgrep 回退锚点：resolveRgPath() 的宿主随上游重构搬过家，两代落点都认（不按版本号分支）——
-  # 旧线（≤0.2.2-rc.1 / 0.2.1）定义在 dsh-tool-fs-search/lib/index.js；
+  # 0.2.2-rc.1：定义在 dsh-tool-fs-search/lib/index.js；
   # 0.2.2-rc.3+ 拆进新包 dsh-util-ripgrep/lib/index.js（tool-fs-search 只 import 并再导出）。
   local rg_hit=0 rgf
   for rgf in "$DSH_DIR/node_modules/@deepseek-ai/dsh-tool-fs-search/lib/index.js" \
@@ -1074,7 +1074,7 @@ step "4/9 后端兼容补丁"
 #     按 loader 的「平台可选包」约定补一个纯 JS 实现（dsh 包装脚本必带
 #     --expose-internals，require("internal/*") 直接可用，免 NDK 交叉编译）。
 #     失败必须 exit 1（不能只 warn）：没有它 dsh 根本起不来，
-#     与 4f 的 rg 同属「硬阻断」补丁。dsh <0.1.7 时脚本自身 SKIP（退 0）。
+#     与 4f 的 rg 同属「硬阻断」补丁（rc.1 / rc.3 都必需）。
 RBFIX="$SCRIPT_DIR/patches/patch-dsh-android-require-builtin.js"
 if [ -f "$RBFIX" ]; then
   if run_hidden node --expose-internals "$RBFIX" --root "$DSH_DIR"; then
@@ -1402,7 +1402,7 @@ if [ -f "$SCRIPT_DIR/apply-js-patches.sh" ]; then
   if run_hidden env DSH_PACKAGES_DIR="$DSH_DIR/node_modules/@deepseek-ai" bash "$SCRIPT_DIR/apply-js-patches.sh"; then
     ok "  JS 性能补丁完成"
   else
-    warn "  apply-js-patches.sh 退出码非 0。请查看上方标 [FAIL] 的条目：可能为真实锚点失配（上游重构）或应用失败（[deprecated] 表示弃用围栏中的旧补丁，不属于问题）；不影响核心功能。"
+    warn "  apply-js-patches.sh 退出码非 0。请查看上方标 [FAIL] 的条目：可能为真实锚点失配（上游重构）或应用失败；不影响核心功能。"
     warn "       可单独重试：bash $SCRIPT_DIR/apply-js-patches.sh"
   fi
 fi

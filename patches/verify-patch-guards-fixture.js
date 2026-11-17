@@ -43,7 +43,7 @@ const FLOCK_PATCH = path.join(HERE, "patch-dsh-android-flock.js");
 const LINK_PKGS = ["dsh-session-persistence-jsonl", "dsh-attachment-local", "dsh-fs-local"];
 const FLOCK_PKG = "node-addon-system";
 /** 断言总数下限：低于它说明有人删了断言（此时 FAIL 仍可能为 0，必须显式失败）。 */
-const EXPECTED_MIN_CHECKS = 57;
+const EXPECTED_MIN_CHECKS = 52;
 
 let pass = 0;
 let fail = 0;
@@ -292,60 +292,6 @@ function main() {
 		const r2 = run(LINK_PATCH, ["--root", fresh]);
 		check("二次运行退 0", r2.status === 0, `rc=${r2.status}`);
 		check("二次运行三包全部 [OK]（幂等）", (r2.stdout.match(/\[OK      \]/g) || []).length === 3, (r2.stdout.match(/\[OK      \]/g) || []).length + " 个 OK");
-	}
-
-	// 3c) <= 0.2.1 的旧形状（局部变量 createIfAbsent）→ fs-local 仍走旧分支修补。
-	{
-		console.log("\n用例 3c：<= 0.2.1 的 createIfAbsent 旧形状 → fs-local 仍能正向修补");
-		const old = fs.mkdtempSync(path.join(os.tmpdir(), "dsh-guards-oldsh-"));
-		cleanup.push(old);
-		for (const [name, content] of FRESH_PKGS) {
-			const lib = path.join(old, name, "lib");
-			fs.mkdirSync(lib, { recursive: true });
-			fs.writeFileSync(path.join(lib, "index.js"), content);
-			fs.writeFileSync(path.join(old, name, "package.json"), JSON.stringify({ type: "module" }) + "\n");
-		}
-		const OLD_FS_LOCAL = [
-			'import { link, lstat, open, rename, rm } from "node:fs/promises";',
-			"",
-			"function isEEXIST(error) {",
-			'\treturn error instanceof Error && "code" in error && error.code === "EEXIST";',
-			"}",
-			"function errorMessage(error) {",
-			"\treturn error instanceof Error ? error.message : String(error);",
-			"}",
-			"class FsError extends Error {",
-			"\tconstructor(message, code, options) { super(message, options); this.code = code; }",
-			"}",
-			"async function throwGuardedCreateFailure(error, absolutePath, displayPath, inspectPublicationTarget) {",
-			"\tthrow error;",
-			"}",
-			"",
-			"async function writeFileAtomic(absolutePath, content, mode, signal, internals = {}) {",
-			"\tconst createIfAbsent = internals.createIfAbsent;",
-			"\tconst linkFile = internals.linkFile ?? link;",
-			"\tconst inspectPublicationTarget = internals.inspectPublicationTarget ?? ((path) => lstat(path, { bigint: true }));",
-			"\ttry {",
-			"\t\tif (createIfAbsent !== void 0) try {",
-			"\t\t\tawait linkFile(tempPath, absolutePath);",
-			"\t\t} catch (error) {",
-			"\t\t\tawait throwGuardedCreateFailure(error, absolutePath, createIfAbsent.displayPath, inspectPublicationTarget);",
-			"\t\t}",
-			"\t} catch (error) {",
-			"\t\tthrow error;",
-			"\t}",
-			"}",
-			"",
-		].join("\n");
-		fs.writeFileSync(path.join(old, "dsh-fs-local", "lib", "index.js"), OLD_FS_LOCAL);
-		const r = run(LINK_PATCH, ["--root", old]);
-		check("退出码 0", r.status === 0, `rc=${r.status} ${r.stderr.trim()}`);
-		check("fs-local 报 [PATCHED]", /\[PATCHED \] dsh-fs-local:/.test(r.stdout), r.stdout.split("\n").find((l) => l.includes("dsh-fs-local")) || "");
-		check("报告识别为 <=0.2.1 createIfAbsent 形状", /<=0\.2\.1 createIfAbsent/.test(r.stdout), r.stdout.split("\n").find((l) => l.includes("createIfAbsent")) || "");
-		const patched = fs.readFileSync(path.join(old, "dsh-fs-local", "lib", "index.js"), "utf8");
-		check("旧形状产物含无硬链接回退", patched.includes("isHardLinkUnavailable") && patched.includes("publishNoReplaceNoHardlink") && patched.includes('if (createIfAbsent !== void 0) try {'));
-		const c = spawnSync(process.execPath, ["--check", path.join(old, "dsh-fs-local", "lib", "index.js")], { encoding: "utf8" });
-		check("旧形状产打完后 node --check 通过", c.status === 0, (c.stderr || "").trim().split("\n")[0] || "");
 	}
 
 	// 4) link：仅出现回退「调用」字样、没有函数定义 → 必须 WARN 而不是假 [OK]（缺陷 2 回归）

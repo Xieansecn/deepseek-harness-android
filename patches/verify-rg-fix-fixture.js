@@ -9,7 +9,7 @@
  * @deepseek-ai/dsh-util-ripgrep（tool-fs-search 只 import 再导出）。旧脚本只认 tool-fs-search，
  * 在 rc.3 上会误报「未识别形态」而实际靠平台软链兜底（T3 基线实测）。夹具必须钉住：
  *   1. rc.3 布局：只修 util-ripgrep 宿主，tool-fs-search 消费者**静默跳过**（不刷假漂移 warn）；
- *   2. 旧线布局（<= 0.2.2-rc.1 / 0.2.1）：tool-fs-search 仍是宿主，4 种历史形状都要能修；
+ *   2. 0.2.2-rc.1 布局：tool-fs-search 仍是宿主（同一 electron 归一化形状）；
  *   3. `--root`（这里走 DSH_ROOT）缺失/两个宿主都不存在 → 退 1；
  *   4. 平台软链成功路径 / 源码回退成功路径 / 漂移但软链兜底成功 / 漂移且解析失败；
  *   5. 幂等（二次运行只报 already patched）与对外提示。
@@ -70,7 +70,7 @@ function loadShapes() {
 	fs.writeFileSync(
 		file,
 		lines.slice(start, end).join("\n")
-			+ "\nmodule.exports = { ORIG, CURRENT_ORIG, NEW_ORIG, NEW_ELECTRON_ORIG, PATCHED_OLD, PATCHED_CURRENT, PATCHED_NEW, PATCHED_ELECTRON };\n",
+			+ "\nmodule.exports = { NEW_ELECTRON_ORIG, PATCHED_ELECTRON };\n",
 	);
 	const log = console.log;
 	console.log = () => {};
@@ -158,7 +158,7 @@ function runFix(root) {
 
 function main() {
 	const shapes = loadShapes();
-	check("从 apply-rg-fix.sh 抽取到 4 种历史形状", ["ORIG", "CURRENT_ORIG", "NEW_ORIG", "NEW_ELECTRON_ORIG"].every((k) => typeof shapes[k] === "string" && shapes[k].includes("resolveRgPath")), Object.keys(shapes).join(","));
+	check("从 apply-rg-fix.sh 抽取到上游形状常量", ["NEW_ELECTRON_ORIG", "PATCHED_ELECTRON"].every((k) => typeof shapes[k] === "string" && shapes[k].includes("resolveRgPath")), Object.keys(shapes).join(","));
 
 	// ---- 用例 1：DSH_ROOT 不存在 / 宿主包全缺 → 硬失败，不静默 ----
 	console.log("\n用例 1：DSH_ROOT 不存在 / 宿主包全缺 → 退 1");
@@ -196,9 +196,9 @@ function main() {
 	check("二次运行报 already patched", /already patched, skipping: .*dsh-util-ripgrep/.test(r3b.stdout || ""), (r3b.stdout || "").split("\n").find((l) => l.includes("already")) || "");
 	check("二次运行不重复注入", (fs.readFileSync(rc3Util, "utf8").match(/function resolveSystemRg\(/g) || []).length === 1);
 
-	// ---- 用例 3：旧线布局（tool-fs-search 是宿主）——4 种历史形状逐个正向验证 ----
-	console.log("\n用例 3：旧线布局（tool-fs-search 宿主，形状 ORIG / CURRENT_ORIG / NEW_ORIG）");
-	for (const shapeName of ["ORIG", "CURRENT_ORIG", "NEW_ORIG"]) {
+	// ---- 用例 3：0.2.2-rc.1 布局（tool-fs-search 是宿主）——同一 electron 归一化形状 ----
+	console.log("\n用例 3：0.2.2-rc.1 布局（tool-fs-search 宿主，NEW_ELECTRON_ORIG 形状）");
+	for (const shapeName of ["NEW_ELECTRON_ORIG"]) {
 		const root = tempDir("old-" + shapeName);
 		const host = addSearchHost(root, shapes, shapeName);
 		addVscodeRipgrep(root);

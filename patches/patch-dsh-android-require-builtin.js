@@ -38,8 +38,6 @@
  * 让路：目标目录里若已存在**非本补丁生成**的平台包（例如上游日后真发布了 android
  * 预编译包），一律不覆盖、直接 `[SKIP]`，其可用性仍由 `verify()` 断言——通过则退 0，
  * 加载不了才退 1（不能因为「不是我们造的」就中断一次健康安装）。
- * 版本：dsh <0.1.7 没有这个 addon 家族 → `[SKIP]` 退 0（该分支要求「定位到 dsh 安装根」
- * 与「entry 包存在」解耦，否则恒不可达、会把健康的 0.1.5 回退安装判成失败）。
  * 用法：node patch-dsh-android-require-builtin.js [--root <dsh 安装根>]
  * ⚠️ `--root` 是硬契约：显式给出但定位不到 dsh 安装根时**报错退 1**，不回落到其它候选
  * （否则夹具/多安装场景会静默操作生产树）。
@@ -54,13 +52,13 @@ const ENTRY_PKG = "node-addon-require-builtin";
 const DSH_PKG = "@deepseek-ai/dsh";
 const MARKER = "[dsh-android-require-builtin]";
 
-/** 该目录是不是 dsh 安装根：自身 package.json 声明为 @deepseek-ai/dsh，或它下面就有 entry 包。 */
+/** 该目录是不是 dsh 安装根：自身 package.json 声明为 @deepseek-ai/dsh。 */
 function isDshRoot(dir) {
 	try {
-		if (JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")).name === DSH_PKG) return true;
-	} catch {}
-	// 兼容 dsh <0.1.7（没有 entry 包）之外的场景与夹具：含 <node_modules>/<ENTRY_PKG> 也算安装根。
-	return fs.existsSync(path.join(dir, "node_modules", ENTRY_PKG, "package.json"));
+		return JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")).name === DSH_PKG;
+	} catch {
+		return false;
+	}
 }
 
 /** 从 start 起向上找 dsh 安装根（最多 8 层），找不到返回 null。 */
@@ -77,9 +75,6 @@ function findDshRootFrom(start) {
 
 /**
  * 定位 dsh 安装根。
- * ⚠️ 定位条件**不能**依赖 entry 包存在：dsh <0.1.7 根本没有这个 addon 家族，而那种情况
- * 必须走到 main 里的 `[SKIP]` 退 0（旧实现要求 entry 包存在才返回根，导致 SKIP 分支恒不可达、
- * 直接把一次健康的 0.1.5 回退安装判成安装失败）。
  * ⚠️ 显式 `--root` 是硬契约：定位失败即返回 null（由调用方报错退 1），**不回落到其它候选**——
  * 否则夹具/多安装场景会静默操作生产树。
  */
@@ -311,18 +306,16 @@ function main() {
 	if (!dshRoot) {
 		// 显式 --root 定位失败时**绝不**回落到其它候选：否则夹具/多安装场景会静默操作生产树。
 		const why = optRoot
-			? `--root 指向的 ${optRoot} 不是 dsh 安装根（该目录或其祖先需满足：package.json 的 name 为 ${DSH_PKG}，或含 node_modules/${ENTRY_PKG}）`
+			? `--root 指向的 ${optRoot} 不是 dsh 安装根（该目录或其祖先的 package.json 需声明 name 为 ${DSH_PKG}）`
 			: `未找到 dsh 安装根（package.json 的 name 为 ${DSH_PKG}）`;
 		console.error(`${why}。请用 --root <dsh 安装根> 指定。`);
 		process.exit(1);
 	}
 	const entryPkgDir = path.join(dshRoot, "node_modules", ENTRY_PKG);
 	if (!fs.existsSync(path.join(entryPkgDir, "package.json"))) {
-		// dsh < 0.1.7 没有这个原生 addon 家族，无需补平台包。
-		// 走 SKIP 而非 exit 1：setup.sh 对本脚本的失败是硬中断（dsh 起不来），
-		// 不能让「版本还没有这个包」误判成安装失败。
-		console.log(`[SKIP    ] ${ENTRY_PKG} 不存在（dsh < 0.1.7 无此原生 addon 家族），无需补平台包`);
-		return;
+		// 0.2.2-rc.1 / rc.3 的 dsh 一定带这个 addon 家族；缺了说明安装树不完整（dsh 也起不来）。
+		console.error(`dsh 安装树缺少 ${ENTRY_PKG}（${entryPkgDir}）：安装不完整，请重装 dsh（bash setup.sh）。`);
+		process.exit(1);
 	}
 	const version = JSON.parse(fs.readFileSync(path.join(entryPkgDir, "package.json"), "utf8")).version;
 

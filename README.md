@@ -14,12 +14,10 @@
 </div>
 
 > [!IMPORTANT]
-> 已在 **deepseek-harness `0.2.2-rc.3`**（GitHub 最新 release tag；npm 上它在 `next` 标签，`latest` 仍是 `0.2.2-rc.1`）上完成适配与**隔离安装验证**（临时前缀 + 临时 HOME + 临时端口，真实 3080 未动）：`setup.sh` **rc=0 / 157s / 9 步全绿**、Web e2e **13/13**（冷启动到 token **18s**、303→cookie→200、日志零 warn/error）、运行期 e2e **33/33**。rc.3 需要适配的只有两处：作曲栏回车（`client.js` 变成压缩单行产物）与 ripgrep（解析抽到新包 `dsh-util-ripgrep`）；其余补丁无需改锚点即命中。⚠️ 脚本默认跟随 npm `latest`（= rc.1）：装 rc.3 用 `DSH_VERSION=0.2.2-rc.3 bash setup.sh`，升级后 `bash ~/dsh/restart_dsh_now.sh` 重启 GUI。⚠️ rc.3 安装树约 **1.2 GB**（rc.1 约 722 MB），升级前先看存储。**本机真实安装仍是 `0.2.2-rc.1`、3080 未重启**——隔离验证不等于设备已升级。完整的修改清单、重锚说明与验证证据见 [`REPORTS.md`](REPORTS.md)。
+> 已在 **deepseek-harness `0.2.2-rc.3`**（GitHub 最新 release tag；npm 上它在 `next` 标签，`latest` 仍是 `0.2.2-rc.1`）上完成适配与**隔离安装验证**（临时前缀 + 临时 HOME + 临时端口，真实 3080 未动）：`setup.sh` **rc=0 / 2 分 25 秒 / 9 步全绿**、Web 链路（token URL→**303**→cookie 后 `/`→**200**、`/assets` immutable、日志零 warn/error）、运行期模块（node-pty / require-builtin / flock / rg / sharp / link / 4c / 4d / 权限层）全部通过。rc.3 需要适配的只有两处：作曲栏回车（`client.js` 变成压缩单行产物）与 ripgrep（解析抽到新包 `dsh-util-ripgrep`）；其余补丁无需改锚点即命中。⚠️ 脚本默认跟随 npm `latest`（= rc.1）：装 rc.3 用 `DSH_VERSION=0.2.2-rc.3 bash setup.sh`，升级后 `bash ~/dsh/restart_dsh_now.sh` 重启 GUI。⚠️ rc.3 安装树约 **1.2 GB**（rc.1 约 722 MB），升级前先看存储。**本机真实安装仍是 `0.2.2-rc.1`、3080 未重启**——隔离验证不等于设备已升级。完整的修改清单、重锚说明与验证证据见 [`REPORTS.md`](REPORTS.md)（2026-11-17 清理：删除补丁 02/弃用围栏与更老版本线的兼容分支，见 `REPORTS.md` §2.7.4 的历史说明）。
 >
-> **2026-11 更新（rc.1 历史）**：设备已升级到 **`0.2.2-rc.1`** 并迁移到 npm 原生全局布局（旧 `~/.local/share/dsh-android/dsh` hold 树已删除）。0.2.2 重写了 `dsh-host-frontend-static`（`Response` API）和 `dsh-fs-local` 的 `createIfAbsent`；补丁 `01` 与 link 补丁已**重锚**并通过 js-patches（21）/guards 夹具。`2/9` 还修了一个隐藏炸弹：旧提示文本把命令写在反引号里，bash **真的会执行**（安装中途偷偷重装未打补丁的 dsh）。升级仍只需 `bash setup.sh`。
-> Tested on **deepseek-harness `0.2.2-rc.3`** (GitHub's latest release tag; on npm it is the `next` tag while `latest` is still `0.2.2-rc.1`): adaptation + **isolated-install verification** (temp prefix + temp HOME + temp port; the real 3080 was untouched): `setup.sh` **rc=0 / 157s / all 9 steps green**, web e2e **13/13** (cold start to token **18s**, 303→cookie→200, zero warn/error), runtime e2e **33/33**. Only two things needed adaptation for rc.3: the composer Enter handling (`client.js` became a compact single-line product) and ripgrep (resolution moved to the new `dsh-util-ripgrep` package); every other patch matches without re-anchoring. ⚠️ The script follows npm `latest` (= rc.1) by default: install rc.3 with `DSH_VERSION=0.2.2-rc.3 bash setup.sh`, then restart the GUI (`bash ~/dsh/restart_dsh_now.sh`). ⚠️ The rc.3 install tree is about **1.2 GB** (rc.1: ~722 MB) — check free storage first. **The real installation here is still `0.2.2-rc.1` and 3080 was not restarted** — isolated verification is not the same as an upgraded device. Full inventory, re-anchor notes and evidence: [`REPORTS.md`](REPORTS.md).
+> Tested on **deepseek-harness `0.2.2-rc.3`** (GitHub's latest release tag; on npm it is the `next` tag while `latest` is still `0.2.2-rc.1`): adaptation + **isolated-install verification** (temp prefix + temp HOME + temp port; the real 3080 was untouched): `setup.sh` **rc=0 / 2m25s / all 9 steps green**, web chain (token URL → **303** → cookie → `/` **200**, `/assets` immutable, zero warn/error), runtime modules (node-pty / require-builtin / flock / rg / sharp / link / 4c / 4d / permission layer) all pass. Only two things needed adaptation for rc.3: the composer Enter handling (`client.js` became a compact single-line product) and ripgrep (resolution moved to the new `dsh-util-ripgrep` package); every other patch matches without re-anchoring. ⚠️ The script follows npm `latest` (= rc.1) by default: install rc.3 with `DSH_VERSION=0.2.2-rc.3 bash setup.sh`, then restart the GUI (`bash ~/dsh/restart_dsh_now.sh`). ⚠️ The rc.3 install tree is about **1.2 GB** (rc.1: ~722 MB) — check free storage first. **The real installation here is still `0.2.2-rc.1` and 3080 was not restarted** — isolated verification is not the same as an upgraded device. Full inventory, re-anchor notes and evidence: [`REPORTS.md`](REPORTS.md).
 >
-> **2026-11 update (rc.1 history)**: the device was upgraded to **`0.2.2-rc.1`** and migrated to npm's native global layout (the old `~/.local/share/dsh-android/dsh` hold tree was deleted). 0.2.2 rewrote `dsh-host-frontend-static` (Response API) and `dsh-fs-local`'s `createIfAbsent`; patch `01` and the link patch were **re-anchored**. Step `2/9` also got a hidden-bomb fix: the old hint text put a command in backticks, which bash **actually executed** (mid-install reinstall of an unpatched dsh). Upgrading is still just `bash setup.sh`.
 
 ---
 
@@ -210,7 +208,7 @@ bash ~/dsh/restart_dsh_now.sh
 注意事项：
 
 - **第三方插件，不是本项目的一部分**：不打包、不修改，版本兼容与问题反馈都归它自己的仓库。
-- **它按 dsh `0.1.7-rc.2` 逐个核对了上游哈希类名，而哈希类名随版本漂移且是静默失效**（页面正常、效果全无）。升级 dsh 后请同步升级/重装它，或先卸载以确认问题归属——`bash setup.sh` 不会替你处理这一步，它只做后端修补。
+- **它按某个旧版 dsh 逐个核对了上游哈希类名，而哈希类名随版本漂移且是静默失效**（页面正常、效果全无）。升级 dsh 后请同步升级/重装它，或先卸载以确认问题归属——`bash setup.sh` 不会替你处理这一步，它只做后端修补。
 - **与本仓库互不干扰**：`setup.sh` 第 7 步只把权限层**合并**进 `~/.dsh/profiles/web/cordis.patch.yml`——文件还是 dsh 的空数组模板（`[]`）就整体替换，已有你自己的配置层就追加——不覆盖 profile 里的其它配置层，所以装好插件后照常重跑 `setup.sh` 即可。
 - **「普通回车=换行」不在这个插件里**：那处按键映射要改产品包，仍由本仓库的 `setup.sh` 修补（见下文「原理」表）；插件只负责 `enterkeyhint=newline`。
 - **只对 `web` profile 有意义**，`tui` / `headless` 无关。
@@ -237,11 +235,11 @@ bash ~/dsh/restart_dsh_now.sh
 | HMR 启动崩溃 | `--expose-internals is required` | 重建 `dsh` 包装脚本，加 `--expose-internals --no-warnings` |
 | bash 工具不可用 | `SANDBOX_UNAVAILABLE` | 写入 `danger-full-access` 配置层（见下方安全说明） |
 | 整页重载重复下载 JS | 每次刷新重下 `/assets/` 全部构建产物（本机实测 ~4.5MB） | 给 `/assets/` 静态资源加 immutable 缓存头 |
-| 冷启动十几秒才出 token | `dsh web` 起来后端口先回 401，十几秒后才打印鉴权 URL | 客户端插件组合（`dsh-client-modules`）启动时会全量重组约 10 次，每次都把所有 client bundle 预建一遍单条 artifact：`0.1.7` 起上游已用原生 `lazyBody` 按需构建，补丁 `02` 在 `0.1.5` 线上做同一件事（实测冷启动 22.6s → 12.5s，产物与未打补丁时逐字节一致），`03` 再把这处行数统计改成索引循环 |
+| 冷启动十几秒才出 token | `dsh web` 起来后端口先回 401，十几秒后才打印鉴权 URL | 客户端插件组合（`dsh-client-modules`）启动时会全量重组约 10 次，每次都把所有 client bundle 预建一遍单条 artifact：上游已用原生 `lazyBody` 按需构建；补丁 `03` 再把这处行数统计改成索引循环（10.8MB 实测 302ms→60ms） |
 
 > [!NOTE]
-> 现在保留三个上游 JS 性能补丁：`01-frontend-static-cache`（`/assets/` 内容哈希资源用 immutable 缓存头；⚠️ 0.2.2 起上游已原生给所有非 index 文件加 `no-cache`+ETag+304，补丁只把 `/assets/` 升级为 immutable，其余沿用上游行为）、`02-client-modules-lazy-compose`（客户端 combo 按需构建）与 `03-client-modules-newline-count`（`newlineCount` 改索引循环，10.8MB 实测 302ms→60ms）。
-> `01`/`02` 面向 0.1.5 线；`0.1.7` 起上游已原生实现 combo 惰性化（`lazyBody`），`02` 已弃用（上游原生 `lazyBody` 取代了它），报 `[deprecated]` 而不是失败（第 8/9 步不再告警），此时由**与版本无关**的 `03` 继续保住这处热点。历史上做长会话历史瘦身的补丁（apiproxy history slim、增量重连、连接 schema、插件 bundle 缓存）宿主模块已被上游移除或原生实现，相关文件与"过时跳过"逻辑已删除。三个补丁的锚点均已对照 npm 对应版本源码逐字节核对。
+> 现在保留两个上游 JS 性能补丁：`01-frontend-static-cache`（`/assets/` 内容哈希资源用 immutable 缓存头；⚠️ 0.2.2 起上游已原生给所有非 index 文件加 `no-cache`+ETag+304，补丁只把 `/assets/` 升级为 immutable，其余沿用上游行为）与 `03-client-modules-newline-count`（`newlineCount` 改索引循环，10.8MB 实测 302ms→60ms）。
+> 客户端 combo 惰性化已由上游原生 `lazyBody` 实现，历史上的补丁 `02` 及其「弃用围栏」机制已删除；更早的长会话历史瘦身补丁也早已删除。两个补丁的锚点均已对照 rc.1 / rc.3 源码逐字节核对。
 
 > [!IMPORTANT]
 > **本仓库不注入任何前端界面代码**：不注入 CSS/JS、不改 `dsh-web-frontend` 的 viewport 与 PWA manifest。历史上做过（`apply-frontend.sh` + `patches/mobile.css`/`mobile.js`），但它依赖上游构建产物里的哈希类名与 DOM 结构，**每次 dsh 升级都会漂移**，与「只做最小侵入式文本替换」的约定冲突，已删除。前端体验问题请提给上游；需要手机界面适配请装可选插件（见「📱 手机界面适配（可选）」）。唯一例外是作曲栏的按键映射（`dsh-client-ui-conversation`：普通回车=换行、`Ctrl/Cmd+Enter`=发送），它改的是按键处理逻辑而非样式，且同样按锚点修补、失配即回滚。
@@ -259,11 +257,11 @@ bash ~/dsh/restart_dsh_now.sh
 | `2/9` | 准备 Node headers：**Termux 自带 `$PREFIX/include/node` 时直接使用并跳过下载**（node-gyp 未给 `--nodedir` 时走 `process.config.variables.node_prefix`）；否则 `npx node-gyp install`（慢则切 npmmirror）并给缓存 `common.gypi` 补 `android_ndk_path` |
 | `2.5/9` | **pnpm 运行时**（dsh 插件功能依赖）：PATH 上已有可用 pnpm 11.x 就直接复用；没有就 `npm --prefix ~/.local/share/pnpm-pin install pnpm@11.27.1`（JS build）并写 `~/bin/{pnpm,pn,pnpx,pnx}` 包装，幂等 |
 | `3/9` | 安装 dsh：`npm install -g` **直接装到 npm 默认全局目录**（旧版 hold symlink 与旧 dsh 包装会在安装前自动摘除/移开，失败会还原；android30 目标；`--allow-scripts` 只放行**构建能在 Android 成功**的原生包，koffi 在 `SKIP_SCRIPTS` 里、npm 12 下只会警告并跳过——白名单内的脚本失败会让整次安装退 1；npm 11 的 `--allow-scripts` 只是建议性）。装后校验 node-pty 产物、跑安装脚本白名单自检、并报告实际生效的 `allow-scripts` 策略（advisory / strict） |
-| `4/9` | 后端兼容补丁：`node-addon-require-builtin` android 平台包（≥0.1.7 启动前提，失败即中断）、link→rename 回退、flock 原生绑定、subprocess 平台检测（android≡linux）、作曲栏「回车=换行」（按产物形状两代插入）、grep/glob ripgrep 修复（两代宿主） |
+| `4/9` | 后端兼容补丁：`node-addon-require-builtin` android 平台包（启动前提，失败即中断）、link→rename 回退、flock 原生绑定、subprocess 平台检测（android≡linux）、作曲栏「回车=换行」（按产物形状两代插入）、grep/glob ripgrep 修复（两代宿主） |
 | `5/9` | sharp wasm 回退（附件模块依赖），紧接硬链接补丁验证（临时目录真实运行，不碰会话数据；必须排在 wasm 回退之后，否则附件模块 `import sharp` 失败会误报） |
 | `6/9` | 重建 `dsh` 包装脚本（`--expose-internals`，原子 `mv` 替换，不碰符号链接目标） |
 | `7/9` | 写入 `~/dsh/` 下的启动/停止/重启脚本；用 `patches/apply-profile-patch.js` 安全安装权限层（`sandbox-policy` + `approval` **两条**；空数组模板→替换、已有配置层→按条目只补缺失、残留 `[]`→定点修复；写前写后都用 dsh 自己的解析器校验，不可解析即中断，绝不留下起不来的 profile） |
-| `8/9` | JS 性能补丁（`01` 静态资源缓存头 / `02` 客户端 combo 按需构建 / `03` newlineCount 索引循环；锚点失配只告警不中断） |
+| `8/9` | JS 性能补丁（`01` 静态资源缓存头 / `03` newlineCount 索引循环；锚点失配只告警不中断） |
 | `9/9` | 完成汇总 |
 
 ### 鉴权与启动链路
@@ -298,7 +296,7 @@ setup.sh                安装 + 打补丁 + 生成脚本
 ```text
 deepseek-harness-android/
 ├── setup.sh                     # 主入口：安装 dsh（npm install -g）+ 全部 Android 修补（幂等）
-├── apply-js-patches.sh          # 应用 JS 性能补丁（01 缓存头 / 02 combo 惰性化 / 03 newlineCount，幂等）
+├── apply-js-patches.sh          # 应用 JS 性能补丁（01 缓存头 / 03 newlineCount，幂等）
 ├── apply-rg-fix.sh              # 修复 ripgrep launch failed
 ├── start_dsh.sh                 # 启动/复用服务 + 取 token + 打开浏览器（Via 优先）
 ├── stop_dsh.sh                  # 安全停止（pid 身份二次校验 + 端口释放确认）
@@ -306,21 +304,20 @@ deepseek-harness-android/
 ├── config/
 │   └── cordis.patch.yml         # danger-full-access 配置层（由 patches/apply-profile-patch.js 安全合并进 ~/.dsh/profiles/web/）
 ├── patches/
-│   ├── 01~03-*.patch            # JS 补丁源（缓存头 / 客户端 combo / newlineCount）
+│   ├── 01,03-*.patch            # JS 补丁源（缓存头 / newlineCount）
 │   ├── patch-dsh-android-link.js    # 禁硬链接修复（rename / O_EXCL+rename 回退）
 │   ├── patch-dsh-android-flock.js   # flock 原生绑定（编译 + 运行时自检）
-│   ├── patch-dsh-android-require-builtin.js # ≥0.1.7 启动前提：补 android 平台包
+│   ├── patch-dsh-android-require-builtin.js # 启动前提：补 android 平台包
 │   ├── verify-android-link-fix.js   # 硬链接修复验证（临时目录真实运行，不碰会话）
 │   ├── apply-profile-patch.js       # 安全安装权限层（分类：替换/追加/定点修复 + dsh 解析器校验）
-│   ├── verify-client-modules-lazy.js # 客户端 combo 补丁自检（--port 0 临时实例）
-│   ├── verify-require-builtin-fixture.js # 平台包补丁夹具自检（8 用例 / 29 断言，只写临时目录）
-│   ├── verify-patch-guards-fixture.js # link/flock 守护条件夹具自检（57 断言：含 rc.3 原文块 / ≤0.2.1 旧形状，只写临时目录）
+│   ├── verify-require-builtin-fixture.js # 平台包补丁夹具自检（7 用例 / 27 断言，只写临时目录）
+│   ├── verify-patch-guards-fixture.js # link/flock 守护条件夹具自检（52 断言：含 rc.1/rc.3 原文块，只写临时目录）
 │   ├── verify-profile-patch-fixture.js # 权限层补丁夹具自检（11 用例 / 41 断言，只写临时目录）
-│   ├── verify-js-patches-fixture.js # apply-js-patches.sh 夹具（21 断言：反向上游→正向打→幂等→破坏退 1）
+│   ├── verify-js-patches-fixture.js # apply-js-patches.sh 夹具（19 断言：反向上游→正向打→幂等→破坏退 1）
 │   ├── verify-runtime-scripts-fixture.js # start/stop/restart 夹具（40 断言：假 dsh + 隔离 HOME，不碰 3080）
 │   ├── verify-pnpm-provision-fixture.js # pnpm 运行时供给夹具（76 断言：离线、临时 HOME/PIN/WRAPPER）
-│   ├── verify-composer-enter-fixture.js # 4d 回车补丁夹具（29 断言：旧多行 / rc.3 压缩单行两代插入点）
-│   ├── verify-rg-fix-fixture.js    # rg 修复夹具（41 断言：两代宿主 / 旧线三形状 / 消费者静默跳过）
+│   ├── verify-composer-enter-fixture.js # 4d 回车补丁夹具（29 断言：rc.1 多行 / rc.3 压缩单行两代插入点）
+│   ├── verify-rg-fix-fixture.js    # rg 修复夹具（33 断言：rc.1 tool-fs-search / rc.3 util-ripgrep 两代宿主 + 消费者静默跳过）
 │   ├── verify-setup-static-check.sh # setup.sh / 运行期脚本静态契约（42 条，只读）
 │   ├── verify-test-effectiveness.js # 变异测试：往副本注入 10 个已知回归，对应套件必须变红
 │   └── verify-all-checks.sh         # 一条命令跑完全部脚本级检查（--full 追加变异测试）
@@ -328,7 +325,7 @@ deepseek-harness-android/
 ├── docs/
 │   └── index.html               # 说明文档站
 ├── AGENTS.md                    # 维护者约定与踩坑记录（给 AI/协作者）
-├── REPORTS.md                   # 修改与适配报告（22 项修改全景 + rc.x 重锚清单 + 隔离验证证据）
+├── REPORTS.md                   # 修改与适配报告（21 项修改全景 + rc.x 重锚清单 + 隔离验证证据）
 └── README.md                    # 本文件（中英双语）
 ```
 
@@ -366,8 +363,6 @@ node patches/patch-dsh-android-link.js  --root "$DSH_DIR/node_modules/@deepseek-
 node patches/verify-android-link-fix.js --root "$DSH_DIR/node_modules/@deepseek-ai"
 node patches/patch-dsh-android-flock.js --root "$DSH_DIR/node_modules/@deepseek-ai"
 node --expose-internals patches/patch-dsh-android-require-builtin.js --root "$DSH_DIR"
-# 补丁 02 自检（临时实例，不动运行中的服务）
-node patches/verify-client-modules-lazy.js
 # 夹具自检（只写临时目录，不碰安装树）
 node patches/verify-require-builtin-fixture.js
 node patches/verify-patch-guards-fixture.js
@@ -376,7 +371,7 @@ node patches/verify-js-patches-fixture.js
 node patches/verify-runtime-scripts-fixture.js
 node patches/verify-pnpm-provision-fixture.js
 
-# 一条命令跑完全部脚本级检查（语法 + setup 静态契约 42 条 + 8 个夹具 334 条断言；全绿输出 套件 PASS=10，加 --full 为 PASS=11）
+# 一条命令跑完全部脚本级检查（语法 + setup 静态契约 42 条 + 8 个夹具 317 条断言；全绿输出 套件 PASS=10，加 --full 为 PASS=11）
 bash patches/verify-all-checks.sh            # 摘要
 bash patches/verify-all-checks.sh --verbose  # 全量输出
 bash patches/verify-all-checks.sh --full     # 再跑变异测试（约 5 分钟，证明套件抓得住回归）
@@ -406,8 +401,8 @@ bash patches/verify-all-checks.sh --full     # 再跑变异测试（约 5 分钟
 - **没有用 Via 打开**：确认 Via 包名为 `mark.via`（不同渠道包名可能不同），可用 `DSH_VIA_APP=<包名>` 指定。
 - **模型没反应**：检查 Models 页的 API Key 与 `~/.dsh/.credentials.yaml`。
 - **手机上排版难受 / 软键盘挡住输入框 / 某些按钮点不动**：这是上游 Web UI 按桌面排版的固有行为，本仓库不再注入前端 CSS/JS。可安装社区插件 `dsh-android-ui`，见「📱 手机界面适配（可选）」。
-- **升级 dsh 后 dsh 起不来，日志报 `No usable native binding found`**：0.1.7 起上游新增原生 addon 家族但没发 android 预编译包。重跑 `bash setup.sh`（会补 `node-addon-require-builtin-android-arm64` 平台包）即可。
-- **升级到 0.2.1 后首次启动，profile 里少了一个 bundle / 日志提到迁移**：0.2.1 的 `RETIRED_BUNDLES` 迁移会自动把 `dsh-experimental-schedule-bundle` 从旧 profile 里摘除——**正常行为，不是错误**，不用手动加回。0.2.2-rc.3 的 `RETIRED_BUNDLES` 又多了 `dsh-experimental-agent-team-profile`，同样是首次启动自动摘除，属正常迁移。
+- **升级 dsh 后 dsh 起不来，日志报 `No usable native binding found`**：上游原生 addon 家族没有发布 android 预编译包。重跑 `bash setup.sh`（会补 `node-addon-require-builtin-android-arm64` 平台包）即可。
+- **升级到 0.2.2-rc.3 后首次启动，profile 里少了一个 bundle / 日志提到迁移**：rc.3 的 `RETIRED_BUNDLES` 会把 `dsh-experimental-agent-team-profile`（以及更早的 `dsh-experimental-schedule-bundle`）从旧 profile 自动摘除——**正常迁移，不是错误**，不用手动加回。
 - **0.2.2-rc.3 上 `setup.sh` 在 4/9 中断，日志出现 `回车处理器入口锚点出现 0 次`**：rc.3 把 `dsh-client-ui-conversation/lib/client.js` 压成单行产物，旧版固定锚点对不上（旧仓库修复前唯一硬中断）。更新仓库到含 rc.3 适配的版本后重跑 `bash setup.sh` 即可；补丁现在按产物形状两代插入，旧线行为不变。
 - **升级到 0.2.2-rc.3 后磁盘/安装时间明显变大**：rc.3 安装树约 **1.2 GB**（rc.1 约 722 MB）——`@deepseek-ai/libreoffice-kit-wasm` 0.2.3 取消了 `os:["linux"]` 限制，Android 上也会安装（约 146 MB）；根包还带上了 `src`/`*.js.map`。这是上游发布内容变化，不是本仓库补丁造成的，也不是故障。
 - **`dsh plugin …` / 插件市场报找不到 pnpm，或 pnpm 报 `ERR_PNPM_STORE_DIR_ACQUIRE_OPERATION_LOCK`**：dsh ≥0.2.1 的插件功能运行期会从 PATH 调用 pnpm，而 pnpm 12 在 Android 上不可用。先 `command -v pnpm && pnpm --version` 确认解析到的是 **11.x**；需要时用 `npm install -g pnpm@11`，或让 `~/bin/pnpm` 的 11.x 包装在 PATH 中优先（见「pnpm 运行时（插件功能依赖）」）。
@@ -420,15 +415,9 @@ bash patches/verify-all-checks.sh --full     # 再跑变异测试（约 5 分钟
 ## 🧪 兼容性 / Compatibility
 
 - **作者实测环境**：Huawei Mate 60（ALN-AL80），HarmonyOS 4.2.0（build 4.2.0.186），**无 root**，Termux（Node v26，aarch64），本机 **Node v26.13.0 / npm 12.2.1 / pnpm 11.27.1 / ripgrep 15.2.0**。
-- **2026-11-17 rc.3 隔离验证（最终）**：`DSH_VERSION=0.2.2-rc.3` 在临时前缀 + 临时 HOME + 临时端口完成全流程——`setup.sh` **rc=0 / 157s / 9 步全绿**；Web e2e **PASS=13 FAIL=0**（token 18s、303→cookie→200、`/assets` immutable 头、日志零 warn/error）；运行期 e2e **PASS=33 FAIL=0**（wrapper/node-pty/require-builtin/flock/rg/sharp/link/4c/4d 位置断言/权限层）；夹具 **8 个 / 334 断言 + 静态契约 42 条**、`verify-all-checks.sh` **PASS=10 FAIL=0**。**真实设备未重装、3080 未重启**（隔离验证 ≠ 设备已升级，升级方式见下）。
-- **历史基线**：`0.2.1-rc.5`（3m18s / token 13.9s / 日志零 warn）、`0.2.2-rc.1`（原生全局布局迁移）、`0.2.0-rc.2` 与 `0.1.7-rc.2` 线均通过同一套补丁。**2026-11-08**：设备升级到 `0.2.2-rc.1` 并迁移到原生全局布局；`01` 与 link 补丁按 0.2.2 重锚。
-- **0.2.1 相对 0.2.0 的变化**（已核对，对补丁/配置的影响）：
-  - 依赖闭包 **532 → 604 个包**（rc.2 时点；rc.5 本机实测约 605，差额来自本项目的自补包），直接依赖 **+10/−6**；新增 11 个实验性 bundle、`dsh-plugin-manager`、`dsh-plugin-market*`、`dsh-tool-schedule/terminal/session-query`、`dsh-session-query-sqlite`（用 `node:sqlite`，Node 26 可用）等；移除 `dsh-webhook(-github)`、`dsh-hooks-codex/claude-code`、`dsh-tool-ralph`、`dsh-experimental-schedule-bundle`、`dsh-client-store/ui-primitives/ui-slots`、`dsh-invariants`、`dsh-hook-protocol`、`dsh-subagent-in-process-driver`。
-  - `OPTIONAL_BUNDLES` **4 → 12**（rc.2 时点，全部是实验性 bundle、默认不启用；rc.5 未逐项复核）；Web 默认 bundle 不变；**所有现有补丁锚点全在、无需改动**。
-  - 版本敏感项：`cordis` 4.0.5、`chokidar` 5（要求 Node ≥20.19，Node 26 满足）、`openai` 7.x、`pi-ai` 1.3；不变项：`koffi` 3.1.1、`node-pty` 1.2.0-beta.15、`sharp` 0.35.5、`node-addon-system` 0.1.2、`node-addon-require-builtin`/`native-custom-loader` 0.1.9。
-  - `0.2.1-rc.5` 复核（本机实跑）：锚点仍**零改动**，`chokidar 5.0.0` / `openai 7.19.0` 与上面一致，`koffi`/`node-pty`/`sharp`/addon 家族版本全部不变；权限层两条仍与 `permission` 预设匹配（启动零告警）。
-  - 上游 0.2.1 启动时会通过 `RETIRED_BUNDLES` 迁移**自动从旧 profile 摘除 `dsh-experimental-schedule-bundle`**——这是正常的迁移，不是错误。
-  - 潜伏风险（默认不触发）：`sherpa-onnx-node`（语音输入，需手动启用实验性 bundle）与 `libreoffice-kit`（没有 android 平台包，office→pdf 可能不可用）。
+- **2026-11-17 rc.3 隔离验证（最终）**：`DSH_VERSION=0.2.2-rc.3` 在临时前缀 + 临时 HOME + 临时端口完成全流程——`setup.sh` **rc=0 / 2 分 25 秒 / 9 步全绿**；Web：token URL→303→cookie 后 `/`→200、`/assets` immutable、日志零 warn/error；运行期：node-pty / require-builtin（napi-v9）/ flock / rg 15.2.0 / sharp 实测 PNG / link / 4c / 4d / 权限层全部通过；夹具 **8 个 / 317 断言 + 静态契约 42 条**、`verify-all-checks.sh` **PASS=10 FAIL=0**。**真实设备未重装、3080 未重启**（隔离验证 ≠ 设备已升级，升级方式见下）。
+- **支持的版本线**：`0.2.2-rc.1`（npm `latest`，本机真实安装）与 `0.2.2-rc.3`（GitHub 最新 release，npm `next`）——两代产物形状都支持。更早的版本线（0.1.x / 0.2.0 / 0.2.1）已不再支持，相关兼容分支与补丁已删除。
+- **0.2.2-rc.3 的上游变化**：`resolveRgPath()` 抽到新包 `dsh-util-ripgrep`；作曲栏 `client.js` 变成压缩单行产物；安装树约 1.2 GB（`libreoffice-kit-wasm` 取消 os 限制后 Android 也会安装，约 146 MB）；`RETIRED_BUNDLES` 摘除 `dsh-experimental-agent-team-profile`（正常迁移）。其余补丁锚点在 rc.3 上无需改动即命中。
 - **升级方式**：`cd` 到仓库 → `bash setup.sh`（安装方式只有 npm，见「安装方式：npm」）→ `bash ~/dsh/restart_dsh_now.sh` 重启 GUI。**注意版本来源**：npm `latest` 目前仍是 `0.2.2-rc.1`，GitHub 最新 release `dsh-v0.2.2-rc.3` 在 npm 的 `next` 标签上；脚本默认跟随 `latest`，装 rc.3 用 `DSH_VERSION=0.2.2-rc.3 bash setup.sh`。**dsh 是原生全局安装，`npm -g update` 会升级/覆盖它并丢失安装期补丁**；升级 dsh 必须运行 `bash setup.sh`（旧版 hold 布局会在安装时自动迁移，成功后提示清理旧安装树）。⚠️ 0.2.2-rc.3 的安装树约 **1.2 GB**（rc.1 约 722 MB）：`@deepseek-ai/libreoffice-kit-wasm` 取消 os 限制后 Android 也会安装（约 146 MB）。升级前先看 Termux 剩余存储，旧树 + 新树可能短暂并存。
 - 不同机型 / ROM 可能有差异：部分 ROM 通过 SELinux 禁用 `link()`、命名空间沙箱权限不同、bwrap/landlock 可用性不同等。
 - `setup.sh` 覆盖通用 Android 场景，个别机型可能仍需额外适配。
@@ -633,7 +622,7 @@ What it does (see its own README): rewrites `viewport` in place to `viewport-fit
 Caveats:
 
 - **Third-party plugin, not part of this project**: we neither bundle nor modify it; version compatibility and bug reports belong to its own repo.
-- **Its hashed class names were verified against dsh `0.1.7-rc.2`, and hashed names drift with each upstream release — failing *silently*** (the page works, the effects are simply gone). After upgrading dsh, upgrade/reinstall it too, or uninstall first to attribute the problem correctly; `bash setup.sh` will not do that for you, it only patches the backend.
+- **Its hashed class names were verified against an older dsh release, and hashed names drift with each upstream release — failing *silently*** (the page works, the effects are simply gone). After upgrading dsh, upgrade/reinstall it too, or uninstall first to attribute the problem correctly; `bash setup.sh` will not do that for you, it only patches the backend.
 - **The two are independent**: `setup.sh` step 7 only *merges* the permission layer into `~/.dsh/profiles/web/cordis.patch.yml` — replacing dsh's empty-array template, or appending when you already have your own layers — and never overwrites other config layers in the profile, so re-running `setup.sh` after installing the plugin is fine.
 - **"Enter = newline" is not in that plugin**: that key mapping requires patching the product package and stays in this repo's `setup.sh` (see the table under "How it works" below); the plugin only provides `enterkeyhint=newline`.
 - **Only meaningful for the `web` profile**; `tui` / `headless` are unaffected.
@@ -660,11 +649,11 @@ Upstream `@deepseek-ai/dsh` ships linux/darwin prebuilds only and assumes a full
 | HMR crashes on start | `--expose-internals is required` | rebuild the `dsh` wrapper with `--expose-internals --no-warnings` |
 | bash tool unavailable | `SANDBOX_UNAVAILABLE` | write the `danger-full-access` config layer (see Security) |
 | Full reload re-downloads JS | every refresh re-fetched all of `/assets/` (~4.5MB measured here) | immutable cache headers for `/assets/` |
-| Cold start takes tens of seconds | the port answers 401 long before the tokenized URL is printed | `dsh-client-modules` recomposes the whole client-plugin graph ~10x during boot and eagerly prebuilds a per-record artifact for every client bundle: upstream made combos lazy natively (`lazyBody`) in 0.1.7, patch `02` did the same for the 0.1.5 line (measured cold start 22.6s → 12.5s, byte-identical artifacts), and `03` turns that line count into an index loop |
+| Cold start takes tens of seconds | the port answers 401 long before the tokenized URL is printed | `dsh-client-modules` recomposes the whole client-plugin graph ~10x during boot and eagerly prebuilds a per-record artifact for every client bundle: upstream already builds combos lazily natively (`lazyBody`); patch `03` turns that line count into an index loop (measured 302ms→60ms on 10.8MB) |
 
 > [!NOTE]
-> Three upstream JS patches remain: `01-frontend-static-cache` (immutable cache headers for content-hashed `/assets/`; ⚠️ since 0.2.2 upstream natively sends `no-cache` + ETag + 304 for every non-index file, so the patch only upgrades `/assets/` to immutable and keeps upstream behaviour elsewhere), `02-client-modules-lazy-compose` (lazy client combos) and `03-client-modules-newline-count` (`newlineCount` switched to an index loop; measured 302ms→60ms on 10.8MB).
-> `01`/`02` target the 0.1.5 line; upstream implemented combo laziness natively (`lazyBody`) in 0.1.7, so `02` is deprecated (upstream's native `lazyBody` replaces it) and reported as `[deprecated]` rather than a failure (step 8/9 no longer warns), while the version-agnostic `03` keeps that hotspot fast. The old history-slimming patches (apiproxy history slim, incremental resync, connection schema, plugin-bundle cache) targeted host modules that were removed upstream or are now native, so those files and the "superseded" machinery were deleted. All three patches were diffed byte-for-byte against the corresponding npm sources.
+> Two upstream JS patches remain: `01-frontend-static-cache` (immutable cache headers for content-hashed `/assets/`; ⚠️ since 0.2.2 upstream natively sends `no-cache` + ETag + 304 for every non-index file, so the patch only upgrades `/assets/` to immutable and keeps upstream behaviour elsewhere) and `03-client-modules-newline-count` (`newlineCount` switched to an index loop; measured 302ms→60ms on 10.8MB).
+> Client combo laziness is native upstream (`lazyBody`), so the historical patch `02` and its "deprecated fence" were deleted; the older history-slimming patches are gone too. Both remaining patches were diffed byte-for-byte against the rc.1 / rc.3 sources.
 
 > [!IMPORTANT]
 > **This repo injects no front-end UI code**: no CSS/JS injection, no edits to `dsh-web-frontend`'s viewport or PWA manifest. It used to (`apply-frontend.sh` + `patches/mobile.css`/`mobile.js`), but that keyed off hashed class names and the DOM structure of upstream build output, so it **drifted on every dsh upgrade** and conflicted with the "minimal text replacement only" rule — it was deleted. Report front-end issues upstream; for a phone-friendly UI install the optional plugin (see "📱 Mobile UI (optional)"). The single exception is the composer key mapping (`dsh-client-ui-conversation`: Enter = newline, `Ctrl/Cmd+Enter` = send), which changes key handling rather than styling and is still applied by anchor with a rollback on mismatch.
@@ -682,11 +671,11 @@ Upstream `@deepseek-ai/dsh` ships linux/darwin prebuilds only and assumes a full
 | `2/9` | Prepare Node headers: **use Termux's own `$PREFIX/include/node` and skip the download when present** (node-gyp falls back to `process.config.variables.node_prefix` without `--nodedir`); otherwise `npx node-gyp install` (npmmirror when slow) and patch `android_ndk_path` into the cached `common.gypi` |
 | `2.5/9` | **pnpm runtime** (dsh plugin dependency): reuse a working pnpm 11.x already on PATH, otherwise `npm --prefix ~/.local/share/pnpm-pin install pnpm@11.27.1` (JS build) and write the `~/bin/{pnpm,pn,pnpx,pnx}` wrappers — idempotent |
 | `3/9` | Install dsh: `npm install -g` **directly into npm's default global directory** (an old hold symlink and the old `dsh` wrapper are removed/moved aside beforehand and restored on failure; android30 target; `--allow-scripts` covers only native packages whose build **can** succeed on Android — koffi stays in `SKIP_SCRIPTS` so npm 12 merely warns, because a failing allowlisted script aborts the whole install; npm 11 treats `--allow-scripts` as advisory). Afterwards: verify the node-pty artifact, run the install-script allowlist self-check, and report the effective `allow-scripts` policy (advisory / strict) |
-| `4/9` | Backend patches: `node-addon-require-builtin` android platform package (>=0.1.7 boot prerequisite, aborts the install on failure), link→rename fallback, native flock binding, subprocess platform detection (android≡linux), composer Enter = newline (two shape-dependent insertion points), grep/glob ripgrep fix (two host generations) |
+| `4/9` | Backend patches: `node-addon-require-builtin` android platform package (boot prerequisite, aborts the install on failure), link→rename fallback, native flock binding, subprocess platform detection (android≡linux), composer Enter = newline (two shape-dependent insertion points), grep/glob ripgrep fix (two host generations) |
 | `5/9` | sharp wasm fallback (attachments depend on it), immediately followed by the hardlink verification (real run in a temp dir, never touches your sessions; it must come after the wasm fallback or the attachment module's `import sharp` fails and reports a false negative) |
 | `6/9` | Rebuild the `dsh` wrapper (`--expose-internals`, atomic `mv` replace that never follows the symlink target) |
 | `7/9` | Write start/stop/restart scripts into `~/dsh/`; install the permission layer through `patches/apply-profile-patch.js` (**two** entries: `sandbox-policy` + `approval`; empty-array template → replace, existing layers → append only what is missing, stray `[]` → in-place repair; validated before and after with dsh's own parser, and the install aborts rather than leaving a profile that cannot boot) |
-| `8/9` | JS performance patches (`01` static-asset cache headers / `02` lazy client combos / `03` index-loop newlineCount; an anchor mismatch only warns) |
+| `8/9` | JS performance patches (`01` static-asset cache headers / `03` index-loop newlineCount; an anchor mismatch only warns) |
 | `9/9` | Summary |
 
 ### Auth & startup flow
@@ -721,7 +710,7 @@ Key behaviours of `start_dsh.sh`:
 ```text
 deepseek-harness-android/
 ├── setup.sh                     # main entry: install dsh (`npm install -g`) + all Android patches (idempotent)
-├── apply-js-patches.sh          # apply the JS perf patches (cache headers / lazy combos / newlineCount)
+├── apply-js-patches.sh          # apply the JS perf patches (cache headers / newlineCount)
 ├── apply-rg-fix.sh              # fix "ripgrep launch failed"
 ├── start_dsh.sh                 # start/reuse service + fetch token + open browser (Via first)
 ├── stop_dsh.sh                  # safe stop (pid identity re-check + port release confirm)
@@ -729,15 +718,14 @@ deepseek-harness-android/
 ├── config/
 │   └── cordis.patch.yml         # danger-full-access layer (merged into ~/.dsh/profiles/web/ by patches/apply-profile-patch.js)
 ├── patches/
-│   ├── 01~03-*.patch            # JS patch sources (cache headers / lazy client combos / newlineCount)
+│   ├── 01,03-*.patch            # JS patch sources (cache headers / newlineCount)
 │   ├── patch-dsh-android-link.js    # no-hardlink fix (rename / O_EXCL+rename fallback)
 │   ├── patch-dsh-android-flock.js   # native flock binding (compile + runtime self-test)
-│   ├── patch-dsh-android-require-builtin.js # dsh >=0.1.7 boot prerequisite: android platform pkg
+│   ├── patch-dsh-android-require-builtin.js # boot prerequisite: android platform pkg
 │   ├── verify-android-link-fix.js   # hardlink fix verification (real run in temp dir)
 │   ├── apply-profile-patch.js       # safe permission-layer install (classify: replace/append/repair + dsh parser check)
-│   ├── verify-client-modules-lazy.js # client-combo patch self-test (--port 0 temp instance)
 │   ├── verify-require-builtin-fixture.js # platform-package fixture self-test (8 cases / 29 assertions, temp dir only)
-│   ├── verify-patch-guards-fixture.js # link/flock guard fixture self-test (57 assertions: rc.3 original blocks + <=0.2.1 old shape, temp dir only)
+│   ├── verify-patch-guards-fixture.js # link/flock guard fixture self-test (52 assertions: rc.1/rc.3 original blocks, temp dir only)
 │   ├── verify-profile-patch-fixture.js # permission-layer fixture self-test (11 cases / 41 assertions, temp dir only)
 │   ├── verify-js-patches-fixture.js # apply-js-patches.sh fixture (21 assertions: rebuild upstream → forward → idempotent → corrupt ⇒ rc 1)
 │   ├── verify-runtime-scripts-fixture.js # start/stop/restart fixture (40 assertions: fake dsh + isolated HOME, never touches 3080)
@@ -797,7 +785,7 @@ node patches/verify-js-patches-fixture.js
 node patches/verify-runtime-scripts-fixture.js
 node patches/verify-pnpm-provision-fixture.js
 
-# one command for every script-level check (syntax + 42 setup static contracts + 8 fixtures / 334 assertions)
+# one command for every script-level check (syntax + 42 setup static contracts + 8 fixtures / 317 assertions)
 bash patches/verify-all-checks.sh            # summary
 bash patches/verify-all-checks.sh --verbose  # full output
 bash patches/verify-all-checks.sh --full     # also run mutation testing (~5 min, proves the suites bite)
@@ -827,8 +815,8 @@ All patch scripts are **idempotent**: run them twice and the second run reports 
 - **It did not open in Via**: verify Via's package is `mark.via` (it can differ per distribution channel) and set `DSH_VIA_APP=<pkg>` if needed.
 - **Model not responding**: check the API key on the Models page and `~/.dsh/.credentials.yaml`.
 - **Awkward layout on a phone / the soft keyboard hides the input / some buttons do not respond to taps**: that is upstream's desktop-oriented Web UI and this repo no longer injects any front-end CSS/JS. Install the community `dsh-android-ui` plugin — see "📱 Mobile UI (optional)".
-- **dsh won't start after an upgrade, log says `No usable native binding found`**: since 0.1.7 upstream added a native-addon family but ships no android prebuild. Re-run `bash setup.sh` (it adds the `node-addon-require-builtin-android-arm64` platform package).
-- **After upgrading to 0.2.1 the profile lost a bundle / the log mentions a migration**: 0.2.1's `RETIRED_BUNDLES` migration auto-removes `dsh-experimental-schedule-bundle` from existing profiles — **normal behaviour, not an error**; do not add it back manually. 0.2.2-rc.3's `RETIRED_BUNDLES` additionally lists `dsh-experimental-agent-team-profile`, which is also auto-removed on first boot (normal migration).
+- **dsh won't start after an upgrade, log says `No usable native binding found`**: upstream's native-addon family ships no android prebuild. Re-run `bash setup.sh` (it adds the `node-addon-require-builtin-android-arm64` platform package).
+- **After upgrading to 0.2.2-rc.3 the profile lost a bundle / the log mentions a migration**: rc.3's `RETIRED_BUNDLES` auto-removes `dsh-experimental-agent-team-profile` (and the older `dsh-experimental-schedule-bundle`) from existing profiles — **normal migration, not an error**; do not add them back manually.
 - **On 0.2.2-rc.3 `setup.sh` aborts at 4/9 with `回车处理器入口锚点出现 0 次`**: rc.3 ships `dsh-client-ui-conversation/lib/client.js` as a compact single-line product, so the old fixed anchor no longer matches (it was the only hard stop before the rc.3 adaptation). Update the repo to a version that contains the rc.3 adaptation and re-run `bash setup.sh`; the patch now picks one of two insertion points by product shape and leaves the old line's behaviour unchanged.
 - **After upgrading to 0.2.2-rc.3, disk usage / install time grows noticeably**: the rc.3 install tree is about **1.2 GB** (rc.1: ~722 MB) — `@deepseek-ai/libreoffice-kit-wasm` 0.2.3 dropped the `os:["linux"]` restriction, so Android installs it too (~146 MB); the root package also ships `src`/`*.js.map` now. This is an upstream publishing change, not caused by this repo's patches, and not a failure.
 - **`dsh plugin …` / plugin market cannot find pnpm, or pnpm reports `ERR_PNPM_STORE_DIR_ACQUIRE_OPERATION_LOCK`**: since 0.2.1 the plugin features shell out to `pnpm` from PATH, and pnpm 12 does not work on Android. First check `command -v pnpm && pnpm --version` resolves to **11.x**; install/pin it with `npm install -g pnpm@11`, or make the 11.x wrapper at `~/bin/pnpm` take precedence in PATH (see "pnpm runtime (plugin dependency)").

@@ -9,7 +9,7 @@
  * 为什么需要它：dsh 0.2.2-rc.3 起 dsh-client-ui-conversation/lib/client.js 被压成**单行**产物，
  * 旧锚点（多行格式化版）在 rc.3 上出现 0 次 → setup.sh 按既有硬阻断语义 exit 1（T3 基线实测）。
  * 该补丁不能只测「真机安装树」（换版本即失效），必须在夹具里同时钉住：
- *   A 多行格式化产物（<= 0.2.2-rc.1 / 0.2.1 线）→ 独占一行 + 同缩进插入（历史插入点：
+ *   A 多行格式化产物（0.2.2-rc.1）→ 独占一行 + 同缩进插入（历史插入点：
  *     IME guard 之后、菜单 arbitrate('enter') 之前，旧线设备上已在运行的行为，保持不变）；
  *   B 压缩单行产物（0.2.2-rc.3+）→ 无行边界，guard 内联接在【菜单仲裁块之后、原生
  *     preventDefault 之前】：菜单（slash/@）打开时普通回车先被菜单消费，未被消费才交给
@@ -81,7 +81,7 @@ function runPatch(script, target) {
 }
 
 const FORMATTED_OK = [
-	"/** 合成产物：多行格式化（<= 0.2.2-rc.1 / 0.2.1 线）。 */",
+	"/** 合成产物：多行格式化（0.2.2-rc.1）。 */",
 	"export function makeEnterHandler(isComposingEvent, recentlyComposing, handlers) {",
 	"\treturn (event) => {",
 	"\t\t\t\tif (event !== null && isComposingEvent(event, recentlyComposing)) return true;",
@@ -109,7 +109,7 @@ function main() {
 	fs.writeFileSync(script, python);
 
 	// ---- 用例 1：多行格式化产物（旧线）----
-	console.log("\n用例 1：多行格式化产物（<= 0.2.2-rc.1 / 0.2.1 线）");
+	console.log("\n用例 1：多行格式化产物（0.2.2-rc.1）");
 	const fmt = path.join(dir, "formatted.mjs");
 	fs.writeFileSync(fmt, FORMATTED_OK);
 	const r1 = runPatch(script, fmt);

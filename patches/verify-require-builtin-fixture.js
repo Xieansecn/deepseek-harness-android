@@ -5,7 +5,7 @@
  * patch-dsh-android-require-builtin.js 的**夹具自检**：全程只写 mktemp 目录，
  * 不碰真实 dsh 安装树（用例 5 例外，它是只读地断言「真实树未被触碰」）。
  *
- * 为什么需要它：这个补丁的分支（创建 / 刷新 / 让路 / 版本没有该 addon / --root 契约）
+ * 为什么需要它：这个补丁的分支（创建 / 刷新 / 让路 / --root 契约）
  * 都只在特定目录状态下才走到，靠真机很难覆盖；而这些分支的失败模式恰恰是
  * 「把一次健康的安装判成失败」或「覆盖掉别人的包」——必须能离线复现。
  *
@@ -14,10 +14,9 @@
  *   2. 本补丁产物被篡改            → [REFRESHED] + 退 0，复跑 [OK]
  *   3. 外来但可用的平台包          → [SKIP] 让路 + 退 0 + 文件未被改动
  *   4. 外来且不可用的平台包        → 退 1，且报错点明「非本补丁生成」
- *   5. dsh 根存在但没有 entry 包（dsh <0.1.7）→ [SKIP] + 退 0（旧实现此处恒退 1）
- *   6. --root 指向非 dsh 目录      → 退 1，且**不回落**到真实安装树
- *   7. 外来包 main 指向别处、无 index.js → 仍让路、不被改写（旧实现会覆盖它）
- *   8. 外来包的描述里恰好含标记串  → 仍让路、不被刷新（旧实现按子串判定会认成「我的」）
+ *   5. --root 指向非 dsh 目录      → 退 1，且**不回落**到真实安装树
+ *   6. 外来包 main 指向别处、无 index.js → 仍让路、不被改写（旧实现会覆盖它）
+ *   7. 外来包的描述里恰好含标记串  → 仍让路、不被刷新（旧实现按子串判定会认成「我的」）
  *
  * 用法：node patches/verify-require-builtin-fixture.js [--dsh-root <dsh 安装根>]
  * 退出码：0 = 全部通过；1 = 有断言失败（逐条打印）。
@@ -62,17 +61,15 @@ function findDshRoot() {
 	return null;
 }
 
-/** 造一个假安装根：含真实 entry + loader（两个小包），可选写入 dsh 的 package.json。 */
-function makeFixture(dshRoot, { withEntry = true, withDshManifest = false } = {}) {
+/** 造一个假安装根：dsh 的 package.json + 真实 entry/loader（两个小包）。 */
+function makeFixture(dshRoot, { withDshManifest = true } = {}) {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "dsh-rb-fixture-"));
 	fs.mkdirSync(path.join(root, "node_modules"), { recursive: true });
 	if (withDshManifest) {
 		fs.writeFileSync(path.join(root, "package.json"), `${JSON.stringify({ name: "@deepseek-ai/dsh", version: "0.1.5-rc.3" }, null, 2)}\n`);
 	}
-	if (withEntry) {
-		for (const pkg of [ENTRY_PKG, LOADER_PKG]) {
-			fs.cpSync(path.join(dshRoot, "node_modules", pkg), path.join(root, "node_modules", pkg), { recursive: true });
-		}
+	for (const pkg of [ENTRY_PKG, LOADER_PKG]) {
+		fs.cpSync(path.join(dshRoot, "node_modules", pkg), path.join(root, "node_modules", pkg), { recursive: true });
 	}
 	return root;
 }
@@ -182,19 +179,9 @@ function main() {
 		check("报错点明「无法作为可用绑定加载」", r.stderr.includes("无法作为可用绑定加载"), r.stderr.trim());
 	}
 
-	// 5) dsh <0.1.7：是 dsh 根但没有 entry 包 → 真 SKIP 退 0
-	{
-		console.log("\n用例 5：dsh 根存在但无 entry 包（dsh <0.1.7）→ [SKIP] + 退 0");
-		const root = makeFixture(dshRoot, { withEntry: false, withDshManifest: true });
-		cleanup.push(root);
-		const r = runPatch(root);
-		check("退出码 0（不再硬中断安装）", r.status === 0, `rc=${r.status} stderr=${r.stderr.trim()}`);
-		check("打印 [SKIP] 说明无此 addon 家族", r.stdout.includes(`[SKIP    ] ${ENTRY_PKG} 不存在`), r.stdout.trim());
-	}
-
 	// 6) --root 契约：非 dsh 目录 → 退 1，且绝不回落触碰真实安装树
 	{
-		console.log("\n用例 6：--root 指向非 dsh 目录 → 退 1 且不触碰真实安装树");
+		console.log("\n用例 5：--root 指向非 dsh 目录 → 退 1 且不触碰真实安装树");
 		const bogus = fs.mkdtempSync(path.join(os.tmpdir(), "dsh-rb-notroot-"));
 		cleanup.push(bogus);
 		const r = runPatch(bogus);
@@ -206,7 +193,7 @@ function main() {
 
 	// 7) 外来包 main 指向别处、无 index.js → 仍让路（旧实现按 index.js 存在性判定会覆盖它）
 	{
-		console.log("\n用例 7：外来包无 index.js（main 指向 prebuilt/）→ 仍让路、不被改写");
+		console.log("\n用例 6：外来包无 index.js（main 指向 prebuilt/）→ 仍让路、不被改写");
 		const root = makeFixture(dshRoot);
 		cleanup.push(root);
 		const dir = writePlatformPkg(root, { main: "prebuilt/binding.js", bindingBody: VALID_BINDING });
@@ -220,7 +207,7 @@ function main() {
 
 	// 8) 外来包描述里恰好含标记串 → 仍让路（旧实现按子串判定会认成「我的」并刷新）
 	{
-		console.log("\n用例 8：外来包描述里恰好含标记串 → 仍让路、不被刷新");
+		console.log("\n用例 7：外来包描述里恰好含标记串 → 仍让路、不被刷新");
 		const root = makeFixture(dshRoot);
 		cleanup.push(root);
 		const dir = writePlatformPkg(root, { bindingBody: VALID_BINDING, extraManifest: { description: `upstream pkg mentioning ${MARKER} in prose` } });

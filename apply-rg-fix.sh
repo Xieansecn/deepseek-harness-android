@@ -3,7 +3,7 @@
 # 用法：bash apply-rg-fix.sh；幂等，dsh 更新清空 node_modules 后必须重跑。
 #
 # resolveRgPath() 的宿主随上游重构搬过家（不按版本号分支，按「文件存在 + 语义形状」定位）：
-#   - ≤ 0.2.2-rc.1 / 0.2.1 线：定义在 dsh-tool-fs-search/lib/index.js
+#   - 0.2.2-rc.1          ：定义在 dsh-tool-fs-search/lib/index.js
 #   - 0.2.2-rc.3+           ：拆进新包 dsh-util-ripgrep/lib/index.js（tool-fs-search 只 import 并再导出）
 # 两处都是候选：存在哪个就修哪个，都存在就都修；验证时以 tool-fs-search 实际引用的一方为准。
 set -euo pipefail
@@ -57,133 +57,6 @@ node - "${TARGET_LIBS[@]}" <<'JS'
 const fs = require('fs');
 // One or both hosts of resolveRgPath(): tool-fs-search (old) and util-ripgrep (0.2.2-rc.3+).
 const libs = process.argv.slice(2);
-
-const ORIG = [
-  'function resolveRgPath() {',
-  '\trgPathPromise ??= import("@vscode/ripgrep").then((module) => module.rgPath);',
-  '\treturn rgPathPromise;',
-  '}',
-].join('\n');
-
-const CURRENT_ORIG = [
-  'function resolveRgPath() {',
-  '\trgPathPromise ??= Promise.resolve().then(async () => {',
-  '\t\tconst executableSidecar = `${process.execPath}-rg`;',
-  '\t\tif ("pkg" in process && existsSync(executableSidecar)) return executableSidecar;',
-  '\t\treturn (await import("@vscode/ripgrep")).rgPath;',
-  '\t});',
-  '\treturn rgPathPromise;',
-  '}',
-].join('\n');
-
-const NEW_ORIG = [
-  'function resolveRgPath() {',
-  '\trgPathPromise ??= Promise.resolve().then(async () => {',
-  '\t\tconst executable = parse(process.execPath);',
-  '\t\tconst executableSidecar = process.platform === "win32" ? join(executable.dir, `${executable.name}-rg.exe`) : `${process.execPath}-rg`;',
-  '\t\tif ("pkg" in process && existsSync(executableSidecar)) return executableSidecar;',
-  '\t\treturn (await import("@vscode/ripgrep")).rgPath;',
-  '\t});',
-  '\treturn rgPathPromise;',
-  '}',
-].join('\n');
-
-const PATCHED_OLD = [
-  '/**',
-  ' * Locate a usable system `rg` binary as a fallback.',
-  ' *',
-  ' * `@vscode/ripgrep` only publishes prebuilt binaries for darwin/win32/linux;',
-  ' * on other platforms (Termux/Android, ...) its platform package is absent and',
-  ' * `import("@vscode/ripgrep")` rejects. When that happens the search tools fall',
-  ' * back to an `rg` found on `PATH` (or an explicit `RG_PATH`), keeping `grep` /',
-  ' * `glob` functional wherever ripgrep is installed system-wide.',
-  ' */',
-  'async function resolveSystemRg() {',
-  '\tif (process.env.RG_PATH) return process.env.RG_PATH;',
-  '\ttry {',
-  '\t\tconst { execFileSync } = await import("node:child_process");',
-  '\t\tconst which = process.platform === "win32" ? "where" : "which";',
-  '\t\tconst found = execFileSync(which, ["rg"], { encoding: "utf8" }).split(/\\r?\\n/)[0]?.trim();',
-  '\t\tif (found) return found;',
-  '\t} catch { /* no `which`/`where`; fall through to bare "rg" via PATH */ }',
-  '\treturn "rg";',
-  '}',
-  'function resolveRgPath() {',
-  '\trgPathPromise ??= import("@vscode/ripgrep")',
-  '\t\t.then((module) => module.rgPath)',
-  '\t\t.catch(() => resolveSystemRg());',
-  '\treturn rgPathPromise;',
-  '}',
-].join('\n');
-
-const PATCHED_CURRENT = [
-  '/**',
-  ' * Locate a usable system `rg` binary as a fallback.',
-  ' *',
-  ' * `@vscode/ripgrep` only publishes prebuilt binaries for darwin/win32/linux;',
-  ' * on other platforms (Termux/Android, ...) its platform package is absent and',
-  ' * `import("@vscode/ripgrep")` rejects. When that happens the search tools fall',
-  ' * back to an `rg` found on `PATH` (or an explicit `RG_PATH`), keeping `grep` /',
-  ' * `glob` functional wherever ripgrep is installed system-wide.',
-  ' */',
-  'async function resolveSystemRg() {',
-  '\tif (process.env.RG_PATH) return process.env.RG_PATH;',
-  '\ttry {',
-  '\t\tconst { execFileSync } = await import("node:child_process");',
-  '\t\tconst which = process.platform === "win32" ? "where" : "which";',
-  '\t\tconst found = execFileSync(which, ["rg"], { encoding: "utf8" }).split(/\\r?\\n/)[0]?.trim();',
-  '\t\tif (found) return found;',
-  '\t} catch { /* no `which`/`where`; fall through to bare "rg" via PATH */ }',
-  '\treturn "rg";',
-  '}',
-  'function resolveRgPath() {',
-  '\trgPathPromise ??= Promise.resolve().then(async () => {',
-  '\t\tconst executableSidecar = `${process.execPath}-rg`;',
-  '\t\tif ("pkg" in process && existsSync(executableSidecar)) return executableSidecar;',
-  '\t\ttry {',
-  '\t\t\treturn (await import("@vscode/ripgrep")).rgPath;',
-  '\t\t} catch {',
-  '\t\t\treturn resolveSystemRg();',
-  '\t\t}',
-  '\t});',
-  '\treturn rgPathPromise;',
-  '}',
-].join('\n');
-
-const PATCHED_NEW = [
-  '/**',
-  ' * Locate a usable system `rg` binary as a fallback.',
-  ' *',
-  ' * `@vscode/ripgrep` only publishes prebuilt binaries for darwin/win32/linux;',
-  ' * on other platforms (Termux/Android, ...) its platform package is absent and',
-  ' * `import("@vscode/ripgrep")` rejects. When that happens the search tools fall',
-  ' * back to an `rg` found on `PATH` (or an explicit `RG_PATH`), keeping `grep` /',
-  ' * `glob` functional wherever ripgrep is installed system-wide.',
-  ' */',
-  'async function resolveSystemRg() {',
-  '\tif (process.env.RG_PATH) return process.env.RG_PATH;',
-  '\ttry {',
-  '\t\tconst { execFileSync } = await import("node:child_process");',
-  '\t\tconst which = process.platform === "win32" ? "where" : "which";',
-  '\t\tconst found = execFileSync(which, ["rg"], { encoding: "utf8" }).split(/\\r?\\n/)[0]?.trim();',
-  '\t\tif (found) return found;',
-  '\t} catch { /* no `which`/`where`; fall through to bare "rg" via PATH */ }',
-  '\treturn "rg";',
-  '}',
-  'function resolveRgPath() {',
-  '\trgPathPromise ??= Promise.resolve().then(async () => {',
-  '\t\tconst executable = parse(process.execPath);',
-  '\t\tconst executableSidecar = process.platform === "win32" ? join(executable.dir, `${executable.name}-rg.exe`) : `${process.execPath}-rg`;',
-  '\t\tif ("pkg" in process && existsSync(executableSidecar)) return executableSidecar;',
-  '\t\ttry {',
-  '\t\t\treturn (await import("@vscode/ripgrep")).rgPath;',
-  '\t\t} catch {',
-  '\t\t\treturn resolveSystemRg();',
-  '\t\t}',
-  '\t});',
-  '\treturn rgPathPromise;',
-  '}',
-].join('\n');
 
 // 0.1.7-rc.2 起：@vscode/ripgrep 的解析结果外包了一层 electron asar 归一化（先赋给 dependency）。
 const NEW_ELECTRON_ORIG = [
@@ -254,27 +127,14 @@ for (const lib of libs) {
   // 0.2.2-rc.3+ 的 dsh-tool-fs-search 只 import/再导出 resolveRgPath，不再定义它：
   // 没有函数定义的文件是消费者而不是宿主，静默跳过（不发 warn，避免每次 setup 刷假漂移）。
   if (!/(?:^|\n)\s*(?:async\s+)?function\s+resolveRgPath\s*\(/.test(src)) continue;
-  let originalFound = false;
-  if (src.includes(ORIG)) {
-    src = src.replace(ORIG, PATCHED_OLD);
-    originalFound = true;
-  } else if (src.includes(CURRENT_ORIG)) {
-    src = src.replace(CURRENT_ORIG, PATCHED_CURRENT);
-    originalFound = true;
-  } else if (src.includes(NEW_ORIG)) {
-    src = src.replace(NEW_ORIG, PATCHED_NEW);
-    originalFound = true;
-  } else if (src.includes(NEW_ELECTRON_ORIG)) {
-    src = src.replace(NEW_ELECTRON_ORIG, PATCHED_ELECTRON);
-    originalFound = true;
-  }
-  if (!originalFound) {
+  if (!src.includes(NEW_ELECTRON_ORIG)) {
     // Anchor drift is not fatal: the step-1 platform symlink alone makes @vscode/ripgrep resolve
     // (it only does require.resolve(`${platformPkg}/bin/rg`)); the source fallback is belt-and-braces.
     // Step 3 decides whether the resolution actually works.
     console.log(`    [warn] unrecognized resolveRgPath() shape (dsh drift), skipping source fallback: ${lib}`);
     continue;
   }
+  src = src.replace(NEW_ELECTRON_ORIG, PATCHED_ELECTRON);
   try {
     fs.writeFileSync(lib, src);
   } catch (error) {

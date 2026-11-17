@@ -12,7 +12,7 @@
  *   3. restart_dsh_now.sh 去掉 curl=000 判定                      → runtime 夹具
  *   4. start_dsh.sh 降级原因不带 no-token 码                      → runtime 夹具
  *   5. start_dsh.sh 拉起前不探端口（端口被占也白拉一次）          → runtime 夹具
- *   6. apply-js-patches.sh 把 03 排到 02 前面（顺序即语义）        → js-patches 夹具
+ *   6. apply-js-patches.sh 的 PATCHES 漏掉 03（性能补丁静默失效） → js-patches 夹具
  *   7. apply-js-patches.sh 退出码不看 failed                      → js-patches 夹具
  *   8. setup.sh link 预检 marker 回退成裸标识符                   → 静态契约检查
  *   9. setup.sh 用「先 rm 后写」替换 mv -f 原子替换               → 静态契约检查
@@ -111,9 +111,9 @@ const CASES = [
 		suite: "runtime",
 	},
 	{
-		name: "apply-js-patches.sh 把 03 排到 02 前（顺序即语义）",
+		name: "apply-js-patches.sh 的 PATCHES 漏掉 03",
 		file: "apply-js-patches.sh",
-		mutate: (s) => s.replace("02-client-modules-lazy-compose 03-client-modules-newline-count", "03-client-modules-newline-count 02-client-modules-lazy-compose"),
+		mutate: (s) => s.replace("PATCHES=(01-frontend-static-cache 03-client-modules-newline-count)", "PATCHES=(01-frontend-static-cache)"),
 		suite: "jspatches",
 	},
 	{
