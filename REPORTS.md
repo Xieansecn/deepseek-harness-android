@@ -34,7 +34,7 @@
 
 | 维度 | 当前值 | 核对方式 |
 |---|---|---|
-| GitHub 源码副本 | `~/work/deepseek-harness-src`，最新 release tag `dsh-v0.2.2-rc.3` | `git describe --tags` |
+| GitHub 源码 | `git clone --depth 50 https://github.com/deepseek-ai/deepseek-harness.git` 后核对（本次的本地副本已清理）；最新 release tag `dsh-v0.2.2-rc.3` | `git describe --tags` |
 | rc.3 tag 指向 commit | `38a6a5c965aa99ab525161efb7cc5cf1fe62fced` | `git rev-list -n1 dsh-v0.2.2-rc.3` |
 | master HEAD | `39163dd30f703a79079e2d2446545cff3c453738`，比 rc.3 tag **多 565 个 commit** | `git rev-parse HEAD`；`package.json` 版本仍是 `0.2.2-rc.3` |
 | npm dist-tags | `latest=0.2.2-rc.1`、`next=0.2.2-rc.3`、`alpha=0.2.2-alpha.3` | `npm view @deepseek-ai/dsh dist-tags --json` |
@@ -73,7 +73,7 @@
 
 | 来源 | 值（2026-11-17） | 说明 |
 |---|---|---|
-| **GitHub 源码**（本机副本 `~/work/deepseek-harness-src`） | tag `dsh-v0.2.2-rc.3` = commit `38a6a5c9`；`master` = `39163dd3` | 仓库最近一次 release；`master` 已领先 rc.3 tag **565 个 commit**，但版本号仍写 `0.2.2-rc.3`（未发新 tag） |
+| **GitHub 源码**（按需 `git clone` 核对；本次本地副本已清理） | tag `dsh-v0.2.2-rc.3` = commit `38a6a5c9`；`master` = `39163dd3` | 仓库最近一次 release；`master` 已领先 rc.3 tag **565 个 commit**，但版本号仍写 `0.2.2-rc.3`（未发新 tag） |
 | **npm registry** | `latest=0.2.2-rc.1`、`next=0.2.2-rc.3`、`alpha=0.2.2-alpha.3` | `setup.sh` 默认装 `latest`，即 rc.1；rc.2/rc.3 走 `next` 线 |
 | **本机真实安装** | `0.2.2-rc.1` | 3080 的 live `dsh web` 就跑在它上面；本次所有 rc.3 验证都在**隔离前缀/临时 HOME** 里做，未动它 |
 

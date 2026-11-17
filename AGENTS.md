@@ -15,7 +15,7 @@
 ## 2. 版本基准与已验证状态
 
 - **版本基准（2026-11-17 核对；三个来源必须分开看）**：
-  1. **GitHub 源码**（本机副本 `~/work/deepseek-harness-src`）：最新 release tag **`dsh-v0.2.2-rc.3`** = commit `38a6a5c965aa99ab525161efb7cc5cf1fe62fced`；`master` HEAD `39163dd30f703a79079e2d2446545cff3c453738`，比 rc.3 tag **多 565 个 commit**，但 `package.json` 版本号仍是 `0.2.2-rc.3`（尚未发新 tag）。
+  1. **GitHub 源码**（核对方式：`git clone --depth 50 https://github.com/deepseek-ai/deepseek-harness.git`；本次核对后本地副本已清理，需要再看时重新 clone）：最新 release tag **`dsh-v0.2.2-rc.3`** = commit `38a6a5c965aa99ab525161efb7cc5cf1fe62fced`；`master` HEAD `39163dd30f703a79079e2d2446545cff3c453738`，比 rc.3 tag **多 565 个 commit**，但 `package.json` 版本号仍是 `0.2.2-rc.3`（尚未发新 tag）。
   2. **npm registry**：`latest=0.2.2-rc.1`、`next=0.2.2-rc.3`、`alpha=0.2.2-alpha.3`。`setup.sh` 默认跟随 npm `latest`，**默认装到的是 rc.1，不是 GitHub 上的 rc.3**；要 rc.3 用 `DSH_VERSION=0.2.2-rc.3 bash setup.sh`（npm 上 rc.3 在 `next` 标签，按版本号可直接装）。
   3. **本机真实安装**：**`0.2.2-rc.1`**（npm 全局布局真实目录）；3080 的 live `dsh web` 跑在它上面。**2026-11-17 的 rc.3 适配与验证全部在隔离前缀 + 临时 HOME 里完成，未重装真实安装**（证据见 `REPORTS.md` §4）。
 - **本机实测环境（2026-11-17）**：Node `v26.13.0`、npm **`12.2.1`**、pnpm `11.27.1`（`~/bin` 包装，PATH 首位）、ripgrep `15.2.0`。⚠️ 本文档 0.2.0/0.2.1 段落里「本机 npm 11.21.1 / `--allow-scripts` 是建议性」是**更早时点**的记录；当前 npm 已到 12.2.1，`setup.sh` 3/9 的 policy 探测行会打印实际读取值（本轮隔离安装实测 4 allowed + koffi skipped、安装成功）。
