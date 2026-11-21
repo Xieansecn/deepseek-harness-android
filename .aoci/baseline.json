@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-11-21T05:52:59Z",
-  "updated_at": "2026-11-21T07:08:31Z",
+  "updated_at": "2026-11-21T07:19:43Z",
   "files": {
     ".gitattributes": {
       "role": "index",
@@ -35,9 +35,9 @@
     },
     "README.md": {
       "role": "index",
-      "sha256": "0135b3a94a6297256a432d5b3c8fe6b9d5674c27cf670dd2ef2ab0a18426ce02",
-      "size": 15873,
-      "normalized_sha256": "0135b3a94a6297256a432d5b3c8fe6b9d5674c27cf670dd2ef2ab0a18426ce02"
+      "sha256": "04111494e4233e790b22a6ba2564f4140221a44acc92ed62690eef9fb0b588ed",
+      "size": 15199,
+      "normalized_sha256": "04111494e4233e790b22a6ba2564f4140221a44acc92ed62690eef9fb0b588ed"
     },
     "REPORTS.md": {
       "role": "index",
@@ -47,9 +47,9 @@
     },
     "aoci.code.txt": {
       "role": "index",
-      "sha256": "d6dc6d17ca3b9a5cd023f7ca25ee3b6ee89091301ce64b17548eb81c24d154c6",
-      "size": 10189,
-      "normalized_sha256": "d6dc6d17ca3b9a5cd023f7ca25ee3b6ee89091301ce64b17548eb81c24d154c6"
+      "sha256": "7b4e5863a400d915b3869eaf997e8fb16ae88a64cc6e0c071d92ff1dd2e8ea65",
+      "size": 10895,
+      "normalized_sha256": "7b4e5863a400d915b3869eaf997e8fb16ae88a64cc6e0c071d92ff1dd2e8ea65"
     },
     "aoci.meta.txt": {
       "role": "index",
@@ -83,9 +83,9 @@
     },
     "docs/index.html": {
       "role": "index",
-      "sha256": "c52b4585da81f7966b3b62947a1a05e48f7d2be8f4634898aef1622025028362",
-      "size": 12444,
-      "normalized_sha256": "c52b4585da81f7966b3b62947a1a05e48f7d2be8f4634898aef1622025028362"
+      "sha256": "557a19ee3b019e464ab485f13f118d7a3627e82c8b70db1aa383909e08da9a66",
+      "size": 19357,
+      "normalized_sha256": "557a19ee3b019e464ab485f13f118d7a3627e82c8b70db1aa383909e08da9a66"
     },
     "npm_android.sh": {
       "role": "index",
@@ -209,9 +209,9 @@
     },
     "setup.sh": {
       "role": "index",
-      "sha256": "82a9f789481db22aba74535458b1eceb950a6c923c4ec13f4f8ce24e1ec01ba4",
-      "size": 46258,
-      "normalized_sha256": "82a9f789481db22aba74535458b1eceb950a6c923c4ec13f4f8ce24e1ec01ba4"
+      "sha256": "b3dfc6194e1737cb2f474623df10a7d06caa1009bdd8fd8cc5519a5152c95237",
+      "size": 45296,
+      "normalized_sha256": "b3dfc6194e1737cb2f474623df10a7d06caa1009bdd8fd8cc5519a5152c95237"
     },
     "start_dsh.sh": {
       "role": "index",

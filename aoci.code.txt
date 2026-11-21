@@ -5,11 +5,11 @@
 .gitignore[FC4T]: F:排除 Termux 运行期产物与依赖目录，使其不进入版本管理与索引 | R:- | A:storage/、*.log、node_modules/、.DS_Store | S:不得把 aoci.txt / aoci.meta.txt / aoci.code.txt / AGENTS.md 加进来——被忽略的认知资产会被 scan 静默跳过，索引建不起来
 AGENTS.md[SG9M]: F:项目记忆与维护须知：范围约束、胶水脚本怎么工作、改哪里、别踩什么坑 | R:code:REPORTS.md,code:README.md,code:docs/index.html,code:setup.sh | A:仓库定位, 硬性范围, 安装/修补流程, 实测踩坑清单, 测试与验证 | S:项目记忆只允许落在本文件，不得另建 .ai-memory/ 等目录；改脚本或补丁行为后必须同步 REPORTS 对应条目、README 中文节与英文节以及 docs/index.html
 LICENSE[SZ2T]: F:MIT 许可证原文（Copyright 2026 FunnelCakes） | R:- | A:- | S:-
-README.md[SG9M]: F:中英双语用户文档：范围、8 项修复、安装与配置、测试与 FAQ | R:code:docs/index.html,code:REPORTS.md,code:setup.sh,code:AGENTS.md | A:快速开始, 修复清单, 配置, 安装步骤 0~8, 测试与 FAQ | S:中文节与英文节必须同时改：只改一处会立刻过时；安装方式只有 npm，仓库只做 Termux 兼容、不改 dsh 前端
+README.md[SG9M]: F:中英双语用户文档，按用户旅程线性排列：快速开始 → 修复清单 → 日常命令 → 配置 → 常见问题 → 安全 → 兼容性 → 仓库结构 → 维护者 | R:code:docs/index.html,code:REPORTS.md,code:setup.sh,code:AGENTS.md | A:快速开始, 修复清单 8 项, 日常命令, 配置表, 常见问题与安全, 维护者（0~8 步折叠） | S:中英两节必须同构同步修改，只改一侧会立刻过时；章节顺序即用户旅程，新增内容插进既有节而不是新开同级重复节；安装路径唯一是 npm，仓库只做 Termux 兼容、不改 dsh 前端
 REPORTS.md[SG9S]: F:修改与适配报告：8 项安装期修改、验证证据、已删除项与升级风险 | R:code:setup.sh,code:AGENTS.md,code:patches/verify-all-checks.sh | A:修改总表, 逐项根因, 验证证据, 已删除, 风险与升级须知 | S:改脚本/补丁行为后先更新本文件对应条目再同步文档；版本号只表示撰写/实测时点，不得作为逻辑依赖或分支依据
 apply-rg-fix.sh[XR7S]: F:修复 grep/glob 的 ripgrep launch failed：软链系统 rg 并给 resolveRgPath() 加源码回退 | R:code:patches/verify-rg-fix-fixture.js,code:patches/verify-all-checks.sh | A:TARGET_LIBS, VERIFY_LIB, 第3步 fresh node 解析验证 | S:resolveRgPath 的两代宿主（tool-fs-search / util-ripgrep）都收，只 import 的消费者文件静默跳过；锚点漂移只 warn——平台软链本身已足以解析，成败交给 fresh node 实测
 restart_dsh_now.sh[OW5T]: F:重启 dsh web：停段复用 stop、启段复用 start --no-open，日志写同一个 dsh.log | R:code:stop_dsh.sh,code:start_dsh.sh | A:restart begin, curl 端口确认, 失败时只贴本次新增日志 | S:必须 --no-open 且复用同一日志文件，否则 start 拿不到当前进程的新 token；curl 连不上返回 000 而非空串，判定要认 000
-setup.sh[OV9L]: F:主入口：安装 dsh 到 npm 全局目录并应用 Android 兼容补丁（0~8 步，幂等） | R:code:apply-rg-fix.sh,code:patches/apply-profile-patch.js,code:config/cordis.patch.yml | A:anchor_precheck, ALLOW_SCRIPTS, NPM_CMD, on_exit, status_render | S:补丁一律按锚点/形状匹配，绝不按版本号分支；安装前把 $PREFIX/bin/dsh 包装原子移开（否则 npm bin link EEXIST），失败由 on_exit 还原、成功由 6/8 重建；提示文本禁用反引号命令替换（bash 会真的执行）
+setup.sh[OV9L]: F:主入口：安装 dsh 到 npm 全局目录并应用 Android 兼容补丁（0~8 步，幂等） | R:code:apply-rg-fix.sh,code:patches/apply-profile-patch.js,code:config/cordis.patch.yml,code:patches/patch-dsh-android-require-builtin.js | A:anchor_precheck, NPM_CMD, ALLOW_SCRIPTS/SKIP_SCRIPTS, on_exit, status_render, run_hidden_spinner | S:补丁一律按锚点/形状匹配，绝不按版本号分支；安装前把 $PREFIX/bin/dsh 包装原子移开（否则 npm bin link EEXIST），失败由 on_exit 还原、成功由 6/8 重建；提示文本禁用反引号命令替换（bash 会真的执行）；控制台只用 step() 起节、明细两空格缩进且不再加 [ok]/[warn] 二级标记；SP_CLEAR 必须并进同一次 printf，拆开会把状态行叠到正文上
 start_dsh.sh[OW8L]: F:启动或复用 dsh web：流式取带 token 的鉴权 URL，curl 校验后按包名打开浏览器 | R:code:stop_dsh.sh,code:restart_dsh_now.sh | A:wait_for_token, launch, open_gui, explain_busy_port, report_elapsed | S:必须把 DSH_PORT 转成 dsh 的 --port（上游不读该环境变量）；端口先回 401 时仍要等 token，不能降级裸 URL；日志读循环用 FIFO 留在当前 shell，管道里的 break 只结束子 shell；同一个 wait_for_token 会被调用两次，进入时必须重置管道与标记文件
 stop_dsh.sh[OW6S]: F:安全停止 dsh web：pid 文件 + 身份二次确认 + 优雅窗口→补发 SIGTERM→SIGKILL 兜底 | R:code:start_dsh.sh | A:pid_is_dsh, any_alive, steps | S:杀 pid 文件里的进程前必须二次确认它真是 dsh web（pid 可能被复用）；端口仍有响应但本机看不到进程时只提醒「不受本脚本管理」并退 0
 
@@ -17,7 +17,7 @@ stop_dsh.sh[OW6S]: F:安全停止 dsh web：pid 文件 + 身份二次确认 + �
 cordis.patch.yml[FS9T]: F:dsh web profile 的权限覆盖层：放开进程沙箱并关闭审批（Android 无命名空间沙箱） | R:code:patches/apply-profile-patch.js | A:sandbox-policy, approval, # >>> dsh-android-layer-entry 哨兵行 | S:两条必须成对：上游 permission 按 sandbox+approval 组合反查预设，只写 sandbox 会匹配不到预设令该行不激活；哨兵行是层的切块标记，删了就无法按条目补缺
 
 ===/<repository>/docs/===
-index.html[SG8S]: F:说明文档站：双语安装步骤、8 项兼容修复、安全说明与 FAQ | R:code:README.md,code:REPORTS.md | A:setLang, #lang-zh, #lang-en | S:内容与 README 双语文档同源，须同步修改
+index.html[SG8M]: F:双语单页说明站：与 README 同序的 7 节（快速开始/修复/命令/配置/FAQ/安全/维护者）+ 锚点导航 + 语言切换 | R:code:README.md,code:REPORTS.md | A:setLang, #lang-zh, #lang-en, nav 锚点, details 折叠 | S:两个 lang div 各自持有 nav 与带 zh-/en- 前缀的锚点，新增章节必须两侧同步并保证锚点唯一；内容与 README 同源，改一处就要改另一处
 
 ===/<repository>/patches/===
 apply-profile-patch.js[XC8M]: F:把权限层按内容分类安全合并进 dsh profile 的 cordis.patch.yml，并做解析校验 | R:code:config/cordis.patch.yml,code:patches/verify-profile-patch-fixture.js | A:resolveDshRoot, loadOverlayParser, stripLeadingEmptyArrayDoc, splitLayerChunks, writeWithValidation | S:空数组模板必须整体替换：在已结束的 [] 文档后追加会让 dsh 启动即 YAMLException；写前写后都用 dsh 自己的 loadOverlayPatches 校验，坏文件一字节不动并退 1
