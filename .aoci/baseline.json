@@ -1,0 +1,297 @@
+{
+  "version": 1,
+  "created_at": "2026-11-21T05:52:59Z",
+  "updated_at": "2026-11-21T07:08:31Z",
+  "files": {
+    ".gitattributes": {
+      "role": "index",
+      "sha256": "21fa16a2122e2b0360b47502c577428b645437e08e9e87ffba661f84853cb476",
+      "size": 291,
+      "normalized_sha256": "21fa16a2122e2b0360b47502c577428b645437e08e9e87ffba661f84853cb476"
+    },
+    ".gitignore": {
+      "role": "index",
+      "sha256": "5da01c72e399fd982aee2885559f1c4cfbd67598a3ec72e412a6f1fecd8b8da0",
+      "size": 39,
+      "normalized_sha256": "5da01c72e399fd982aee2885559f1c4cfbd67598a3ec72e412a6f1fecd8b8da0"
+    },
+    ".pi/mcp.json": {
+      "role": "index",
+      "sha256": "090d74aa8743f9026ac87589b36df4721df7550b360924e9adcbb6331061f0aa",
+      "size": 233,
+      "normalized_sha256": "090d74aa8743f9026ac87589b36df4721df7550b360924e9adcbb6331061f0aa"
+    },
+    "AGENTS.md": {
+      "role": "index",
+      "sha256": "bc3e767feba945f8ad9f1b4f27c0c6c4c95d5d8b94bbc360ba5db88322badc3f",
+      "size": 38588,
+      "normalized_sha256": "bc3e767feba945f8ad9f1b4f27c0c6c4c95d5d8b94bbc360ba5db88322badc3f"
+    },
+    "LICENSE": {
+      "role": "index",
+      "sha256": "4b5bbe4b1370b6731874502f284df3b4a1029c332e5e66ecf2bc0b64095cebeb",
+      "size": 1068,
+      "normalized_sha256": "4b5bbe4b1370b6731874502f284df3b4a1029c332e5e66ecf2bc0b64095cebeb"
+    },
+    "README.md": {
+      "role": "index",
+      "sha256": "0135b3a94a6297256a432d5b3c8fe6b9d5674c27cf670dd2ef2ab0a18426ce02",
+      "size": 15873,
+      "normalized_sha256": "0135b3a94a6297256a432d5b3c8fe6b9d5674c27cf670dd2ef2ab0a18426ce02"
+    },
+    "REPORTS.md": {
+      "role": "index",
+      "sha256": "17682ed7de46329b8796bdd85c70b83fd4988daab8d77b01d6c710dcfda504ae",
+      "size": 9483,
+      "normalized_sha256": "17682ed7de46329b8796bdd85c70b83fd4988daab8d77b01d6c710dcfda504ae"
+    },
+    "aoci.code.txt": {
+      "role": "index",
+      "sha256": "d6dc6d17ca3b9a5cd023f7ca25ee3b6ee89091301ce64b17548eb81c24d154c6",
+      "size": 10189,
+      "normalized_sha256": "d6dc6d17ca3b9a5cd023f7ca25ee3b6ee89091301ce64b17548eb81c24d154c6"
+    },
+    "aoci.meta.txt": {
+      "role": "index",
+      "sha256": "5ccd06dd2198435423141174e4f3eaed7e7645644070e0b5cc2e20dbc889172a",
+      "size": 2187,
+      "normalized_sha256": "5ccd06dd2198435423141174e4f3eaed7e7645644070e0b5cc2e20dbc889172a"
+    },
+    "aoci.txt": {
+      "role": "index",
+      "sha256": "e3ebd3cb743d030d630b7d54c67b2200fbb395ecdcbcc1f5484cab2dbbaa5dfe",
+      "size": 313,
+      "normalized_sha256": "e3ebd3cb743d030d630b7d54c67b2200fbb395ecdcbcc1f5484cab2dbbaa5dfe"
+    },
+    "apply-js-patches.sh": {
+      "role": "index",
+      "sha256": "b8cb0996d59155e1f366f43efc184a9c3a66734ce7e509979f1972e7b4b1cff2",
+      "size": 2525,
+      "normalized_sha256": "b8cb0996d59155e1f366f43efc184a9c3a66734ce7e509979f1972e7b4b1cff2"
+    },
+    "apply-rg-fix.sh": {
+      "role": "index",
+      "sha256": "a86914522f3a2e162a94f383cdd7fb6496d19b0b9221e40f03570b0b7c7ebd98",
+      "size": 8261,
+      "normalized_sha256": "a86914522f3a2e162a94f383cdd7fb6496d19b0b9221e40f03570b0b7c7ebd98"
+    },
+    "config/cordis.patch.yml": {
+      "role": "index",
+      "sha256": "bbd27e9372e84ca778137809268f62d3745bd0acd0886383e8a34571a8c93ae0",
+      "size": 1392,
+      "normalized_sha256": "bbd27e9372e84ca778137809268f62d3745bd0acd0886383e8a34571a8c93ae0"
+    },
+    "docs/index.html": {
+      "role": "index",
+      "sha256": "c52b4585da81f7966b3b62947a1a05e48f7d2be8f4634898aef1622025028362",
+      "size": 12444,
+      "normalized_sha256": "c52b4585da81f7966b3b62947a1a05e48f7d2be8f4634898aef1622025028362"
+    },
+    "npm_android.sh": {
+      "role": "index",
+      "sha256": "5bcbfcade24eb82b7098ef070221ea762ca81273aa9537cd3740c8564cb584db",
+      "size": 2325,
+      "normalized_sha256": "5bcbfcade24eb82b7098ef070221ea762ca81273aa9537cd3740c8564cb584db"
+    },
+    "patches/01-frontend-static-cache.patch": {
+      "role": "index",
+      "sha256": "698845af8848e8c419badc3f20c22b8116fcfbee6bcff8783132013f9e225eb3",
+      "size": 801,
+      "normalized_sha256": "698845af8848e8c419badc3f20c22b8116fcfbee6bcff8783132013f9e225eb3"
+    },
+    "patches/03-client-modules-newline-count.patch": {
+      "role": "index",
+      "sha256": "931ad7d5e6cb507a0776904d35ffa47281388347d115bc6174379f68640fd088",
+      "size": 502,
+      "normalized_sha256": "931ad7d5e6cb507a0776904d35ffa47281388347d115bc6174379f68640fd088"
+    },
+    "patches/apply-profile-patch.js": {
+      "role": "index",
+      "sha256": "1f5a7e2fd58ab7f8ca8d90b186077a355b91488757db1e08b33328b467dc4409",
+      "size": 15777,
+      "normalized_sha256": "1f5a7e2fd58ab7f8ca8d90b186077a355b91488757db1e08b33328b467dc4409"
+    },
+    "patches/patch-dsh-android-flock.js": {
+      "role": "index",
+      "sha256": "e4f7ef8fcde0ce4b51169fb1fe0223813e4d03fdd8574e9f5a38e88c8b1016ca",
+      "size": 12488,
+      "normalized_sha256": "e4f7ef8fcde0ce4b51169fb1fe0223813e4d03fdd8574e9f5a38e88c8b1016ca"
+    },
+    "patches/patch-dsh-android-link.js": {
+      "role": "index",
+      "sha256": "eff343e7f8ebad27443e391064d89fca70783493a4ab80a24999d9894a15eabd",
+      "size": 24608,
+      "normalized_sha256": "eff343e7f8ebad27443e391064d89fca70783493a4ab80a24999d9894a15eabd"
+    },
+    "patches/patch-dsh-android-require-builtin.js": {
+      "role": "index",
+      "sha256": "7fcc1767de4f7480869eaecf17de5359af1aba06e849bfa649b2b335e19c6847",
+      "size": 16954,
+      "normalized_sha256": "7fcc1767de4f7480869eaecf17de5359af1aba06e849bfa649b2b335e19c6847"
+    },
+    "patches/verify-all-checks.sh": {
+      "role": "index",
+      "sha256": "dac19d610d048a334399c045db351e1697a313a158de3994dd55b7a293574335",
+      "size": 3630,
+      "normalized_sha256": "dac19d610d048a334399c045db351e1697a313a158de3994dd55b7a293574335"
+    },
+    "patches/verify-android-link-fix.js": {
+      "role": "index",
+      "sha256": "336d93430854d03c15c200079400ae7945181bd205e6dd37e2557fe03fcecb26",
+      "size": 11473,
+      "normalized_sha256": "336d93430854d03c15c200079400ae7945181bd205e6dd37e2557fe03fcecb26"
+    },
+    "patches/verify-composer-enter-fixture.js": {
+      "role": "index",
+      "sha256": "c011da3b3d29d2682cb7ecd92214d70f325fe54a1a6a179f7538c2cf3d75bd37",
+      "size": 11086,
+      "normalized_sha256": "c011da3b3d29d2682cb7ecd92214d70f325fe54a1a6a179f7538c2cf3d75bd37"
+    },
+    "patches/verify-js-patches-fixture.js": {
+      "role": "index",
+      "sha256": "6c4ab809fb1a2cf2af84dae70906ce969aacb994cd46e142274d881ad1a6f1da",
+      "size": 6654,
+      "normalized_sha256": "6c4ab809fb1a2cf2af84dae70906ce969aacb994cd46e142274d881ad1a6f1da"
+    },
+    "patches/verify-patch-guards-fixture.js": {
+      "role": "index",
+      "sha256": "e98233a2e04c2394d628fd633c016918085ff937943e49b68a6035ca6a761e09",
+      "size": 23203,
+      "normalized_sha256": "e98233a2e04c2394d628fd633c016918085ff937943e49b68a6035ca6a761e09"
+    },
+    "patches/verify-pnpm-provision-fixture.js": {
+      "role": "index",
+      "sha256": "737d0fe1847fad3a310ac333e579442342d115d41618df2c391d61df74436ff0",
+      "size": 30789,
+      "normalized_sha256": "737d0fe1847fad3a310ac333e579442342d115d41618df2c391d61df74436ff0"
+    },
+    "patches/verify-profile-patch-fixture.js": {
+      "role": "index",
+      "sha256": "0ea4ca0e05b0e046c2f5abafdf1bdbaee2ccd0db1165e1b874ac0c38a572d6a9",
+      "size": 10742,
+      "normalized_sha256": "0ea4ca0e05b0e046c2f5abafdf1bdbaee2ccd0db1165e1b874ac0c38a572d6a9"
+    },
+    "patches/verify-require-builtin-fixture.js": {
+      "role": "index",
+      "sha256": "43a188f82489632d6b011030b521e880779f730b14224a2c9bada62ffbad5a4a",
+      "size": 11722,
+      "normalized_sha256": "43a188f82489632d6b011030b521e880779f730b14224a2c9bada62ffbad5a4a"
+    },
+    "patches/verify-rg-fix-fixture.js": {
+      "role": "index",
+      "sha256": "7af377340a755b796985d1207090c7fbd18720cd9edf8feae256acc399f7fef5",
+      "size": 13536,
+      "normalized_sha256": "7af377340a755b796985d1207090c7fbd18720cd9edf8feae256acc399f7fef5"
+    },
+    "patches/verify-runtime-scripts-fixture.js": {
+      "role": "index",
+      "sha256": "a823927fa32dd0313f577fca51136b4d65b154b7dd9733ef6f8ad12f7779858b",
+      "size": 23083,
+      "normalized_sha256": "a823927fa32dd0313f577fca51136b4d65b154b7dd9733ef6f8ad12f7779858b"
+    },
+    "patches/verify-setup-static-check.sh": {
+      "role": "index",
+      "sha256": "6e9c01098506fe9b48599faa0d4d3e1585b49583eee2d227601af76043946dd4",
+      "size": 11266,
+      "normalized_sha256": "6e9c01098506fe9b48599faa0d4d3e1585b49583eee2d227601af76043946dd4"
+    },
+    "patches/verify-test-effectiveness.js": {
+      "role": "index",
+      "sha256": "2e2da2a893e36cab87d528fe125c02e6416e5a4d5b86142653809979b77910d8",
+      "size": 6386,
+      "normalized_sha256": "2e2da2a893e36cab87d528fe125c02e6416e5a4d5b86142653809979b77910d8"
+    },
+    "restart_dsh_now.sh": {
+      "role": "index",
+      "sha256": "5b565df5196c2612e9e1ad2610884d8b6e3202f82b8a9abc2f0832b26f7510b9",
+      "size": 2191,
+      "normalized_sha256": "5b565df5196c2612e9e1ad2610884d8b6e3202f82b8a9abc2f0832b26f7510b9"
+    },
+    "setup.sh": {
+      "role": "index",
+      "sha256": "82a9f789481db22aba74535458b1eceb950a6c923c4ec13f4f8ce24e1ec01ba4",
+      "size": 46258,
+      "normalized_sha256": "82a9f789481db22aba74535458b1eceb950a6c923c4ec13f4f8ce24e1ec01ba4"
+    },
+    "start_dsh.sh": {
+      "role": "index",
+      "sha256": "eb02fc7bfe30f8ff78dc1a784979f2469722d83f1978b94ed5b086610bba1322",
+      "size": 17664,
+      "normalized_sha256": "eb02fc7bfe30f8ff78dc1a784979f2469722d83f1978b94ed5b086610bba1322"
+    },
+    "stop_dsh.sh": {
+      "role": "index",
+      "sha256": "4a4614d8ff2cf156c4fbb721dfa3b4279bcbe367ffb11f0de514d0c76f4d08ad",
+      "size": 4492,
+      "normalized_sha256": "4a4614d8ff2cf156c4fbb721dfa3b4279bcbe367ffb11f0de514d0c76f4d08ad"
+    }
+  },
+  "managed_scope": {
+    "version": "managed-scope-baseline/v1",
+    "policy_identity": "e0f548d87fe5462c412a1c54409871a60ddf2ae5c30609258ff8739fdfcc8e76",
+    "observe_change_policy": "review_required",
+    "budget_policy_identity": "15e9b37a6c57e9bf03c9df3d0d049eb5b9a7f5540f9d34960408114e2538a32d",
+    "budget_policy": {
+      "version": "cognition-budget-policy/v1",
+      "mode": "enforce",
+      "whole_index": {
+        "target_tokens": 200000,
+        "warning_tokens": 300000,
+        "max_tokens": 400000
+      },
+      "r": [
+        {
+          "min_c": 1,
+          "max_c": 4,
+          "target_tokens": 25,
+          "max_tokens": 50
+        },
+        {
+          "min_c": 5,
+          "max_c": 7,
+          "target_tokens": 45,
+          "max_tokens": 90
+        },
+        {
+          "min_c": 8,
+          "max_c": 8,
+          "target_tokens": 70,
+          "max_tokens": 140
+        },
+        {
+          "min_c": 9,
+          "max_c": 9,
+          "target_tokens": 90,
+          "max_tokens": 180
+        }
+      ],
+      "s": [
+        {
+          "min_c": 1,
+          "max_c": 4,
+          "target_tokens": 20,
+          "max_tokens": 40
+        },
+        {
+          "min_c": 5,
+          "max_c": 7,
+          "target_tokens": 40,
+          "max_tokens": 80
+        },
+        {
+          "min_c": 8,
+          "max_c": 8,
+          "target_tokens": 70,
+          "max_tokens": 140
+        },
+        {
+          "min_c": 9,
+          "max_c": 9,
+          "target_tokens": 100,
+          "max_tokens": 200
+        }
+      ]
+    },
+    "apply_authorization_mode": "auto"
+  }
+}

@@ -9,10 +9,9 @@
 #   1. 语法：bash -n 全部 .sh、dash -n 三个运行期脚本、node --check 全部 patches/*.js
 #   2. 静态契约：setup.sh 的锚点规格/npm 包装/原子替换/白名单覆盖 + 运行期脚本端口与退出码 +
 #      ripgrep 两代落点（tool-fs-search / util-ripgrep）
-#   3. 夹具：require-builtin(27) / profile(41) / guards(52) / js-patches(19) / runtime-scripts(40)
-#            / pnpm 运行时供给(76) / 回车补丁两代形状(29) / rg 修复两代落点(33)
-#                                                    ← 共 8 个夹具 / 317 条断言
-#   4. --full 追加：变异测试（往副本注入 10 个已知回归，证明套件抓得住；约 5 分钟）
+#   3. 夹具：require-builtin(27) / profile(41) / guards(52) / runtime-scripts(40) / rg 修复两代落点(33)
+#                                                    ← 共 5 个夹具 / 193 条断言
+#   4. --full 追加：变异测试（往副本注入 8 个已知回归，证明套件抓得住；约 3 分钟）
 # 退出码：0 = 全绿；1 = 有套件失败。
 set -uo pipefail
 
@@ -59,18 +58,15 @@ echo "== 2. setup.sh / 运行期脚本静态契约 =="
 run_suite "静态契约检查（verify-setup-static-check.sh）" bash "$HERE/verify-setup-static-check.sh"
 
 echo "== 3. 夹具自检 =="
-run_suite "apply-js-patches 夹具（19 断言）"            node "$HERE/verify-js-patches-fixture.js"
 run_suite "require-builtin 平台包夹具（27 断言）"        node "$HERE/verify-require-builtin-fixture.js"
 run_suite "权限层夹具（41 断言）"                        node "$HERE/verify-profile-patch-fixture.js"
 run_suite "link/flock 守护条件夹具（52 断言）"           node "$HERE/verify-patch-guards-fixture.js"
 run_suite "start/stop/restart 夹具（40 断言）"           node "$HERE/verify-runtime-scripts-fixture.js"
-run_suite "pnpm 运行时供给夹具（76 断言）"               node "$HERE/verify-pnpm-provision-fixture.js"
-run_suite "回车补丁两代形状夹具（29 断言）"              node "$HERE/verify-composer-enter-fixture.js"
 run_suite "rg 修复两代落点夹具（33 断言）"               node "$HERE/verify-rg-fix-fixture.js"
 
 if [ "$FULL" = 1 ]; then
   echo "== 4. 变异测试（证明这套检查抓得住回归）=="
-  run_suite "变异测试（10 个注入回归 + 4 个对照组）" node "$HERE/verify-test-effectiveness.js"
+  run_suite "变异测试（8 个注入回归 + 4 个对照组）" node "$HERE/verify-test-effectiveness.js"
 fi
 
 echo

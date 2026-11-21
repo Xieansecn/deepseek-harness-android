@@ -1,0 +1,35 @@
+#AOCI-CODE-VOLUME: 1
+
+===/<repository>/===
+.gitattributes[FC6T]: F:强制全体文本以 LF 检出，使 AOCI 基线在任何平台上逐字节一致 | R:- | A:* text=auto eol=lf | S:AOCI 按原始字节记录基线：Windows 默认 autocrlf 重写的 CRLF 会让整树判为 stale，故必须 eol=lf
+.gitignore[FC4T]: F:排除 Termux 运行期产物与依赖目录，使其不进入版本管理与索引 | R:- | A:storage/、*.log、node_modules/、.DS_Store | S:不得把 aoci.txt / aoci.meta.txt / aoci.code.txt / AGENTS.md 加进来——被忽略的认知资产会被 scan 静默跳过，索引建不起来
+AGENTS.md[SG9M]: F:项目记忆与维护须知：范围约束、胶水脚本怎么工作、改哪里、别踩什么坑 | R:code:REPORTS.md,code:README.md,code:docs/index.html,code:setup.sh | A:仓库定位, 硬性范围, 安装/修补流程, 实测踩坑清单, 测试与验证 | S:项目记忆只允许落在本文件，不得另建 .ai-memory/ 等目录；改脚本或补丁行为后必须同步 REPORTS 对应条目、README 中文节与英文节以及 docs/index.html
+LICENSE[SZ2T]: F:MIT 许可证原文（Copyright 2026 FunnelCakes） | R:- | A:- | S:-
+README.md[SG9M]: F:中英双语用户文档：范围、8 项修复、安装与配置、测试与 FAQ | R:code:docs/index.html,code:REPORTS.md,code:setup.sh,code:AGENTS.md | A:快速开始, 修复清单, 配置, 安装步骤 0~8, 测试与 FAQ | S:中文节与英文节必须同时改：只改一处会立刻过时；安装方式只有 npm，仓库只做 Termux 兼容、不改 dsh 前端
+REPORTS.md[SG9S]: F:修改与适配报告：8 项安装期修改、验证证据、已删除项与升级风险 | R:code:setup.sh,code:AGENTS.md,code:patches/verify-all-checks.sh | A:修改总表, 逐项根因, 验证证据, 已删除, 风险与升级须知 | S:改脚本/补丁行为后先更新本文件对应条目再同步文档；版本号只表示撰写/实测时点，不得作为逻辑依赖或分支依据
+apply-rg-fix.sh[XR7S]: F:修复 grep/glob 的 ripgrep launch failed：软链系统 rg 并给 resolveRgPath() 加源码回退 | R:code:patches/verify-rg-fix-fixture.js,code:patches/verify-all-checks.sh | A:TARGET_LIBS, VERIFY_LIB, 第3步 fresh node 解析验证 | S:resolveRgPath 的两代宿主（tool-fs-search / util-ripgrep）都收，只 import 的消费者文件静默跳过；锚点漂移只 warn——平台软链本身已足以解析，成败交给 fresh node 实测
+restart_dsh_now.sh[OW5T]: F:重启 dsh web：停段复用 stop、启段复用 start --no-open，日志写同一个 dsh.log | R:code:stop_dsh.sh,code:start_dsh.sh | A:restart begin, curl 端口确认, 失败时只贴本次新增日志 | S:必须 --no-open 且复用同一日志文件，否则 start 拿不到当前进程的新 token；curl 连不上返回 000 而非空串，判定要认 000
+setup.sh[OV9L]: F:主入口：安装 dsh 到 npm 全局目录并应用 Android 兼容补丁（0~8 步，幂等） | R:code:apply-rg-fix.sh,code:patches/apply-profile-patch.js,code:config/cordis.patch.yml | A:anchor_precheck, ALLOW_SCRIPTS, NPM_CMD, on_exit, status_render | S:补丁一律按锚点/形状匹配，绝不按版本号分支；安装前把 $PREFIX/bin/dsh 包装原子移开（否则 npm bin link EEXIST），失败由 on_exit 还原、成功由 6/8 重建；提示文本禁用反引号命令替换（bash 会真的执行）
+start_dsh.sh[OW8L]: F:启动或复用 dsh web：流式取带 token 的鉴权 URL，curl 校验后按包名打开浏览器 | R:code:stop_dsh.sh,code:restart_dsh_now.sh | A:wait_for_token, launch, open_gui, explain_busy_port, report_elapsed | S:必须把 DSH_PORT 转成 dsh 的 --port（上游不读该环境变量）；端口先回 401 时仍要等 token，不能降级裸 URL；日志读循环用 FIFO 留在当前 shell，管道里的 break 只结束子 shell；同一个 wait_for_token 会被调用两次，进入时必须重置管道与标记文件
+stop_dsh.sh[OW6S]: F:安全停止 dsh web：pid 文件 + 身份二次确认 + 优雅窗口→补发 SIGTERM→SIGKILL 兜底 | R:code:start_dsh.sh | A:pid_is_dsh, any_alive, steps | S:杀 pid 文件里的进程前必须二次确认它真是 dsh web（pid 可能被复用）；端口仍有响应但本机看不到进程时只提醒「不受本脚本管理」并退 0
+
+===/<repository>/config/===
+cordis.patch.yml[FS9T]: F:dsh web profile 的权限覆盖层：放开进程沙箱并关闭审批（Android 无命名空间沙箱） | R:code:patches/apply-profile-patch.js | A:sandbox-policy, approval, # >>> dsh-android-layer-entry 哨兵行 | S:两条必须成对：上游 permission 按 sandbox+approval 组合反查预设，只写 sandbox 会匹配不到预设令该行不激活；哨兵行是层的切块标记，删了就无法按条目补缺
+
+===/<repository>/docs/===
+index.html[SG8S]: F:说明文档站：双语安装步骤、8 项兼容修复、安全说明与 FAQ | R:code:README.md,code:REPORTS.md | A:setLang, #lang-zh, #lang-en | S:内容与 README 双语文档同源，须同步修改
+
+===/<repository>/patches/===
+apply-profile-patch.js[XC8M]: F:把权限层按内容分类安全合并进 dsh profile 的 cordis.patch.yml，并做解析校验 | R:code:config/cordis.patch.yml,code:patches/verify-profile-patch-fixture.js | A:resolveDshRoot, loadOverlayParser, stripLeadingEmptyArrayDoc, splitLayerChunks, writeWithValidation | S:空数组模板必须整体替换：在已结束的 [] 文档后追加会让 dsh 启动即 YAMLException；写前写后都用 dsh 自己的 loadOverlayPatches 校验，坏文件一字节不动并退 1
+patch-dsh-android-flock.js[XR8M]: F:为 Android 编译 flock 原生绑定，并让 node-addon-system 在 android 下加载它 | R:code:patches/verify-patch-guards-fixture.js | A:stripComments, hasAndroidBranch, compileAddon, testLock | S:幂等判定看剥离注释与字符串后的真 android 分支而非 marker；--root 硬契约：显式给出却定位不到即退 1，绝不回落其它安装树
+patch-dsh-android-link.js[XD8L]: F:用 rename 与「O_EXCL 占位 + rename」替代 Android 上被 SELinux 拒绝的 link() | R:code:patches/verify-android-link-fix.js,code:patches/verify-patch-guards-fixture.js | A:ensureFsImport, publishNoReplaceNoHardlink, isHardLinkUnavailable, patchPackage | S:ensureFsImport 只追加不删除 link——同文件仍引用它，删导入会让 dsh 启动即 ReferenceError；只支持 0.2.2+ 的 options.createIfAbsent 形状；--root 是硬契约
+patch-dsh-android-require-builtin.js[XE9M]: F:生成 node-addon-require-builtin 的 android 平台包，补上 dsh 启动前提 | R:code:patches/verify-require-builtin-fixture.js,code:setup.sh | A:BINDING_JS, requireBuiltin, getNativeBindingInfo, platformPackageFiles, verify | S:缺它 dsh 在 host preparation 阶段直接失败，故失败必须中断安装；幂等按内容逐字节比较，归属读 manifest 的 dshAndroidPatch 字段，外来包让路；纯 JS 实现与 dsh 包装必带 --expose-internals 强绑定
+verify-all-checks.sh[TQ7T]: F:一条命令跑完语法 + 静态契约 + 5 个夹具，加 --full 再跑变异测试 | R:code:patches/verify-setup-static-check.sh,code:patches/verify-test-effectiveness.js | A:--verbose, --full, 套件 PASS/FAIL 汇总 | S:只读或只写临时目录：不跑 setup.sh、不碰 3080、不写 ~/.dsh
+verify-android-link-fix.js[TQ6M]: F:硬链接补丁验证：静态检查 + 临时目录实跑附件保存/去重与 fs-local 新建文件 | R:code:patches/patch-dsh-android-link.js | A:--root, 模拟 link()=EACCES | S:必须排在 sharp WASM 回退之后：附件模块加载即 import sharp，否则误报验证未通过
+verify-patch-guards-fixture.js[TQ7L]: F:link/flock 守护条件夹具：--root 硬契约、副本内真编译、注释与字符串骗不过幂等判定 | R:code:patches/patch-dsh-android-link.js,code:patches/patch-dsh-android-flock.js | A:52 断言, 3b 正向打 link 补丁 + node --check | S:修复前脚本跑同一夹具有 21 条 FAIL，可作回归基线；夹具只写 mktemp 目录并断言真实安装树哈希未变
+verify-profile-patch-fixture.js[TQ6M]: F:权限层夹具：各类 cordis.patch.yml 形态下的标签、退出码、文件字节与解析结果断言 | R:code:patches/apply-profile-patch.js,code:config/cordis.patch.yml | A:41 断言, [REPAIRED] 崩溃现场 | S:用例 3 必须先断言崩溃现场确实解析不了再断言修好；只写临时目录，并只读断言真实 ~/.dsh profile 哈希未变
+verify-require-builtin-fixture.js[TQ6M]: F:平台包夹具：创建/刷新/让路/--root 契约与 manifest 元数据断言 | R:code:patches/patch-dsh-android-require-builtin.js | A:27 断言, [CREATED]/[REFRESHED]/[SKIP] | S:只写 mktemp 目录；用例 5 只读断言真实安装树未被触碰
+verify-rg-fix-fixture.js[TQ6M]: F:rg 修复夹具：两代布局、幂等、平台软链与源码兜底两条成功路径 | R:code:apply-rg-fix.sh | A:33 断言, rc.3 布局, 漂移+兜底 rc0 | S:形状常量从 apply-rg-fix.sh 原样抽取，避免夹具与生产逻辑分叉
+verify-runtime-scripts-fixture.js[TQ7L]: F:运行期脚本夹具：假 dsh + 临时 HOME 验证 start/stop/restart 的执行行为与输出契约 | R:code:start_dsh.sh,code:stop_dsh.sh,code:restart_dsh_now.sh | A:40 断言, --port 传递, 401 冷启动, 端口被占, 启动失败 | S:假 dsh 只认 --port；清理只用登记过的 pid（pkill -f 会命中调用它的 shell 自身），启动前须自清残留假 dsh
+verify-setup-static-check.sh[TQ7S]: F:setup.sh 与运行期脚本的静态契约检查：只读，不跑 setup、不动安装树 | R:code:setup.sh,code:start_dsh.sh,code:stop_dsh.sh | A:40 条契约, 锚点规格 5 条, 白名单覆盖, 无 pnpm 残留 | S:退出码 0=全过、1=有失败并逐条打印；DSH_DIR 可覆盖目标根
+verify-test-effectiveness.js[TQ6S]: F:变异测试：往仓库副本注入已知回归，断言对应套件必须变红，并跑对照组断言必须绿 | R:code:patches/verify-runtime-scripts-fixture.js,code:patches/verify-setup-static-check.sh | A:8 个注入回归 + 4 个对照组 | S:注入串必须与真实文本逐字符一致（PATCHES 是单行），每个 case 独立 try/catch

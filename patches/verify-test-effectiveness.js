@@ -12,8 +12,6 @@
  *   3. restart_dsh_now.sh 去掉 curl=000 判定                      → runtime 夹具
  *   4. start_dsh.sh 降级原因不带 no-token 码                      → runtime 夹具
  *   5. start_dsh.sh 拉起前不探端口（端口被占也白拉一次）          → runtime 夹具
- *   6. apply-js-patches.sh 的 PATCHES 漏掉 03（性能补丁静默失效） → js-patches 夹具
- *   7. apply-js-patches.sh 退出码不看 failed                      → js-patches 夹具
  *   8. setup.sh link 预检 marker 回退成裸标识符                   → 静态契约检查
  *   9. setup.sh 用「先 rm 后写」替换 mv -f 原子替换               → 静态契约检查
  *  10. guards 夹具里删掉 3 条断言                                 → guards 夹具（断言下限）
@@ -65,9 +63,7 @@ function runSuite(repo, suite) {
 	const [cmd, script, ...rest] =
 		suite === "runtime"
 			? ["node", path.join(repo, "patches", "verify-runtime-scripts-fixture.js")]
-			: suite === "jspatches"
-				? ["node", path.join(repo, "patches", "verify-js-patches-fixture.js")]
-				: suite === "guards"
+			: suite === "guards"
 					? ["node", path.join(repo, "patches", "verify-patch-guards-fixture.js")]
 					: suite === "profile"
 						? ["node", path.join(repo, "patches", "verify-profile-patch-fixture.js")]
@@ -109,18 +105,6 @@ const CASES = [
 		file: "start_dsh.sh",
 		mutate: (s) => s.replace('if port_up; then\n  explain_busy_port\n  exit 1\nfi', ''),
 		suite: "runtime",
-	},
-	{
-		name: "apply-js-patches.sh 的 PATCHES 漏掉 03",
-		file: "apply-js-patches.sh",
-		mutate: (s) => s.replace("PATCHES=(01-frontend-static-cache 03-client-modules-newline-count)", "PATCHES=(01-frontend-static-cache)"),
-		suite: "jspatches",
-	},
-	{
-		name: "apply-js-patches.sh 退出码忽略 failed（报告仍说失败 1）",
-		file: "apply-js-patches.sh",
-		mutate: (s) => s.replace('echo "[apply-js-patches] 完成', 'failed=0; echo "[apply-js-patches] 完成'),
-		suite: "jspatches",
 	},
 	{
 		name: "setup.sh link 预检 marker 回退成裸标识符",

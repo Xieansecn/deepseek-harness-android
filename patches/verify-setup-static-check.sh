@@ -22,11 +22,11 @@ chk()  { if [ "$1" = 1 ]; then ok "$2"; else bad "$2" "${3:-}"; fi; }
 echo "== setup.sh 静态契约 =="
 bash -n "$REPO/setup.sh" 2>/dev/null && chk 1 "setup.sh 语法（bash -n）" || chk 0 "setup.sh 语法（bash -n）"
 
-# 1) 0/9 锚点预检：规格表 6 条，每条 3 个字段；link 三条必须用「打完补丁才出现」的函数定义串，
+# 1) 0/8 锚点预检：规格表 5 条，每条 3 个字段；link 三条必须用「打完补丁才出现」的函数定义串，
 #    裸标识符会被「仅含一句注释的半成品」命中（历史缺陷）。
 #    另有 3 个特殊探测块（profile-boot 通配 / require-builtin 平台包 / ripgrep 两代落点）。
 SPEC_COUNT="$(grep -cE "^ *'[^']+\|[^']+\|[^']+'( \\\\|; do)" "$REPO/setup.sh")"
-chk "$([ "$SPEC_COUNT" = 6 ] && echo 1 || echo 0)" "0/9 预检规格 6 条（实际 $SPEC_COUNT）"
+chk "$([ "$SPEC_COUNT" = 5 ] && echo 1 || echo 0)" "0/8 预检规格 5 条（实际 $SPEC_COUNT）"
 BARE_ID="$(grep -cE "^ *'dsh-(session-persistence-jsonl|attachment-local|fs-local)/lib/index\.js\|publishNoReplaceNoHardlink\|" "$REPO/setup.sh")"
 chk "$([ "$BARE_ID" = 0 ] && echo 1 || echo 0)" "link 预检 marker 不用裸标识符（裸标识符条数 $BARE_ID 应为 0）"
 FN_MARK="$(grep -cF 'lib/index.js|async function publishNoReplaceNoHardlink(|' "$REPO/setup.sh")"
@@ -40,18 +40,17 @@ grep -q 'NPM_CMD=(node "\$NPM_REAL")' "$REPO/setup.sh" && chk 1 "npm 走 node �
 BARE_NPM="$(grep -cE '^[^#"'"'"']*npm (install|i )' "$REPO/setup.sh")"
 chk "$([ "$BARE_NPM" = 0 ] && echo 1 || echo 0)" "没有裸 npm 调用（$BARE_NPM 处）"
 
-# 2b) 手动 npm 调用的 Android 编译包装：`npm -g update` 不经过 setup.sh，
-#     若没有 -target aarch64-linux-android30，koffi 会在 statx 处编译失败。
-chk "$([ -x "$REPO/npm_android.sh" ] && echo 1 || echo 0)" "npm_android.sh 存在且可执行"
-grep -q -- '-target aarch64-linux-android30' "$REPO/npm_android.sh" && chk 1 "npm_android.sh 注入 android30 target" || chk 0 "npm_android.sh 注入 android30 target"
-grep -q 'android_compile_flags' "$REPO/npm_android.sh" && grep -q 'CXXFLAGS=' "$REPO/npm_android.sh" && chk 1 "npm_android.sh 同时包装 CFLAGS/CXXFLAGS" || chk 0 "npm_android.sh 同时包装 CFLAGS/CXXFLAGS"
+# 2b) 安装后端只有 npm：仓库里不得再出现 pnpm 安装路径 / 运行时供给（已删除的能力，
+#     留着会让「以为走了 pnpm」的静默错误更难查）。
+LEGACY_PM="$(grep -cE 'DSH_PNPM|pnpm_runtime|--pnpm\)' "$REPO/setup.sh")"
+chk "$([ "$LEGACY_PM" = 0 ] && echo 1 || echo 0)" "setup.sh 已移除 pnpm 安装/运行时供给（残留 $LEGACY_PM 处）"
 
 # 2c) 原生安装布局（2026-11 起移除 hold/pin）：dsh 必须直接装进 npm 默认全局目录（真实目录），
 #     旧版 hold symlink 在安装前摘除；npm 重建 bin link 前必须把 setup.sh 自己的包装脚本移开。
 HOLD_REFS="$(grep -cE 'DSH_HOLD|dsh_hold_pin|DSH_STAGE_PREFIX' "$REPO/setup.sh")"
 chk "$([ "$HOLD_REFS" = 0 ] && echo 1 || echo 0)" "setup.sh 已移除 hold/pin 机制（残留 $HOLD_REFS 处）"
 grep -qxF 'DSH_DIR="/data/data/com.termux/files/usr/lib/node_modules/@deepseek-ai/dsh"' "$REPO/setup.sh" && chk 1 "dsh 目标是 npm 默认全局目录" || chk 0 "dsh 目标是 npm 默认全局目录"
-grep -qF '"${NPM_CMD[@]}" install -g ' "$REPO/setup.sh" && chk 1 "3/9 直接 npm install -g（无暂存前缀）" || chk 0 "3/9 直接 npm install -g（无暂存前缀）"
+grep -qF '"${NPM_CMD[@]}" install -g ' "$REPO/setup.sh" && chk 1 "3/8 直接 npm install -g（无暂存前缀）" || chk 0 "3/8 直接 npm install -g（无暂存前缀）"
 grep -qF 'if [ -L "$DSH_DIR" ]; then' "$REPO/setup.sh" && chk 1 "安装前摘除旧 hold symlink" || chk 0 "安装前摘除旧 hold symlink"
 grep -qF 'DSH_CMD_PREINSTALL_BAK=' "$REPO/setup.sh" && chk 1 "安装前移开 dsh 包装（避免 npm bin link EEXIST）" || chk 0 "安装前移开 dsh 包装（避免 npm bin link EEXIST）"
 grep -qF '仍是符号链接' "$REPO/setup.sh" && chk 1 "安装后断言全局 dsh 是真实目录" || chk 0 "安装后断言全局 dsh 是真实目录"
