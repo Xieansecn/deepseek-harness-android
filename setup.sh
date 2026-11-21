@@ -47,7 +47,7 @@ fi
 # export：直接打印的 python 子进程也要读它（见下方各 python 块）。
 export SP_CLEAR=""
 info()  { printf '%s%s==>%s %s\n' "$SP_CLEAR" "$C_BLUE" "$C_RST" "$*"; status_render; }
-ok()    { printf '%s%s[v]%s %s\n' "$SP_CLEAR" "$C_GREEN" "$C_RST" "$*"; status_render; }
+ok()    { printf '%s%s[✓]%s %s\n' "$SP_CLEAR" "$C_GREEN" "$C_RST" "$*"; status_render; }
 warn()  { printf '%s%s[!]%s %s\n' "$SP_CLEAR" "$C_YELLOW" "$C_RST" "$*"; status_render; }
 # error 走 stderr：单独 status_clear（写 stdout），免得把光标控制码混进被重定向的 stderr 文件。
 error() { status_clear; printf '%s[x]%s %s\n' "$C_RED" "$C_RST" "$*" >&2; status_render; }
