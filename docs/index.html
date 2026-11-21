@@ -5,31 +5,65 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>DeepSeek Harness for Android/Termux</title>
 <style>
-  :root { --bg:#0f1420; --card:#171d2b; --fg:#e8eaf0; --mut:#9aa3b5; --acc:#4f8cff; --br:#262e40; }
+  :root {
+    --bg:#0f1420; --card:#161c29; --fg:#e8eaf0; --mut:#98a1b3; --acc:#5b91ff;
+    --br:#242c3d; --ok:#3ddc84; --warn:#e0b341;
+  }
   * { box-sizing:border-box; }
-  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.7 -apple-system,"Segoe UI",Roboto,"Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif; }
-  .wrap { max-width:860px; margin:0 auto; padding:24px 18px 64px; }
-  header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; border-bottom:1px solid var(--br); padding-bottom:16px; margin-bottom:20px; }
-  h1 { font-size:22px; margin:0; }
-  .toggle { display:flex; border:1px solid var(--br); border-radius:999px; overflow:hidden; }
-  .toggle button { border:0; background:transparent; color:var(--mut); font:inherit; padding:6px 18px; cursor:pointer; }
+  html { scroll-behavior:smooth; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+    font:15px/1.75 -apple-system,"Segoe UI",Roboto,"Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif; }
+  .wrap { max-width:820px; margin:0 auto; padding:28px 18px 72px; }
+
+  header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:18px; }
+  h1 { font-size:21px; margin:0 0 4px; letter-spacing:.2px; }
+  .sub { color:var(--mut); font-size:13.5px; margin:0; }
+  .toggle { display:flex; border:1px solid var(--br); border-radius:999px; overflow:hidden; flex:none; }
+  .toggle button { border:0; background:transparent; color:var(--mut); font:inherit; font-size:13px; padding:5px 16px; cursor:pointer; }
   .toggle button.on { background:var(--acc); color:#fff; }
-  h2 { font-size:17px; margin:26px 0 8px; color:#fff; border-left:3px solid var(--acc); padding-left:8px; }
-  pre { background:#0b0f18; border:1px solid var(--br); border-radius:10px; padding:12px 14px; overflow-x:auto; font-size:13px; }
-  code { background:#0b0f18; border-radius:4px; padding:1px 5px; font-size:13px; }
-  table { border-collapse:collapse; width:100%; font-size:13.5px; }
-  th,td { border:1px solid var(--br); padding:6px 10px; text-align:left; vertical-align:top; }
-  th { background:var(--card); }
+
+  nav { display:flex; flex-wrap:wrap; gap:6px 14px; font-size:13px; border-top:1px solid var(--br);
+    border-bottom:1px solid var(--br); padding:10px 0; margin-bottom:26px; }
+  nav a { color:var(--mut); text-decoration:none; }
+  nav a:hover { color:var(--acc); }
+
+  section { margin:0 0 34px; }
+  h2 { font-size:16px; margin:0 0 10px; color:#fff; }
+  h2 .n { color:var(--acc); font-weight:600; margin-right:8px; }
+  p { margin:8px 0; }
+  ul { margin:8px 0; padding-left:20px; }
+  li { margin:5px 0; }
+
+  pre { background:#0a0e16; border:1px solid var(--br); border-radius:10px; padding:12px 14px;
+    overflow-x:auto; font-size:12.8px; line-height:1.65; margin:10px 0; }
+  code { background:#0a0e16; border:1px solid var(--br); border-radius:5px; padding:1px 5px; font-size:12.8px; }
+  pre code { background:none; border:0; padding:0; }
+
+  table { border-collapse:collapse; width:100%; font-size:13px; margin:10px 0; }
+  th,td { border:1px solid var(--br); padding:7px 10px; text-align:left; vertical-align:top; }
+  th { background:var(--card); font-weight:600; }
+  td:first-child { white-space:nowrap; }
+
   a { color:var(--acc); }
-  .warn { background:rgba(79,140,255,.08); border:1px solid var(--br); border-radius:10px; padding:10px 14px; margin:12px 0; }
+  .lead { background:var(--card); border:1px solid var(--br); border-left:3px solid var(--acc);
+    border-radius:8px; padding:12px 14px; margin:0 0 26px; font-size:14px; }
+  .lead b { color:#fff; }
+  .hard { color:var(--warn); font-weight:600; }
+  .soft { color:var(--mut); }
+  details { border:1px solid var(--br); border-radius:10px; padding:10px 14px; margin:10px 0; background:var(--card); }
+  summary { cursor:pointer; font-size:14px; color:#fff; }
+  summary::marker { color:var(--acc); }
   .lang[hidden] { display:none; }
-  footer { margin-top:40px; color:var(--mut); font-size:13px; border-top:1px solid var(--br); padding-top:14px; }
+  footer { margin-top:36px; color:var(--mut); font-size:12.5px; border-top:1px solid var(--br); padding-top:14px; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <h1>DeepSeek Harness · Android/Termux</h1>
+    <div>
+      <h1>DeepSeek Harness · Android/Termux</h1>
+      <p class="sub">在手机 Termux 里原生运行 dsh，用浏览器访问 127.0.0.1:3080</p>
+    </div>
     <div class="toggle" role="tablist" aria-label="Language">
       <button id="btn-zh" class="on" onclick="setLang('zh')">中文</button>
       <button id="btn-en" onclick="setLang('en')">English</button>
@@ -38,132 +72,240 @@
 
   <!-- ============================ 中文 ============================ -->
   <div id="lang-zh" class="lang">
-    <div class="warn">⚠️ <b>需要 Termux</b>：本方案必须在 <b>Android 手机的 Termux 终端</b> 里安装运行。<br>
-      <b>仓库定位</b>：只有安装期补丁，只服务 Termux/Android，<b>不改动 dsh 前端</b>。</div>
+    <nav>
+      <a href="#zh-quick">快速开始</a>
+      <a href="#zh-fixes">修复清单</a>
+      <a href="#zh-cmds">日常命令</a>
+      <a href="#zh-config">配置</a>
+      <a href="#zh-faq">常见问题</a>
+      <a href="#zh-sec">安全</a>
+      <a href="#zh-maint">维护者</a>
+    </nav>
 
-    <h2>这是什么</h2>
-    <p>在 Android 手机上原生运行 <a href="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness</a>（<code>@deepseek-ai/dsh</code>，DeepSeek 官方的 agent harness）。通过 Web UI（<code>http://127.0.0.1:3080</code>）在手机浏览器里使用，agent 可在手机上真实执行 bash 命令。</p>
-    <p>本仓库负责：<code>npm install -g</code> 装上游 dsh → 对已安装的那份文件打 <b>8 项 Android 兼容补丁</b> → 提供启动/停止脚本与权限层。</p>
+    <div class="lead">
+      需要 <b>Android 手机上的 Termux</b>（F-Droid 或 GitHub 版本，不要用 Google Play）。<br>
+      本仓库只做 <b>安装期兼容补丁</b>，只服务 Termux，<b>不改上游前端</b>；安装、升级、修复都只走 <code>bash setup.sh</code>。
+    </div>
 
-    <h2>一、安装 Termux 与依赖</h2>
-    <p>❗ 不要用 Google Play 版本（已过时）。官方渠道：<a href="https://f-droid.org/en/packages/com.termux/">F-Droid</a> 或 <a href="https://github.com/termux/termux-app/releases">GitHub Releases</a>。</p>
-    <pre>pkg update && pkg upgrade -y
+    <section id="zh-quick">
+      <h2><span class="n">1</span>快速开始</h2>
+      <pre>pkg update &amp;&amp; pkg upgrade -y
 pkg install -y git
-# setup.sh 会自动安装 cmake clang make binutils pkg-config python nodejs ripgrep</pre>
+git clone &lt;本仓库&gt; deepseek-harness-android &amp;&amp; cd deepseek-harness-android
+bash setup.sh                # 安装 dsh + 8 项兼容补丁，约 5～15 分钟
+bash ~/dsh/start_dsh.sh      # 启动并打开带 token 的浏览器</pre>
+      <p>启动后在 Web UI 的 <b>Models</b> 页面填入 DeepSeek API Key 即可对话。</p>
+      <p class="soft">环境：Termux aarch64、无需 root、Node ≥ 22、npm 12.x；构建依赖由 setup.sh 自动安装。</p>
+    </section>
 
-    <h2>二、一键安装</h2>
-    <pre>git clone &lt;本仓库&gt; deepseek-harness-android
-cd deepseek-harness-android
-bash setup.sh          # 安装 dsh + 全部兼容补丁（5～15 分钟）</pre>
-    <p>安装方式只有 <b>npm</b>（<code>npm install -g @deepseek-ai/dsh</code>）。<code>--pnpm</code> / <code>--npm</code> 参数已废弃；<b>不要用 pnpm 安装</b>（符号链接布局会破坏补丁落点，且 pnpm 默认拦截 <code>node-pty</code> 构建）。</p>
+    <section id="zh-fixes">
+      <h2><span class="n">2</span>修复清单</h2>
+      <p>setup.sh 只做这 8 件事，其余一概不做：不改前端、不注入 CSS/JS、不做性能补丁。</p>
+      <table>
+        <tr><th>现象</th><th>处理</th><th>失败</th></tr>
+        <tr><td>启动即崩：<code>No usable native binding found</code></td><td>生成纯 JS 平台包 + <code>--expose-internals</code> 包装</td><td class="hard">中断</td></tr>
+        <tr><td><code>terminal inspection is unsupported on platform android</code></td><td><code>dsh-subprocess-local</code> 视 android 为 linux</td><td class="soft">warn</td></tr>
+        <tr><td><code>node-pty</code> 无 Android 预编译</td><td>放行构建脚本，用 Termux headers 本地编译并校验</td><td class="hard">中断</td></tr>
+        <tr><td>grep/glob 报 <code>ripgrep launch failed</code></td><td>系统 <code>rg</code> 软链进平台包 + <code>resolveRgPath()</code> 回退</td><td class="hard">中断</td></tr>
+        <tr><td>会话/附件/write 报 <code>EACCES ... link</code></td><td><code>rename</code> / 「O_EXCL 占位 + rename」替代硬链接</td><td class="soft">warn</td></tr>
+        <tr><td><code>flock is not supported on android-arm64</code></td><td>clang 编译 <code>flock.c</code> 成本机 <code>system.node</code></td><td class="soft">warn</td></tr>
+        <tr><td><code>sharp</code> 无法在 android-arm64 加载</td><td>装同版本 <code>@img/sharp-wasm32</code> + <code>@emnapi/runtime</code></td><td class="hard">中断</td></tr>
+        <tr><td>bash 工具报 <code>SANDBOX_UNAVAILABLE</code></td><td>权限层写入 <code>danger-full-access</code> + <code>approval: never</code></td><td class="hard">中断</td></tr>
+      </table>
+    </section>
 
-    <h2>三、启动与使用</h2>
-    <pre>bash ~/dsh/start_dsh.sh      # 启动并打开带 token 的浏览器
-bash ~/dsh/stop_dsh.sh       # 停止
-bash ~/dsh/restart_dsh_now.sh</pre>
-    <p>开始使用前，在 Web UI 的 <b>Models</b> 页面填写 DeepSeek API Key。</p>
+    <section id="zh-cmds">
+      <h2><span class="n">3</span>日常命令</h2>
+      <pre>bash setup.sh                       # 安装 / 升级 / 修复（唯一受支持路径）
+bash setup.sh --verbose             # 同上，并透传原始子命令输出
+bash ~/dsh/start_dsh.sh             # 启动并打开带 token 的浏览器
+bash ~/dsh/stop_dsh.sh              # 停止
+bash ~/dsh/restart_dsh_now.sh       # 重启（不打开浏览器）</pre>
+      <p><b>不要直接 <code>npm -g update</code></b>：它会覆盖安装期补丁并丢掉 Android 编译参数。</p>
+    </section>
 
-    <h2>四、setup.sh 自动修复的 Android 兼容问题</h2>
-    <table>
-      <tr><th>问题</th><th>做法</th></tr>
-      <tr><td>启动即崩：<code>No usable native binding found for node-addon-require-builtin-android-arm64</code></td><td>生成纯 JS 平台包，<code>dsh</code> 包装脚本带 <code>--expose-internals</code></td></tr>
-      <tr><td>终端不可用：<code>terminal inspection is unsupported on platform android</code></td><td><code>dsh-subprocess-local</code> 视 android 为 linux</td></tr>
-      <tr><td><code>node-pty</code> 无 Android 预编译</td><td>放行构建脚本，用 Termux headers 本地编译并校验</td></tr>
-      <tr><td>grep/glob 报 <code>ripgrep launch failed</code></td><td>系统 <code>rg</code> 软链到 <code>@vscode/ripgrep-android-arm64</code> + 源码回退</td></tr>
-      <tr><td>会话/附件/write 报 <code>EACCES ... link</code></td><td><code>rename</code> / 「O_EXCL 占位 + rename」替代硬链接</td></tr>
-      <tr><td>发消息报 <code>flock is not supported on android-arm64</code></td><td>clang 编译 <code>flock.c</code> 成本机 <code>system.node</code></td></tr>
-      <tr><td><code>sharp</code> 无法在 android-arm64 加载</td><td>装同版本 <code>@img/sharp-wasm32</code> + <code>@emnapi/runtime</code></td></tr>
-      <tr><td>bash 工具报 <code>SANDBOX_UNAVAILABLE</code></td><td>权限层写入 <code>danger-full-access</code> + <code>approval: never</code></td></tr>
-    </table>
-    <p>不做的事：不改前端、不注入 CSS/JS、不做性能补丁。</p>
+    <section id="zh-config">
+      <h2><span class="n">4</span>配置</h2>
+      <table>
+        <tr><th>变量</th><th>默认</th><th>作用</th></tr>
+        <tr><td><code>DSH_PORT</code></td><td>3080</td><td>端口，脚本显式转成 dsh 的 <code>--port</code></td></tr>
+        <tr><td><code>DSH_VERSION</code></td><td>空</td><td>钉版本（灰度/回退），如 <code>0.2.2-rc.5</code></td></tr>
+        <tr><td><code>DSH_ORIGIN</code></td><td>127.0.0.1</td><td>交给浏览器的 origin（<code>localhost</code> 可绕开 PWA 丢 token）</td></tr>
+        <tr><td><code>DSH_NO_OPEN</code></td><td>空</td><td>只拉起服务，不打开浏览器</td></tr>
+        <tr><td><code>DSH_VIA_APP</code></td><td>mark.via</td><td>优先使用的浏览器包名</td></tr>
+        <tr><td><code>NO_COLOR</code></td><td>空</td><td>关闭彩色输出</td></tr>
+      </table>
+      <details>
+        <summary>完整变量表（含停止梯子与调试项）</summary>
+        <ul>
+          <li><code>DSH_READY_TIMEOUT</code>（90）：等带 token URL 的最长秒数</li>
+          <li><code>DSH_STOP_GRACE</code> / <code>DSH_STOP_TIMEOUT</code>（1.5 / 6）：优雅窗口 → 补发 SIGTERM → SIGKILL</li>
+          <li><code>DSH_WEB_PATTERN</code>：多安装并存时的进程匹配模式</li>
+          <li><code>DSH_OPEN_APP</code> / <code>DSH_OPEN_CHOOSER</code>：指定浏览器 / 弹出选择器</li>
+          <li><code>SETUP_VERBOSE</code>：等同 <code>--verbose</code></li>
+        </ul>
+      </details>
+    </section>
 
-    <h2>五、安全说明</h2>
-    <ul>
-      <li><b><code>danger-full-access</code> 等于关闭进程沙箱</b>：Android 无 bwrap/landlock，受限模式会让 bash 工具直接不可用。仅建议个人设备。</li>
-      <li>服务只监听 <code>127.0.0.1</code>，不走局域网。</li>
-      <li>API Key 与 cookie 签名 secret 存于 <code>~/.dsh</code>（0600）。</li>
-    </ul>
+    <section id="zh-faq">
+      <h2><span class="n">5</span>常见问题</h2>
+      <ul>
+        <li><b><code>bad interpreter: /usr/bin/env</code></b>：Termux 上 <code>/usr/bin</code> 不可解析；本仓库一律用 Termux 绝对 shebang。</li>
+        <li><b><code>EADDRINUSE</code></b>：端口上已有实例；start 脚本先探端口，提示换 <code>DSH_PORT=3081</code>。</li>
+        <li><b>koffi 被跳过</b>：它在 <code>SKIP_SCRIPTS</code> 里（进白名单会让 npm 12 整次安装退 1），运行期只在 win32 用到。</li>
+        <li><b>能用 pnpm 吗</b>：不能，符号链接 store 会破坏补丁落点，且默认拦截 <code>node-pty</code> 构建。</li>
+        <li><b>setup.sh 停在 4/8</b>：平台包与 ripgrep 是硬阻断，按提示看 <code>~/dsh/setup.log</code>。</li>
+      </ul>
+    </section>
 
-    <h2>六、常见问题</h2>
-    <ul>
-      <li><b><code>bad interpreter: /usr/bin/env</code></b>：Termux 上 <code>/usr/bin</code> 不可解析，本仓库一律用 Termux 绝对 shebang。</li>
-      <li><b><code>EADDRINUSE</code></b>：端口上已有实例；<code>start_dsh.sh</code> 会先探端口，提示换 <code>DSH_PORT=3081</code>。</li>
-      <li><b>koffi 被跳过</b>：它在 <code>SKIP_SCRIPTS</code> 里（npm 12 下放进白名单会让整次安装退 1），运行期只走 win32 分支，Android 用不到。</li>
-      <li><b>升级 / 修复</b>：只走 <code>bash setup.sh</code>；直接 <code>npm -g update</code> 会覆盖补丁。</li>
-    </ul>
+    <section id="zh-sec">
+      <h2><span class="n">6</span>安全</h2>
+      <ul>
+        <li><b><code>danger-full-access</code> 等于关闭进程沙箱</b>：Android 无 bwrap/landlock，仅建议个人设备。</li>
+        <li>服务只监听 <code>127.0.0.1</code>，不走局域网。</li>
+        <li>API Key 与 cookie 签名 secret 存于 <code>~/.dsh</code>（0600）。</li>
+      </ul>
+    </section>
 
-    <h2>七、测试环境</h2>
-    <p>Huawei Mate 60（HarmonyOS 4.2，无 root），Termux aarch64，Node v26.13，npm 12.x，ripgrep 15.2.0。版本基线：<code>0.2.2-rc.5</code>（npm latest），并继续支持 rc.1 / rc.3。</p>
-
-    <h2>参考</h2>
-    <ul>
-      <li><a href="https://github.com/deepseek-ai/deepseek-harness">deepseek-ai/deepseek-harness</a></li>
-    </ul>
+    <section id="zh-maint">
+      <h2><span class="n">7</span>维护者</h2>
+      <details>
+        <summary>setup.sh 的 0~8 步</summary>
+        <table>
+          <tr><th>步骤</th><th>做什么</th></tr>
+          <tr><td>0/8</td><td>锚点预检（只读）：5 条补丁锚点 + 3 个特殊探测</td></tr>
+          <tr><td>1/8</td><td>构建依赖 + 镜像速度探测</td></tr>
+          <tr><td>2/8</td><td>Termux Node headers（缺失才下载）</td></tr>
+          <tr><td>3/8</td><td>npm install -g dsh + 脚本白名单，校验 pty.node</td></tr>
+          <tr><td>4/8</td><td>平台包 → link → flock → subprocess → ripgrep</td></tr>
+          <tr><td>5/8</td><td>sharp WASM 回退 + 硬链接验证</td></tr>
+          <tr><td>6/8</td><td>重建 dsh 包装脚本</td></tr>
+          <tr><td>7/8</td><td>运行期脚本 + 权限层合并</td></tr>
+          <tr><td>8/8</td><td>汇总</td></tr>
+        </table>
+      </details>
+      <pre>bash patches/verify-all-checks.sh          # 语法 + 静态契约 + 5 个夹具（193 条断言）
+bash patches/verify-all-checks.sh --full   # 追加变异测试（8 回归 + 4 对照组）</pre>
+    </section>
   </div>
 
   <!-- ============================ English ============================ -->
   <div id="lang-en" class="lang" hidden>
-    <div class="warn">⚠️ <b>Termux required</b>: this runs on an Android phone inside Termux.<br>
-      <b>Scope</b>: install-time patches only, Termux only, <b>no dsh frontend changes</b>.</div>
+    <nav>
+      <a href="#en-quick">Quick start</a>
+      <a href="#en-fixes">Fixes</a>
+      <a href="#en-cmds">Commands</a>
+      <a href="#en-config">Config</a>
+      <a href="#en-faq">FAQ</a>
+      <a href="#en-sec">Security</a>
+      <a href="#en-maint">Maintainers</a>
+    </nav>
 
-    <h2>What is this</h2>
-    <p>Run <a href="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness</a> (<code>@deepseek-ai/dsh</code>) natively on Android via Termux, and use it from the phone browser at <code>http://127.0.0.1:3080</code>.</p>
-    <p>This repository installs upstream with <code>npm install -g</code>, patches the installed tree with <b>eight Android compatibility fixes</b>, and ships start/stop scripts plus the permission layer.</p>
+    <div class="lead">
+      Requires <b>Termux on an Android phone</b> (F-Droid or GitHub build — not Google Play).<br>
+      This repo applies <b>install-time compatibility patches</b> only, Termux only, <b>no frontend changes</b>; install, upgrade and repair all go through <code>bash setup.sh</code>.
+    </div>
 
-    <h2>1. Install Termux and dependencies</h2>
-    <p>Do not use the Google Play build. Use <a href="https://f-droid.org/en/packages/com.termux/">F-Droid</a> or <a href="https://github.com/termux/termux-app/releases">GitHub Releases</a>.</p>
-    <pre>pkg update && pkg upgrade -y
+    <section id="en-quick">
+      <h2><span class="n">1</span>Quick start</h2>
+      <pre>pkg update &amp;&amp; pkg upgrade -y
 pkg install -y git
-# setup.sh installs cmake clang make binutils pkg-config python nodejs ripgrep</pre>
+git clone &lt;this repo&gt; deepseek-harness-android &amp;&amp; cd deepseek-harness-android
+bash setup.sh                # installs dsh + 8 compatibility fixes, 5–15 minutes
+bash ~/dsh/start_dsh.sh      # starts the server and opens the token URL</pre>
+      <p>Then fill in your DeepSeek API key on the <b>Models</b> page of the web UI.</p>
+      <p class="soft">Termux aarch64, no root, Node ≥ 22, npm 12.x; build dependencies are installed by setup.sh.</p>
+    </section>
 
-    <h2>2. One-command setup</h2>
-    <pre>git clone &lt;this repo&gt; deepseek-harness-android
-cd deepseek-harness-android
-bash setup.sh          # 5–15 minutes</pre>
-    <p>npm is the only installer. <code>--pnpm</code> / <code>--npm</code> are retired, and pnpm is not supported (its symlinked store breaks patch placement and it blocks the <code>node-pty</code> build).</p>
+    <section id="en-fixes">
+      <h2><span class="n">2</span>What gets fixed</h2>
+      <p>Exactly these eight things — no frontend edits, no CSS/JS injection, no performance patches.</p>
+      <table>
+        <tr><th>Symptom</th><th>Fix</th><th>On failure</th></tr>
+        <tr><td>Boot fails: <code>No usable native binding found</code></td><td>generate the pure-JS platform package + <code>--expose-internals</code> wrapper</td><td class="hard">abort</td></tr>
+        <tr><td><code>terminal inspection is unsupported on platform android</code></td><td>treat android as linux in <code>dsh-subprocess-local</code></td><td class="soft">warn</td></tr>
+        <tr><td><code>node-pty</code> has no Android prebuild</td><td>allow its build script, compile against Termux headers</td><td class="hard">abort</td></tr>
+        <tr><td><code>ripgrep launch failed</code></td><td>symlink system <code>rg</code> into the platform package + <code>resolveRgPath()</code> fallback</td><td class="hard">abort</td></tr>
+        <tr><td><code>EACCES ... link</code> on sessions/attachments/write</td><td><code>rename</code> / "O_EXCL placeholder + rename" instead of hard links</td><td class="soft">warn</td></tr>
+        <tr><td><code>flock is not supported on android-arm64</code></td><td>compile <code>flock.c</code> into a local <code>system.node</code></td><td class="soft">warn</td></tr>
+        <tr><td><code>sharp</code> cannot load on android-arm64</td><td>install matching <code>@img/sharp-wasm32</code> + <code>@emnapi/runtime</code></td><td class="hard">abort</td></tr>
+        <tr><td>bash tool throws <code>SANDBOX_UNAVAILABLE</code></td><td>permission layer with <code>danger-full-access</code> + <code>approval: never</code></td><td class="hard">abort</td></tr>
+      </table>
+    </section>
 
-    <h2>3. Start and use</h2>
-    <pre>bash ~/dsh/start_dsh.sh      # opens the token URL
-bash ~/dsh/stop_dsh.sh
-bash ~/dsh/restart_dsh_now.sh</pre>
-    <p>Fill in your DeepSeek API key on the <b>Models</b> page of the web UI.</p>
+    <section id="en-cmds">
+      <h2><span class="n">3</span>Everyday commands</h2>
+      <pre>bash setup.sh                       # install / upgrade / repair (only supported path)
+bash setup.sh --verbose             # same, streaming raw subcommand output
+bash ~/dsh/start_dsh.sh             # start and open the token URL
+bash ~/dsh/stop_dsh.sh              # stop
+bash ~/dsh/restart_dsh_now.sh       # restart without opening a browser</pre>
+      <p><b>Never run <code>npm -g update</code></b>: it overwrites the install-time patches and loses the Android compile flags.</p>
+    </section>
 
-    <h2>4. What setup.sh fixes</h2>
-    <table>
-      <tr><th>Symptom</th><th>Fix</th></tr>
-      <tr><td>Boot fails: <code>No usable native binding found for node-addon-require-builtin-android-arm64</code></td><td>generate the platform package (pure JS) + <code>--expose-internals</code> wrapper</td></tr>
-      <tr><td><code>terminal inspection is unsupported on platform android</code></td><td>treat android as linux in <code>dsh-subprocess-local</code></td></tr>
-      <tr><td><code>node-pty</code> has no Android prebuild</td><td>allow its build script and compile against Termux headers</td></tr>
-      <tr><td><code>ripgrep launch failed</code></td><td>symlink system <code>rg</code> into the ripgrep platform package + source fallback</td></tr>
-      <tr><td><code>EACCES ... link</code> on sessions/attachments/write</td><td><code>rename</code> / "O_EXCL placeholder + rename" instead of hard links</td></tr>
-      <tr><td><code>flock is not supported on android-arm64</code></td><td>compile <code>flock.c</code> into a local <code>system.node</code></td></tr>
-      <tr><td><code>sharp</code> cannot load on android-arm64</td><td>install the matching <code>@img/sharp-wasm32</code> + <code>@emnapi/runtime</code></td></tr>
-      <tr><td>bash tool throws <code>SANDBOX_UNAVAILABLE</code></td><td>write the <code>danger-full-access</code> + <code>approval: never</code> layer</td></tr>
-    </table>
-    <p>Not done: no frontend edits, no CSS/JS injection, no performance patches.</p>
+    <section id="en-config">
+      <h2><span class="n">4</span>Configuration</h2>
+      <table>
+        <tr><th>Variable</th><th>Default</th><th>Purpose</th></tr>
+        <tr><td><code>DSH_PORT</code></td><td>3080</td><td>port, passed explicitly as dsh's <code>--port</code></td></tr>
+        <tr><td><code>DSH_VERSION</code></td><td>empty</td><td>pin a version for rollback, e.g. <code>0.2.2-rc.5</code></td></tr>
+        <tr><td><code>DSH_ORIGIN</code></td><td>127.0.0.1</td><td>browser origin (<code>localhost</code> dodges PWA token loss)</td></tr>
+        <tr><td><code>DSH_NO_OPEN</code></td><td>empty</td><td>start the server only</td></tr>
+        <tr><td><code>DSH_VIA_APP</code></td><td>mark.via</td><td>preferred browser package</td></tr>
+        <tr><td><code>NO_COLOR</code></td><td>empty</td><td>disable colour output</td></tr>
+      </table>
+      <details>
+        <summary>Full variable list (stop ladder + debugging)</summary>
+        <ul>
+          <li><code>DSH_READY_TIMEOUT</code> (90): max seconds to wait for the token URL</li>
+          <li><code>DSH_STOP_GRACE</code> / <code>DSH_STOP_TIMEOUT</code> (1.5 / 6): graceful → extra SIGTERM → SIGKILL</li>
+          <li><code>DSH_WEB_PATTERN</code>: process matcher for multiple installs</li>
+          <li><code>DSH_OPEN_APP</code> / <code>DSH_OPEN_CHOOSER</code>: pick a browser / show a chooser</li>
+          <li><code>SETUP_VERBOSE</code>: same as <code>--verbose</code></li>
+        </ul>
+      </details>
+    </section>
 
-    <h2>5. Security notes</h2>
-    <ul>
-      <li><b><code>danger-full-access</code> disables the process sandbox</b> (Android has no bwrap/landlock). Personal devices only.</li>
-      <li>Listens on <code>127.0.0.1</code> only.</li>
-      <li>API keys and the cookie secret live in <code>~/.dsh</code> with mode 0600.</li>
-    </ul>
+    <section id="en-faq">
+      <h2><span class="n">5</span>FAQ</h2>
+      <ul>
+        <li><b><code>bad interpreter: /usr/bin/env</code></b> — <code>/usr/bin</code> is unresolvable on Termux; every script uses a Termux absolute shebang.</li>
+        <li><b><code>EADDRINUSE</code></b> — an instance already listens; the start script probes first and suggests <code>DSH_PORT=3081</code>.</li>
+        <li><b>koffi skipped</b> — it sits in <code>SKIP_SCRIPTS</code> (allowlisting fails the whole install under npm 12) and is only loaded on win32.</li>
+        <li><b>pnpm?</b> — not supported: the symlinked store breaks patch placement and blocks the <code>node-pty</code> build.</li>
+        <li><b>setup.sh stops at 4/8</b> — the platform package and ripgrep fix are hard blockers; see <code>~/dsh/setup.log</code>.</li>
+      </ul>
+    </section>
 
-    <h2>6. FAQ</h2>
-    <ul>
-      <li><b><code>bad interpreter: /usr/bin/env</code></b> — <code>/usr/bin</code> is unresolvable on Termux; all scripts use Termux absolute shebangs.</li>
-      <li><b><code>EADDRINUSE</code></b> — an instance already listens on the port; the start script detects it and suggests <code>DSH_PORT=3081</code>.</li>
-      <li><b>koffi skipped</b> — it is in <code>SKIP_SCRIPTS</code> (under npm 12 putting it in the allowlist fails the whole install) and dsh only loads it on win32.</li>
-      <li><b>Upgrade/repair</b> — always <code>bash setup.sh</code>; <code>npm -g update</code> wipes the patches.</li>
-    </ul>
+    <section id="en-sec">
+      <h2><span class="n">6</span>Security</h2>
+      <ul>
+        <li><b><code>danger-full-access</code> disables the process sandbox</b> (Android has no bwrap/landlock) — personal devices only.</li>
+        <li>Listens on <code>127.0.0.1</code> only.</li>
+        <li>API keys and the cookie secret live in <code>~/.dsh</code> (0600).</li>
+      </ul>
+    </section>
 
-    <h2>7. Tested environment</h2>
-    <p>Huawei Mate 60 (HarmonyOS 4.2, no root), Termux aarch64, Node v26.13, npm 12.x, ripgrep 15.2.0. Baseline <code>0.2.2-rc.5</code> (npm latest); rc.1 / rc.3 remain supported.</p>
-
-    <h2>References</h2>
-    <ul>
-      <li><a href="https://github.com/deepseek-ai/deepseek-harness">deepseek-ai/deepseek-harness</a></li>
-    </ul>
+    <section id="en-maint">
+      <h2><span class="n">7</span>Maintainers</h2>
+      <details>
+        <summary>setup.sh steps 0~8</summary>
+        <table>
+          <tr><th>Step</th><th>What</th></tr>
+          <tr><td>0/8</td><td>read-only anchor precheck (5 specs + 3 probes)</td></tr>
+          <tr><td>1/8</td><td>build deps + mirror latency probe</td></tr>
+          <tr><td>2/8</td><td>Termux Node headers (download only if missing)</td></tr>
+          <tr><td>3/8</td><td>npm install -g dsh + script allowlist, verify pty.node</td></tr>
+          <tr><td>4/8</td><td>platform package → link → flock → subprocess → ripgrep</td></tr>
+          <tr><td>5/8</td><td>sharp WASM fallback + hard-link verification</td></tr>
+          <tr><td>6/8</td><td>rebuild the dsh wrapper</td></tr>
+          <tr><td>7/8</td><td>runtime scripts + permission layer merge</td></tr>
+          <tr><td>8/8</td><td>summary</td></tr>
+        </table>
+      </details>
+      <pre>bash patches/verify-all-checks.sh          # syntax + static contract + 5 fixtures (193 assertions)
+bash patches/verify-all-checks.sh --full   # plus mutation testing (8 regressions + 4 controls)</pre>
+    </section>
   </div>
 
   <footer>deepseek-harness-android · install-time patches for Android/Termux</footer>
@@ -175,6 +317,7 @@ function setLang(l) {
   document.getElementById('btn-zh').classList.toggle('on', l === 'zh');
   document.getElementById('btn-en').classList.toggle('on', l === 'en');
   document.documentElement.lang = l === 'zh' ? 'zh-CN' : 'en';
+  window.scrollTo(0, 0);
 }
 </script>
 </body>

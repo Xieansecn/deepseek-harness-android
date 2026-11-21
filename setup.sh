@@ -249,9 +249,9 @@ anchor_precheck() {
       if [ -f "$g" ] && grep -qF "$marker" "$g" 2>/dev/null; then hit=1; fi
     done
     if [ "$hit" -eq 1 ]; then
-      ok "  [ok]   $label"
+      ok "  $label"
     else
-      warn "  [warn] $label 未检测到锚点（$marker）。对应补丁可能需要更新锚点，或该功能已由上游原生实现。"
+      warn "  $label：未检测到锚点（$marker）——补丁可能需要重锚，或上游已原生实现。"
       missing=$((missing+1))
     fi
   done
@@ -266,9 +266,9 @@ anchor_precheck() {
        && grep -qF "interrupt(code)" "$pg" 2>/dev/null; then pb_hit=1; fi
   done
   if [ "$pb_hit" -eq 1 ]; then
-    ok "  [ok]   profile-boot 双信号强退语义（停止梯子前提）"
+    ok "  profile-boot 双信号强退语义（停止梯子前提）"
   else
-    warn "  [warn] profile-boot 未检测到 interrupt/forceExitOnce（停止操作可能退化为等待 DSH_STOP_TIMEOUT 后兜底）。"
+    warn "  profile-boot：未检测到 interrupt/forceExitOnce，停止将退化为等满超时后 SIGKILL。"
   fi
   # ripgrep 回退锚点：resolveRgPath() 的宿主随上游重构搬过家，两代落点都认（不按版本号分支）——
   # 0.2.2-rc.1：定义在 dsh-tool-fs-search/lib/index.js；
@@ -280,9 +280,9 @@ anchor_precheck() {
     if grep -qF "resolveSystemRg" "$rgf" 2>/dev/null; then rg_hit=1; fi
   done
   if [ "$rg_hit" -eq 1 ]; then
-    ok "  [ok]   ripgrep resolveRgPath 回退（dsh-tool-fs-search / dsh-util-ripgrep）"
+    ok "  ripgrep resolveRgPath 回退（dsh-tool-fs-search / dsh-util-ripgrep）"
   else
-    warn "  [warn] ripgrep resolveRgPath 回退未检测到（dsh-tool-fs-search 与 dsh-util-ripgrep 都没有 resolveSystemRg）。"
+    warn "  ripgrep：未检测到 resolveRgPath 回退（两代宿主都没有 resolveSystemRg）。"
     missing=$((missing+1))
   fi
   # 0.1.7 新增的原生 addon 家族：node-addon-require-builtin 靠平台可选包
@@ -296,11 +296,11 @@ anchor_precheck() {
     if [ -f "$rbg" ] && grep -qF "dsh-android-require-builtin" "$rbg" 2>/dev/null; then rb_hit=1; fi
   done
   if [ "$rb_hit" -eq 1 ]; then
-    ok "  [ok]   node-addon-require-builtin android 平台包（dsh 启动前提）"
+    ok "  node-addon-require-builtin android 平台包（dsh 启动前提）"
   else
-    warn "  [warn] node-addon-require-builtin android 平台包缺失，dsh 将无法启动（No usable native binding found）。"
+    warn "  node-addon-require-builtin：android 平台包缺失，dsh 将无法启动（No usable native binding found）。"
   fi
-  [ "$missing" -eq 0 ] && ok "  所有关键锚点均已就位" || true
+  [ "$missing" -eq 0 ] && ok "  锚点全部就位（5 条规格 + 3 项特殊探测）" || true
 }
 anchor_precheck
 
@@ -311,7 +311,7 @@ run_hidden pkg install -y cmake clang make binutils pkg-config python nodejs rip
 
 command -v node >/dev/null 2>&1 || { warn "未检测到 node，正在重新安装 nodejs……"; run_hidden pkg install -y nodejs; }
 NODE_VER="$(node -v | sed 's/^v//')"
-info "Node.js v${NODE_VER}"
+info "  Node.js v${NODE_VER}"
 
 # 检测默认 npm / nodejs.org 太慢就切 npmmirror，仅本次会话生效，不改全局配置。
 is_slow() {
@@ -321,11 +321,11 @@ is_slow() {
   awk -v t="$t" 'BEGIN { exit !(t > 1.0) }'
 }
 if is_slow "https://registry.npmjs.org/-/ping"; then
-  info "默认 npm 源响应较慢，本次运行切换至 npmmirror 镜像（registry.npmmirror.com）。"
+  info "  默认 npm 源较慢，本次运行改用 npmmirror 镜像（registry.npmmirror.com）。"
   export npm_config_registry="https://registry.npmmirror.com"
 fi
 if is_slow "https://nodejs.org/dist/"; then
-  info "nodejs.org 响应较慢，node-gyp 下载 Node headers 时切换至 npmmirror 镜像。"
+  info "  nodejs.org 较慢，Node headers 下载改用 npmmirror 镜像。"
   export npm_config_disturl="https://npmmirror.com/mirrors/node/"
 fi
 
@@ -342,7 +342,7 @@ GYP_GIPI="$HOME/.cache/node-gyp/$NODE_VER/include/node/common.gypi"
 
 # 幂等补齐 android_ndk_path 空定义；$1 = common.gypi 路径。
 patch_common_gypi() {
-  info "检查 common.gypi：Termux 无 NDK，需要补充 android_ndk_path 空定义，否则 node-pty 构建将失败。"
+  info "  common.gypi：补充 android_ndk_path 空定义（Termux 无 NDK）"
   # python 自己往终端打印，擦行字节必须由它一并写出（SP_CLEAR 已 export）：python3 启动约 40ms，
   # ticker 每 0.15s 重画一次，"先 status_clear 再 python 打印"会有约 1/4 概率把正文叠到状态行上。
   python3 - "$1" <<'PY'
@@ -363,7 +363,7 @@ PY
 }
 
 if [ -f "$SYS_GIPI" ]; then
-  info "使用 Termux 自带 Node headers：$SYS_GIPI（node-gyp 直接采用，跳过缓存下载）。"
+  info "  使用 Termux 自带 Node headers：$SYS_GIPI"
   if grep -q 'android_ndk_path' "$SYS_GIPI" 2>/dev/null && ! grep -q "'android_ndk_path%': ''" "$SYS_GIPI" 2>/dev/null; then
     patch_common_gypi "$SYS_GIPI"
   fi
@@ -372,14 +372,14 @@ else
   if [ -f "$GYP_GIPI" ]; then
     patch_common_gypi "$GYP_GIPI"
   else
-    warn "Node headers 不在 Termux 自带目录（$SYS_GIPI），也没下载到 node-gyp 缓存（$GYP_GIPI）。"
-    warn "  下载失败常见原因是镜像缺 SHASUMS256.txt；可手动重试：npx --yes node-gyp install --dist-url=https://nodejs.org/download/release"
-    warn "  node-pty 若因此构建失败，3/8 校验产物时会中断并提示，不会静默装出一个不能用的 dsh。"
+    warn "  Node headers 不在 Termux 自带目录（$SYS_GIPI），也没下载到 node-gyp 缓存（$GYP_GIPI）。"
+    warn "      下载失败常见原因是镜像缺 SHASUMS256.txt；可手动重试：npx --yes node-gyp install --dist-url=https://nodejs.org/download/release"
+    warn "      node-pty 若因此构建失败，3/8 校验产物时会中断并提示，不会静默装出一个不能用的 dsh。"
   fi
 fi
 
 # ------------------------------------------------------------- 3/8 正式安装
-step "3/8 安装 dsh（预计耗时 5～15 分钟）"
+step "3/8 安装 dsh"
 # android30 仅是安全 no-op；绝不可加 --sysroot=$PREFIX 或切 -target aarch64-linux-gnu 上 glibc（会头/库/ABI 混用）。
 # 真正需要编译的只有 node-pty（无 android-arm64 预编译），koffi 3.x 走预编译包。
 # ⚠️ 手动 `npm -g update` 不经过本脚本，会丢掉这里的 CFLAGS/CXXFLAGS 且覆盖全部安装期补丁；
@@ -418,7 +418,8 @@ case "${NPM_STRICT_ALLOW_SCRIPTS:-unknown}" in
   false) info "  npm allow-scripts 策略：advisory（白名单为建议性，白名单外脚本仍会执行）。" ;;
   *)     info "  npm allow-scripts 策略：${NPM_STRICT_ALLOW_SCRIPTS:-未探测到}（按 npm 默认处理）。" ;;
 esac
-info "  安装目标：${DSH_NPM}（安装脚本白名单：${ALLOW_SCRIPTS}）"
+info "  包：${DSH_NPM}"
+info "  脚本白名单：${ALLOW_SCRIPTS}"
 
 # npm 重建 bin link 时会与 setup.sh 自己写的 dsh 包装脚本冲突（EEXIST，实测 npm 12 即如此，
 # `--no-bin-links` 也挡不住旧链清理）。安装前把旧包装脚本原子移开：失败由 on_exit 还原，
@@ -448,7 +449,7 @@ NPM_INSTALL_PREFIX_ARGS=()
 if [ -n "${DSH_SETUP_PREFIX:-}" ]; then
   NPM_INSTALL_PREFIX_ARGS=(--prefix "$DSH_SETUP_PREFIX")
 fi
-info "  安装到 npm 默认全局目录：$DSH_DIR"
+info "  目录：$DSH_DIR（npm 全局真实目录）"
 run_hidden_spinner "  正在安装 dsh 并编译原生模块（预计耗时 5～15 分钟）……" \
   env CFLAGS="$EXTRA_FLAGS" CXXFLAGS="$EXTRA_FLAGS" \
   "${NPM_CMD[@]}" install -g --no-audit --no-fund --loglevel=error "${NPM_INSTALL_PREFIX_ARGS[@]}" \
@@ -467,7 +468,7 @@ if [ -f "$DSH_DIR/node_modules/node-pty/build/Release/pty.node" ]; then
   ok "  node-pty 编译产物已就绪（build/Release/pty.node）"
 else
   warn "  node-pty 原生产物缺失：node-gyp 编译失败（PTY 功能将不可用）。"
-  warn "        请检查上方 node-pty 编译日志（常见原因：gyp 缓存未修补，或缺少 cmake、clang）；建议修复后重新运行本脚本。"
+  warn "      请检查上方 node-pty 编译日志（常见原因：gyp 缓存未修补，或缺少 cmake、clang）；建议修复后重新运行本脚本。"
   exit 1
 fi
 if (cd "$DSH_DIR" && node -e "require('node-pty');" >/dev/null 2>&1); then
@@ -481,13 +482,10 @@ if (cd "$DSH_DIR/node_modules/koffi" && node -e "try{require('koffi');}catch(e){
   ok "  koffi 预编译包可正常加载"
 elif [ "$KOFFI_SKIPPED" -eq 1 ]; then
   # 预期内：不进白名单 → 装脚本被 npm 跳过 → 没有原生模块。只报一行，不当告警喊。
-  info "  koffi 原生模块不可用（按设计跳过，不阻断）：上游 0.2.0-rc.2 指定的 3.1.1 无 android 预编译包，"
-  info "  且其 install 脚本在 bionic 上编译必然失败；dsh 中 koffi 仅在 win32 分支懒加载，Android 不涉及。"
+  info "  koffi 原生模块不可用（按设计跳过）：3.1.1 无 android 预编译包，且只在 win32 分支懒加载。"
 else
-  warn "  koffi 原生模块不可用（不阻断）：上游 0.2.0-rc.2 将 koffi 精确钉在 3.1.1，而 @koromix/koffi-android-arm64"
-  warn "  自 3.2.1 起才提供预编译包；3.1.1 的 install 脚本在 bionic 上编译必然失败，因此本脚本将其列入 SKIP_SCRIPTS，"
-  warn "  由 npm 仅警告并跳过（列入白名单将导致整次安装返回 1）。dsh 中所有 koffi 调用点均为懒加载且 "
-  warn "  仅在 platform === \"win32\" 时执行，Android 运行期不涉及；win32 场景才需要它。"
+  warn "  koffi 原生模块不可用（不阻断）：3.1.1 无 android 预编译包、install 脚本在 bionic 上必然失败，所以列入 SKIP_SCRIPTS；"
+  warn "  放进白名单会让整次安装退 1。dsh 只在 win32 分支懒加载它，Android 运行期不涉及。"
 fi
 
 # 安装脚本白名单自检：npm 12 只对 --allow-scripts 内的包跑 install/postinstall，其余静默跳过。
@@ -537,8 +535,8 @@ else
   rc=$?
   if [ "$rc" -eq 3 ]; then
     warn "  有带安装脚本的包未列入 --allow-scripts 白名单（见上表）：其构建步骤被跳过，原生产物可能缺失。"
-    warn "        处置：请将该包名加入本脚本的 ALLOW_SCRIPTS 后重新运行；若确认其构建在 Android 上必然失败（或运行期不涉及），"
-    warn "        应改列入 SKIP_SCRIPTS（npm 仅警告、不中断），请勿放入 ALLOW_SCRIPTS；白名单内脚本失败将导致整次安装返回 1。"
+    warn "      处置：请将该包名加入本脚本的 ALLOW_SCRIPTS 后重新运行；若确认其构建在 Android 上必然失败（或运行期不涉及），"
+    warn "      应改列入 SKIP_SCRIPTS（npm 仅警告、不中断），请勿放入 ALLOW_SCRIPTS；白名单内脚本失败将导致整次安装返回 1。"
   else
     warn "  安装脚本白名单自检执行异常（退出码 $rc）。"
   fi
@@ -635,9 +633,8 @@ fi
 #    所以它非 0 退出只代表 resolveRgPath() 真解析不通（grep/glob 全废），此时必须中断。
 RG_FIX="$SCRIPT_DIR/apply-rg-fix.sh"
 if [ -f "$RG_FIX" ]; then
-  info "4d/8 应用 grep/glob ripgrep 修复（dsh-rg-fix）"
   if run_hidden env DSH_ROOT="$DSH_DIR" bash "$RG_FIX"; then
-    ok "  ripgrep 修复完成"
+    ok "  grep/glob ripgrep 修复完成（系统 rg 软链 + resolveRgPath 回退）"
   else
     error "  ripgrep 修复失败：resolveRgPath() 实际解析不通过，grep/glob 将不可用（详见 $SETUP_LOG）。"
     exit 1
@@ -792,18 +789,14 @@ step "8/8 完成"
 # 状态指示器到此为止：先擦掉常驻状态行，再打完成横幅，否则横幅会和它叠在同一行。
 status_stop
 printf '%s════════════════════════════════════════%s\n' "$C_CYAN" "$C_RST"
-printf '%s  安装完成%s\n' "$C_GREEN" "$C_RST"
-printf '  耗时        ：%s\n' "$(printf '%d分%02d秒' $((ELAPSED / 60)) $((ELAPSED % 60)))"
-printf '  安装目录    ：%s（npm 全局目录，真实目录）\n' "$DSH_DIR"
-printf '  日志        ：%s\n' "$SETUP_LOG"
-printf '\n  后续操作\n'
-printf '  1. 执行 bash ~/dsh/start_dsh.sh 启动服务\n'
-printf '  2. 通过浏览器打开 http://127.0.0.1:3080\n'
-printf '  3. 在 Web UI 的 Models 页面填写 DeepSeek API Key\n'
-printf '  4. 执行 bash ~/dsh/stop_dsh.sh 停止服务\n'
-printf '\n  注意事项\n'
-printf '  - 服务仅监听 127.0.0.1（本机），不通过局域网暴露。\n'
-printf '  - API Key 存储于 ~/.dsh/.credentials.yaml（权限 0600），不会写入日志。\n'
-printf '  - danger-full-access 已关闭进程沙箱（Android 无替代方案），仅建议在个人设备使用。\n'
-printf '  - 升级 dsh / Node 后，需要重新运行本脚本（dsh 升级只走 setup.sh，不要用 npm -g update）。\n'
+printf '%s  安装完成%s  ·  耗时 %s\n' "$C_GREEN" "$C_RST" "$(printf '%d分%02d秒' $((ELAPSED / 60)) $((ELAPSED % 60)))"
+printf '  安装目录  %s\n' "$DSH_DIR"
+printf '  日志      %s\n' "$SETUP_LOG"
+printf '\n  下一步\n'
+printf '    bash ~/dsh/start_dsh.sh    # 启动并打开带 token 的浏览器\n'
+printf '    bash ~/dsh/stop_dsh.sh     # 停止\n'
+printf '    在 Web UI 的 Models 页面填写 DeepSeek API Key\n'
+printf '\n  注意\n'
+printf '    仅监听 127.0.0.1；danger-full-access 已关闭进程沙箱（Android 无替代方案），仅建议个人设备。\n'
+printf '    升级 dsh / Node 后重跑 bash setup.sh；不要用 npm -g update（会覆盖补丁）。\n'
 printf '%s════════════════════════════════════════%s\n' "$C_CYAN" "$C_RST"
